@@ -1,0 +1,50 @@
+# Exemplo de referência — manifest declarativo de domínio, formato v0
+# Discutido e fechado em bmad-party-mode, 2026-08-11. Formato ainda vai evoluir
+# ao longo do desenvolvimento — manifestVersion existe justamente para isso.
+
+manifestVersion: "0.1"
+
+domain: tenant
+version: 1.0.0
+description: "Gerenciamento de organizações/inquilinos multi-tenant"
+
+objectClass: # OPCIONAL — só domínios que participam da árvore do core de diretório declaram isso
+             # (Tenant, Usuário/Grupo, Custodiante). Domínios de negócio comuns (ex.: Catálogo,
+             # Relatórios) não têm objectClass — ver docs/examples/leave-domain-manifest-v0.yaml.
+  name: Tenant
+  extends: DirectoryObject # todo domínio-objeto herda do tipo base do core de diretório
+  attributes:
+    - { name: displayName, type: string, required: true }
+    - { name: slug, type: string, required: true, unique: true }
+    - { name: status, type: enum, values: [active, suspended, archived], default: active }
+  containment:
+    allowedParents: [Root]
+    allowedChildren: [User, Group, Custodian]
+  acl:
+    inheritable: true # permissão setada aqui flui pros filhos por padrão (herança estilo NDS/AD)
+
+actions:
+  - name: createTenant
+    description: "Cria um novo tenant na raiz da árvore."
+    input: { displayName: string, slug: string }
+    output: { id: uuid }
+    auth: { requires: [tenant:create] }
+
+  - name: exportTenantData
+    description: "Exporta dados do tenant em lote."
+    input: { tenantId: uuid, format: "enum[csv,json]" }
+    output: { downloadUrl: string }
+    auth: { requires: [tenant:export] }
+    sensitive:
+      quorum: true # aciona o Custodiante, se configurado no tenant
+      description: "Exportação em lote pode conter dados sensíveis de todos os usuários do tenant — risco de vazamento em massa se mal utilizada." # obrigatório sempre que `sensitive` estiver presente
+
+events:
+  publishes:
+    - name: TenantCreated
+      schema: { tenantId: uuid, slug: string, at: datetime }
+    - name: TenantSuspended
+      schema: { tenantId: uuid, reason: string, at: datetime }
+  consumes: []
+
+dependencies: [] # domínios embutidos dos quais este depende

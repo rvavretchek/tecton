@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run _bmad/scripts/resolve_customization.py *)",
+      "Bash(uv run _bmad/scripts/resolve_config.py *)",
+      "Bash(uv run .claude/skills/bmad-party-mode/scripts/resolve_party.py *)",
+      "Bash(PYTHONUTF8=1 PYTHONIOENCODING=utf-8 uv run .claude/skills/bmad-party-mode/scripts/resolve_party.py *)",
+      "Bash(uv run _bmad/scripts/memlog.py append *)",
+      "Bash(uv run _bmad/scripts/memlog.py init *)"
+    ]
+  }
+}

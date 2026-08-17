@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Tecton — Sessão de Fundação</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  :root {
+    --bg: #0f1115;
+    --panel: #171a21;
+    --panel-2: #1d212a;
+    --text: #e7e9ee;
+    --muted: #9aa2b1;
+    --accent: #6fd2c1;
+    --accent-2: #e0b04c;
+    --line: #2a2f3a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: radial-gradient(1200px 800px at 20% -10%, #1a2029 0%, var(--bg) 55%);
+    color: var(--text);
+    font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 48px 24px 96px; }
+  header { text-align: center; margin-bottom: 8px; }
+  header .kicker {
+    letter-spacing: .12em; text-transform: uppercase; font-size: 12px; color: var(--muted);
+  }
+  header h1 {
+    font-size: 34px; margin: 10px 0 6px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  header .sub { color: var(--muted); font-size: 14px; }
+  .tree {
+    display: flex; justify-content: center; margin: 28px 0 40px;
+  }
+  .cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 14px; margin: 28px 0 40px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px 16px 14px; position: relative; overflow: hidden;
+  }
+  .card::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 3px;
+    background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    opacity: .8;
+  }
+  .card .icon { font-size: 22px; }
+  .card .name { font-weight: 600; margin-top: 6px; }
+  .card .title { color: var(--muted); font-size: 12.5px; margin-bottom: 8px; }
+  .card .line { font-size: 13.5px; color: #cfd4de; }
+  .card.walkon { border-style: dashed; }
+  .card.walkon .badge {
+    display: inline-block; font-size: 10px; letter-spacing: .06em; text-transform: uppercase;
+    color: var(--bg); background: var(--accent-2); padding: 2px 6px; border-radius: 999px;
+    margin-left: 6px; vertical-align: middle;
+  }
+  h2 {
+    font-size: 15px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+    border-bottom: 1px solid var(--line); padding-bottom: 8px; margin: 40px 0 18px;
+  }
+  .timeline { position: relative; padding-left: 22px; }
+  .timeline::before {
+    content: ""; position: absolute; left: 6px; top: 4px; bottom: 4px; width: 2px;
+    background: linear-gradient(var(--accent), var(--accent-2));
+    opacity: .5;
+  }
+  .item { position: relative; margin-bottom: 16px; }
+  .item::before {
+    content: ""; position: absolute; left: -22px; top: 4px; width: 10px; height: 10px;
+    border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 3px rgba(111,210,193,.15);
+  }
+  .item .t { font-size: 12px; color: var(--muted); }
+  .item .d { font-size: 14.5px; }
+  .item .d b { color: var(--accent-2); font-weight: 600; }
+  .quote {
+    background: var(--panel-2); border-left: 3px solid var(--accent-2);
+    border-radius: 8px; padding: 14px 16px; margin: 18px 0; font-size: 14.5px; color: #dfe3ea;
+  }
+  .quote .who { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; margin-top: 56px; }
+  .pulse { animation: pulse 3s ease-in-out infinite; }
+  @keyframes pulse { 0%,100% { opacity: .55; } 50% { opacity: 1; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">bmad-party-mode · registro de sessão</div>
+  <h1>Tecton — Sessão de Fundação</h1>
+  <div class="sub">10–11 de agosto de 2026 · o dia em que Tecton deixou de ser uma lista e virou uma arquitetura</div>
+</header>
+
+<div class="tree">
+<svg width="360" height="90" viewBox="0 0 360 90" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Árvore do core de diretório">
+  <circle cx="180" cy="16" r="7" fill="#6fd2c1" class="pulse"/>
+  <line x1="180" y1="23" x2="90" y2="55" stroke="#2a2f3a" stroke-width="2"/>
+  <line x1="180" y1="23" x2="180" y2="55" stroke="#2a2f3a" stroke-width="2"/>
+  <line x1="180" y1="23" x2="270" y2="55" stroke="#2a2f3a" stroke-width="2"/>
+  <circle cx="90" cy="60" r="6" fill="#e0b04c"/>
+  <circle cx="180" cy="60" r="6" fill="#e0b04c"/>
+  <circle cx="270" cy="60" r="6" fill="#e0b04c"/>
+  <text x="90" y="82" fill="#9aa2b1" font-size="11" text-anchor="middle" font-family="sans-serif">Tenant</text>
+  <text x="180" y="82" fill="#9aa2b1" font-size="11" text-anchor="middle" font-family="sans-serif">Usuário/Grupo</text>
+  <text x="270" y="82" fill="#9aa2b1" font-size="11" text-anchor="middle" font-family="sans-serif">Custodiante</text>
+</svg>
+</div>
+
+<h2>Quem estava na sala</h2>
+<div class="cards">
+  <div class="card"><div class="icon">📊</div><div class="name">Mary</div><div class="title">Analista</div><div class="line">Cobrou evidência a sessão toda — e validou "monólito primeiro" com pesquisa real, não opinião.</div></div>
+  <div class="card"><div class="icon">📋</div><div class="name">John</div><div class="title">PM</div><div class="line">Rejeitou app de demonstração fictícia e manteve o escopo com os pés no chão.</div></div>
+  <div class="card"><div class="icon">🏗️</div><div class="name">Winston</div><div class="title">Arquiteto</div><div class="line">Desenhou o core de objeto/diretório e defendeu "encaixe agora, dor depois" até virar regra geral.</div></div>
+  <div class="card"><div class="icon">🎨</div><div class="name">Sally</div><div class="title">UX</div><div class="line">Insistiu em prova demonstrável — achou o buraco do fluxo de aprovação no teste de mesa.</div></div>
+  <div class="card"><div class="icon">💻</div><div class="name">Amelia</div><div class="title">Dev</div><div class="line">Desenhou o manifest v0 e puxou TypeORM → Prisma, sempre com exemplo real na mão.</div></div>
+  <div class="card walkon"><div class="icon">🔒</div><div class="name">Vex <span class="badge">visita</span></div><div class="title">Segurança</div><div class="line">Entrou sem bater duas vezes — deixou o Custodiante e o MCP à prova de bala.</div></div>
+  <div class="card walkon"><div class="icon">📚</div><div class="name">Paige <span class="badge">visita</span></div><div class="title">Tech Writer</div><div class="line">Consolidou tudo em Product Brief, Constitution, README — sem deixar nada se perder.</div></div>
+</div>
+
+<h2>Linha do tempo da decisão</h2>
+<div class="timeline">
+  <div class="item"><div class="t">Manhã</div><div class="d">Confusão inicial com o projeto <b>Aether</b> corrigida — Tecton é microsserviços por domínio, não monólito.</div></div>
+  <div class="item"><div class="t">Manhã</div><div class="d"><b>"Monólito primeiro, sempre"</b> validado — Tecton existe pra quem já passou dessa fase.</div></div>
+  <div class="item"><div class="t">Tarde</div><div class="d">Custodiante especificado: custódia de chave por limiar, quórum criptograficamente forçado.</div></div>
+  <div class="item"><div class="t">Tarde</div><div class="d">Protocolo de sincronização com o Aether — e a <b>Constitution</b> sobreviveu à primeira provocação real.</div></div>
+  <div class="item"><div class="t">Tarde</div><div class="d">Manifest declarativo v0, core de diretório (Closure Table), ACL simplificado após <b>crítica real</b> do Aether.</div></div>
+  <div class="item"><div class="t">Fim do dia</div><div class="d">Teste de mesa com 3 cenários encontrou 2 buracos reais — <b>objectClass opcional</b> e <b>aprovação de negócio</b> — e os dois foram fechados.</div></div>
+  <div class="item"><div class="t">Fim do dia</div><div class="d">MCP avaliado com rigor e mandado inteiro pro roadmap — sem inflar o MVP por empolgação.</div></div>
+</div>
+
+<div class="quote">
+  "Por que um agente faria isso? Teste?" — a pergunta que forçou a Mary a admitir as duas respostas certas: porque é útil, e porque é exatamente o que um atacante tentaria.
+  <div class="who">— Boss, pressionando a mesa a não vender segurança de fachada</div>
+</div>
+
+<h2>O que fica pra amanhã</h2>
+<div class="quote">
+  Único item pendente da lista de hoje: <b>formato de erro/resposta da API</b>. Tudo o resto está no Product Brief, pronto pra retomar.
+</div>
+
+<footer>Tecton · registrado por Paige a pedido da mesa · docs/aether-tecton-compatibility.md continua vivo do outro lado, no Aether</footer>
+
+</div>
+</body>
+</html>

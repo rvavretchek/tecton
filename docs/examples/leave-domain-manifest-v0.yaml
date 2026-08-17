@@ -1,0 +1,43 @@
+# Exemplo de referência — domínio comum (sem objectClass) com fluxo de aprovação simples.
+# Fechado em bmad-party-mode, 2026-08-11, após teste de mesa com 3 cenários de migração.
+# Cenário: "Férias e Ausências" (Caso 2 — legado sem documentação, PO conhece bem o domínio).
+
+manifestVersion: "0.1"
+
+domain: leave
+version: 1.0.0
+description: "Solicitação e aprovação de férias/ausências."
+
+# Sem objectClass — este domínio não é um objeto de diretório gerenciável por drag-and-drop,
+# é dado de negócio comum. objectClass é opcional (ver nota em tenant-domain-manifest-v0.yaml).
+
+actions:
+  - name: requestLeave
+    description: "Solicita um período de férias/ausência."
+    input: { startDate: date, endDate: date }
+    output: { requestId: uuid }
+    auth: { requires: [leave:request] }
+    approval: # primitivo nativo de aprovação simples — sempre disponível, sem motor externo
+      required: true
+      approver: { role: manager, scope: reportingChain } # resolvido via containment no core de diretório
+      onApprove: { emit: LeaveApproved }
+      onReject: { emit: LeaveRejected }
+
+events:
+  publishes:
+    - name: LeaveApproved
+      schema: { requestId: uuid, approvedBy: uuid, at: datetime }
+    - name: LeaveRejected
+      schema: { requestId: uuid, rejectedBy: uuid, reason: string, at: datetime }
+  consumes: []
+
+dependencies: []
+
+# Processos de negócio mais complexos que `approval` (paralelismo, compensação, espera durável)
+# delegam para um motor externo via a interface `WorkflowEngineProvider` (roadmap), ex.:
+#
+# actions:
+#   - name: someComplexProcess
+#     workflow:
+#       engine: temporal   # candidato inicial, decisão de motor ainda em aberto
+#       definition: "./workflows/someComplexProcess.workflow.ts"
