@@ -277,3 +277,31 @@ Ação `sensitive.quorum`/`approval` pendente retorna `202 Accepted` com `{ stat
 
 **Consequences (testable):**
 - Cliente consegue distinguir programaticamente entre "falhou" (RFC 9457) e "está pendente" (202) sem inspecionar o corpo manualmente.
+
+### 4.8 Resiliência e Operação
+
+**Description:** Tolerância a falha em chamadas síncronas entre domínios (exceção, não regra — o padrão é evento) e operação básica de cada serviço.
+
+**Functional Requirements:**
+
+#### FR-26: ServiceClient com retry/timeout seguro
+Chamada síncrona direta entre domínios (declarada em `dependencies`) usa um `ServiceClient` gerado, com retry apenas em ação idempotente por natureza ou mutação com `Idempotency-Key` explícito — nunca retry cego.
+
+**Consequences (testable):**
+- Retry automático de uma mutação sem `Idempotency-Key` declarado nunca acontece — falha propaga direto.
+- Timeout configurável por chamada, com valor padrão sensato se não especificado.
+
+#### FR-27: Health checks padrão por serviço
+Todo serviço expõe `/health`, `/ready`, `/live` automaticamente, seguindo a convenção de probes do Kubernetes.
+
+**Consequences (testable):**
+- `/ready` retorna não-saudável se uma dependência real (banco, Redis) estiver inacessível.
+- `/live` responde independente do estado das dependências — só confirma o processo de pé.
+
+#### FR-28: Dockerfile por domínio
+`tecton-admin generate domain` gera um Dockerfile próprio por domínio, permitindo build/deploy independente.
+
+**Consequences (testable):**
+- Cada domínio pode ser construído em imagem própria sem depender do código de outro domínio.
+
+**Notes:** Circuit breaker e bulkhead (biblioteca candidata: `opossum`) e pipeline de CI/CD com release independente por serviço ficam roadmap — não fazem parte do MVP.
