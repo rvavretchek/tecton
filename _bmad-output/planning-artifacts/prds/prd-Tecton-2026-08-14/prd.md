@@ -158,6 +158,7 @@ Framework declara a interface `KeyCustodyProvider` (agnóstica de fornecedor) e 
 - `tecton-admin lint` emite aviso de build/CI quando um domínio declara `sensitive.quorum` sem `KeyCustodyProvider` configurado (mesma família do `lint:gateway`).
 - Em runtime, a execução sem proteção real é logada com aviso explícito e consistente (ex.: `⚠️ action "exportTenantData" é sensitive.quorum mas nenhum KeyCustodyProvider está configurado — executando sem proteção de quórum`) — nunca falha silenciosamente.
 - `KeyCustodyProvider` sem implementação concreta não impede o restante do framework de funcionar.
+- Quando a implementação real sair do roadmap, a interceptação de `sensitive.quorum` precisa acontecer no nível de acesso ao dado, nunca só num middleware de rota HTTP — um middleware restrito a uma rota específica é contornável por outro serviço, script de manutenção ou acesso direto ao banco (alerta de segurança registrado no addendum). Isso restringe o design aceitável do `KeyCustodyProvider` desde já, mesmo com implementação em roadmap.
 
 ### 4.4 Autenticação e Zero Trust
 
@@ -236,20 +237,21 @@ Gateway roteia (a partir do manifest), valida token, aplica rate limiting (Redis
 - `tecton-admin lint:gateway` falha se o pacote do gateway importar uma dependência de circuit breaker, cache, ou qualquer pacote de domínio específico.
 
 #### FR-20: Service Discovery estático
-Cada domínio expõe seu endereço via variável de ambiente gerada (`TECTON_SERVICE_<DOMÍNIO>_URL`); sem descoberta dinâmica em runtime no MVP.
+Cada domínio expõe seu endereço via variável de ambiente gerada (`TECTON_SERVICE_<DOMÍNIO>_URL`); sem descoberta dinâmica em runtime no MVP. Resolução de endereço fica atrás de uma interface `ServiceDiscoveryProvider` prevista desde já, para que descoberta dinâmica via DNS nativo do Kubernetes (roadmap) troque a implementação sem exigir mudança no código de domínio que a consome.
 
 **Consequences (testable):**
 - `tecton-admin new`/`generate domain` gera a variável correspondente automaticamente.
 
 #### FR-21: Comunicação assíncrona via CloudEvents sobre Redis Streams
-Eventos entre domínios usam envelope CloudEvents, transportados por Redis Streams com garantia at-least-once.
+Eventos entre domínios usam envelope CloudEvents, transportados por Redis Streams com garantia at-least-once. Como qualquer tráfego serviço-a-serviço, publicar/consumir evento carrega credencial verificável — Zero Trust (Constitution §9) não é exceção pra tráfego assíncrono.
 
 **Consequences (testable):**
 - Handler de evento gerado a partir de `events.consumes` é idempotente por design (chave de deduplicação) — reprocessar o mesmo evento não duplica efeito.
 - Ordem é garantida dentro de um stream (por domínio), não é garantida entre streams diferentes.
+- Um evento consumido sem credencial verificável do publisher é rejeitado pelo consumidor — mesma regra da FR-13, aplicada ao transporte assíncrono.
 
 #### FR-22: ConfigProvider com validação tipada
-Configuração via env vars/`.env`, validada e tipada no startup — serviço falha rápido (não sobe) se a config estiver incompleta/inválida.
+Configuração via env vars/`.env`, validada e tipada no startup — serviço falha rápido (não sobe) se a config estiver incompleta/inválida. Candidato de roadmap para um config server real: **OpenBAO** (não Vault), mesma lógica de interface agnóstica de fornecedor do `KeyCustodyProvider`; AWS Parameter Store/Secrets Manager como alternativa opcional pra quem já vive em AWS.
 
 **Consequences (testable):**
 - Subir um serviço com variável de ambiente obrigatória faltando falha antes de aceitar tráfego, com mensagem de erro identificando o campo.
@@ -285,11 +287,13 @@ Ação `sensitive.quorum`/`approval` pendente retorna `202 Accepted` com `{ stat
 **Functional Requirements:**
 
 #### FR-26: ServiceClient com retry/timeout seguro
-Chamada síncrona direta entre domínios (declarada em `dependencies`) usa um `ServiceClient` gerado, com retry apenas em ação idempotente por natureza ou mutação com `Idempotency-Key` explícito — nunca retry cego.
+Chamada síncrona direta entre domínios (declarada em `dependencies`) usa um `ServiceClient` gerado, com retry apenas em ação idempotente por natureza ou mutação com `Idempotency-Key` explícito — nunca retry cego. Como toda chamada serviço-a-serviço, carrega credencial verificável (Constitution §9, Zero Trust) — não é caminho especial.
 
 **Consequences (testable):**
 - Retry automático de uma mutação sem `Idempotency-Key` declarado nunca acontece — falha propaga direto.
 - Timeout configurável por chamada, com valor padrão sensato se não especificado.
+- Uma chamada do `ServiceClient` sem credencial verificável é rejeitada pelo serviço de destino, igual a qualquer outra chamada leste-oeste (FR-13).
+- O middleware de retry/timeout é desenhado como plugável, para acomodar circuit breaker/bulkhead (roadmap, candidato `opossum`) sem reforma do `ServiceClient` já existente.
 
 #### FR-27: Health checks padrão por serviço
 Todo serviço expõe `/health`, `/ready`, `/live` automaticamente, seguindo a convenção de probes do Kubernetes.
@@ -343,7 +347,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 ## 5. Non-Goals (Explicit)
 
 - **Tecton não compete com "comece em microsserviços"** — Constitution §2. Para um domínio greenfield sem dor real de escala, a recomendação do próprio framework é monólito primeiro; o Tecton não serve esse caso de uso.
-- **Tecton não é o Aether** — Constitution §1. Aether é um framework monolítico separado, mesmo autor; nenhuma decisão de identidade ou framing do Tecton se apoia ou se confunde com o Aether, exceto os subsistemas explicitamente listados em `docs/aether-tecton-compatibility.md`.
+- **Tecton não é o Aether** — Constitution §1. Aether é um framework monolítico separado, mesmo autor; nenhuma decisão de identidade ou framing do Tecton se apoia ou se confunde com o Aether, exceto os subsistemas explicitamente listados em `docs/aether-tecton-compatibility.md`. Decisão concreta de compartilhamento de código real entre os dois fica para quando houver código suficiente dos dois lados para avaliar — ver `docs/aether-tecton-compatibility.md`.
 - **Tecton não constrói nenhuma aplicação de demonstração fictícia** (e-commerce, ingressos, billing) para provar a arquitetura — Constitution §4. Os domínios embutidos (Tenant, Usuário/Grupo, Custodiante) são a prova de conceito.
 - **Tecton nunca reimplementa primitivo criptográfico sensível** (ex.: secret sharing por limiar) — Constitution §7. Funcionalidades de custódia de chave sempre integram um cofre/HSM auditado (candidato inicial: OpenBAO) atrás de uma interface agnóstica de fornecedor, nunca a implementação própria do primitivo.
 - **Tecton não tenta descobrir limites de domínio automaticamente.** `tecton-admin extract` assume que o dev já sabe o que extrair (premissa do próprio Caso 1) e cuida do *como* (scaffold + fachada + export/import), não do *o quê* — descoberta automática de bounded context é problema de pesquisa não resolvido de forma confiável.
@@ -364,6 +368,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **Resiliência e operação** (FR-26 a FR-28): `ServiceClient` com retry/timeout seguro (nunca retry cego), health checks `/health`/`/ready`/`/live` por serviço, Dockerfile por domínio.
 - **Evolução de contrato** (FR-29): postura aditiva por padrão no manifest.
 - **Developer Experience** (FR-30 a FR-31): Dev Services via `docker-compose.dev.yml`, Testcontainers para isolamento de `test:contracts`/CI.
+- **DI/IoC leve**: container de injeção de dependência tipo Awilix dentro de cada serviço de domínio — barato, sem framework de DI pesado.
 - **Persistência**: Prisma sobre PostgreSQL, MySQL ou MS-SQL.
 - **Observabilidade distribuída** via OpenTelemetry (propagação de `traceparent` já é FR-19/FR-23).
 - **TypeScript full-stack** e Turborepo/Nx no scaffold gerado para apps construídas com o Tecton (não no repositório do próprio framework).
@@ -384,6 +389,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **Event Sourcing completo por domínio** (`persistence: eventSourced: true`, replay/snapshot) — reservado a domínios com exigência real de reconstrução no tempo (o próprio Custodiante, quando implementado).
 - **Kubernetes Native** (NetworkPolicies inclusas) e **mTLS/service mesh** (Istio/Linkerd, SPIFFE/SPIRE) — maturidade avançada de Zero Trust além da verificação por serviço já MVP (Constitution §9).
 - **Compilação AOT** e **Continuous Testing** — não servem os dois objetivos do produto com força suficiente agora.
+- **External API Consumption** (consumo padronizado de APIs externas por um domínio) — genérico, sem urgência identificada.
 - **Rejeitados** (não roadmap, descartados): Single-File Applications (contradiz identidade modular, Constitution §1); Chaos Engineering (prematuro para projeto solo de portfólio).
 
 ## 7. Success Metrics
@@ -414,6 +420,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 2. **Configuração de escopo de criptografia do Custodiante**: criptografar todos os campos ou só campos escolhidos é configurável no setup — mecânica exata (por domínio? por atributo do `objectClass`?) ainda não especificada; só relevante quando a implementação real do Custodiante sair do roadmap.
 3. **Hospedagem do MCP por domínio**: voto provisório do autor é serviço dedicado (isolamento de risco) — a confirmar com evidência quando o roadmap de MCP chegar.
 4. **Decisão final de motor para `WorkflowEngineProvider`**: Temporal é candidato forte (SDK TypeScript oficial, não prende nuvem específica), mas a decisão de motor está formalmente em aberto.
+5. **Comparativo técnico formal vs. Moleculer.js/Dapr/NestJS microservices**: a pesquisa do brief (2026-08-11) foi por busca web, não auditoria exaustiva — antes de qualquer alegação pública de diferenciação, falta o comparativo técnico escrito mais profundo que o PM já havia sinalizado como pendente. Detalhe em `addendum.md`.
 
 ## 10. Assumptions Index
 
