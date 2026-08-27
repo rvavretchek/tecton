@@ -23,8 +23,8 @@ Ver [`CONSTITUTION.md`](CONSTITUTION.md) (10 princípios, incluindo Zero Trust n
 
 ## Convenções de idioma
 
-- **Conversa e toda documentação** (specs, PRDs, ADRs, comentários de planejamento, artefatos BMAD): **Português do Brasil**. Isso já está fixado em `_bmad/config.toml` (`document_output_language = "Português do Brasil"`) — não altere esse arquivo diretamente (é gerenciado pelo instalador BMAD); ajustes duráveis vão em `_bmad/custom/config.toml` ou `_bmad/custom/config.user.toml`.
-- **Código e identificadores** (variáveis, constantes, classes, funções, nomes de arquivo de código): **inglês**, quando a implementação começar.
+- **Conversa e toda documentação de planejamento** (specs, PRDs, ADRs, comentários de planejamento, artefatos BMAD): **Português do Brasil**. Isso já está fixado em `_bmad/config.toml` (`document_output_language = "Português do Brasil"`) — não altere esse arquivo diretamente (é gerenciado pelo instalador BMAD); ajustes duráveis vão em `_bmad/custom/config.toml` ou `_bmad/custom/config.user.toml`.
+- **Todo código e todo artefato gerado**: **inglês**, sem exceção, quando a implementação começar. Isso inclui identificadores (variáveis, constantes, classes, funções, nomes de arquivo de código), comentários no código, mensagens de log/erro, texto de ajuda de CLI, e documentação gerada automaticamente (ex.: OpenAPI/AsyncAPI a partir do manifest). O corte é "documentação de planejamento" vs. "qualquer coisa que vira parte do repositório de código/artefato entregável" — não "identificador vs. resto do código". Erro conhecido a evitar (já ocorreu em projeto paralelo do autor): comentário/log/texto gerado em PT-BR só porque a conversa que o produziu foi em português.
 
 ## Estrutura do repositório
 

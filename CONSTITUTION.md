@@ -37,7 +37,7 @@ O framework nunca reimplementa primitivos criptográficos (ex.: secret sharing p
 
 ## 8. Idioma
 
-Toda conversa e documentação do projeto em Português do Brasil. Código e identificadores (variáveis, constantes, classes, funções, nomes de arquivo de código), quando a implementação começar, em inglês.
+Toda conversa e documentação de planejamento do projeto (specs, PRDs, ADRs, artefatos BMAD) em Português do Brasil. **Todo código e todo artefato gerado** — identificadores, comentários no código, mensagens de log/erro, texto de ajuda de CLI, documentação gerada automaticamente (ex.: OpenAPI/AsyncAPI a partir do manifest), nomes de arquivo de código — em inglês, sem exceção, quando a implementação começar. O corte não é "identificador vs. resto do código": é documentação de planejamento vs. qualquer coisa que vira parte do repositório de código/artefato entregável.
 
 ## 9. Zero Trust na comunicação interna
 
