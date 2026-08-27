@@ -305,3 +305,120 @@ Todo serviço expõe `/health`, `/ready`, `/live` automaticamente, seguindo a co
 - Cada domínio pode ser construído em imagem própria sem depender do código de outro domínio.
 
 **Notes:** Circuit breaker e bulkhead (biblioteca candidata: `opossum`) e pipeline de CI/CD com release independente por serviço ficam roadmap — não fazem parte do MVP.
+
+### 4.9 Evolução de Contrato
+
+**Description:** Postura padrão de mudança de manifest que preserva compatibilidade sem exigir ferramental novo — absorve os dois itens do Bloco C do `Tecton.md` que ainda não tinham FR própria (CQRS leve já é nativo via FR-4/FR-21; Contract Testing já é FR-18).
+
+**Functional Requirements:**
+
+#### FR-29: Evolução aditiva de contrato por padrão
+Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditiva por padrão — nunca remove ou renomeia um campo existente, só adiciona campo opcional. Mudança genuinamente incompatível exige uma nova action explícita (ex.: `createTenantV2`) em vez de alterar a existente.
+
+**Consequences (testable):**
+- Adicionar um campo opcional novo a `input`/`output` de uma action existente nunca quebra `test:contracts` (FR-18) dos consumidores já existentes.
+- Remover ou renomear um campo existente sem criar uma nova action é o sinal de quebra que `test:contracts`/lint deve capturar.
+
+**Notes:** Detector automático de quebra de compatibilidade comparando duas versões do manifest (mesma família de ferramenta do `lint:gateway`, FR-19) fica roadmap — no MVP a regra é de disciplina de autoria, verificada indiretamente pelo `test:contracts` já existente.
+
+### 4.10 Developer Experience
+
+**Description:** Conveniências de loop de desenvolvimento e isolamento de teste que reduzem fricção sem exigir infraestrutura externa — absorve os itens do Bloco D do `Tecton.md` que ainda não tinham FR própria (OpenAPI/AsyncAPI já é FR-5; UI Generation via `react-jsonschema-form` já é FR-8; Live Reload já está coberto como consequência da FR-15; Fastify é decisão de mecanismo, não comportamento observável novo).
+
+**Functional Requirements:**
+
+#### FR-30: Dev Services
+`tecton-admin new` gera um `docker-compose.dev.yml` com a infra de desenvolvimento (Redis + banco escolhido), sem exigir setup manual.
+
+**Consequences (testable):**
+- Subir `docker-compose.dev.yml` deixa o ambiente pronto para `tecton-admin dev` sem passo adicional de infraestrutura.
+
+#### FR-31: Testcontainers para isolamento de teste/CI
+`test:contracts` (FR-18) e demais testes de CI rodam contra containers efêmeros via Testcontainers, descartados ao final de cada execução — isolamento real, distinto da conveniência de loop de dev do Dev Services.
+
+**Consequences (testable):**
+- Rodar `test:contracts` duas vezes em sequência nunca compartilha estado de dados entre as execuções.
+- CI não depende de infraestrutura externa persistente para rodar `test:contracts`.
+
+## 5. Non-Goals (Explicit)
+
+- **Tecton não compete com "comece em microsserviços"** — Constitution §2. Para um domínio greenfield sem dor real de escala, a recomendação do próprio framework é monólito primeiro; o Tecton não serve esse caso de uso.
+- **Tecton não é o Aether** — Constitution §1. Aether é um framework monolítico separado, mesmo autor; nenhuma decisão de identidade ou framing do Tecton se apoia ou se confunde com o Aether, exceto os subsistemas explicitamente listados em `docs/aether-tecton-compatibility.md`.
+- **Tecton não constrói nenhuma aplicação de demonstração fictícia** (e-commerce, ingressos, billing) para provar a arquitetura — Constitution §4. Os domínios embutidos (Tenant, Usuário/Grupo, Custodiante) são a prova de conceito.
+- **Tecton nunca reimplementa primitivo criptográfico sensível** (ex.: secret sharing por limiar) — Constitution §7. Funcionalidades de custódia de chave sempre integram um cofre/HSM auditado (candidato inicial: OpenBAO) atrás de uma interface agnóstica de fornecedor, nunca a implementação própria do primitivo.
+- **Tecton não tenta descobrir limites de domínio automaticamente.** `tecton-admin extract` assume que o dev já sabe o que extrair (premissa do próprio Caso 1) e cuida do *como* (scaffold + fachada + export/import), não do *o quê* — descoberta automática de bounded context é problema de pesquisa não resolvido de forma confiável.
+- **Tecton não persegue adoção externa ou comunidade como critério de sucesso** — Constitution §10. É gratuito e aberto desde o início, sem prazo e sem cliente além do próprio autor; adoção real é ganho, nunca meta.
+- **Tecton não pretende ser um motor de workflow completo nativo.** Processos com paralelismo, compensação ou espera durável são delegados a um motor externo consagrado via `WorkflowEngineProvider` (candidato: Temporal) — o framework integra, não reimplementa orquestração de workflow.
+
+## 6. MVP Scope
+
+### 6.1 In Scope
+
+- **Manifest declarativo** (FR-1 a FR-5): declaração de domínio, `objectClass` opcional, actions tipadas com `sensitive`/`approval`, events publicados/consumidos, geração automática de OpenAPI/AsyncAPI.
+- **Core de Diretório Hierárquico** (FR-6 a FR-8): Closure Table via Prisma, ACL por herança aditiva simples, navegação e edição de objetos via formulário gerado — sem *drag-and-drop*.
+- **Domínios embutidos** (FR-9 a FR-11): Tenant, Usuário/Grupo completos; Custodiante como interface (`KeyCustodyProvider`) e conceito `sensitive.quorum`, sem implementação real de custódia.
+- **Autenticação e Zero Trust** (FR-12 a FR-14): `AuthProvider` (Argon2id + Pepper, JWT + refresh confinado), verificação independente de assinatura por serviço, `TokenRevocationStore` Redis-backed real.
+- **CLI `tecton-admin`** (FR-15 a FR-18): `new`, `generate` (variádico/`--from`), `dev`, `migrate`, `extract` (Caso 1, corte único), família `lint` (`lint:gateway` + aviso de `sensitive.quorum` sem provider), `test:contracts`.
+- **Interoperabilidade** (FR-19 a FR-22): gateway fino com responsabilidades proibidas explícitas, service discovery estático por variável de ambiente, CloudEvents sobre Redis Streams (at-least-once), `ConfigProvider` tipado com fail-fast no startup.
+- **Formato de resposta de API** (FR-23 a FR-25): sucesso sem envelope + `traceparent`, erro RFC 9457 + `invalid-params`, pendente como `202 Accepted` dedicado.
+- **Resiliência e operação** (FR-26 a FR-28): `ServiceClient` com retry/timeout seguro (nunca retry cego), health checks `/health`/`/ready`/`/live` por serviço, Dockerfile por domínio.
+- **Evolução de contrato** (FR-29): postura aditiva por padrão no manifest.
+- **Developer Experience** (FR-30 a FR-31): Dev Services via `docker-compose.dev.yml`, Testcontainers para isolamento de `test:contracts`/CI.
+- **Persistência**: Prisma sobre PostgreSQL, MySQL ou MS-SQL.
+- **Observabilidade distribuída** via OpenTelemetry (propagação de `traceparent` já é FR-19/FR-23).
+- **TypeScript full-stack** e Turborepo/Nx no scaffold gerado para apps construídas com o Tecton (não no repositório do próprio framework).
+
+### 6.2 Out of Scope for MVP
+
+*(Todos os itens abaixo já passaram por triagem completa no brief/addendum — Bloco A-D do `Tecton.md`, 2026-08-13 — com veredito "roadmap" e razão registrada; aqui apenas consolidados.)*
+
+- **Árvore com *drag-and-drop* ciente de ACL** — MVP entrega só navegação/leitura (FR-8); reaproveita implementação do Aether num release posterior, sem duplicar trabalho.
+- **Implementação real do domínio Custodiante** — integração com OpenBAO/Vault/HSM, quórum criptograficamente forçado, log de auditoria encadeado/assinado. `[NOTE FOR PM]` esse é o item roadmap mais emocionalmente carregado do brief (motivou a entrada ad hoc do especialista de segurança na sessão de fundação) — revisitar assim que houver capacidade de engenharia dedicada.
+- **`WorkflowEngineProvider`** com implementação real (candidato Temporal) — MVP entrega só a interface prevista.
+- **MCP por domínio** — 100% roadmap; o manifest já contém tudo que a geração futura vai precisar, sem preparação extra necessária agora.
+- **Circuit breaker e bulkhead** no `ServiceClient` (candidato: `opossum`) — MVP entrega só retry+timeout seguro.
+- **Sincronização contínua/CDC** para migração sem downtime (Caso 1) — MVP usa corte único com janela de manutenção.
+- **Detector automático de quebra de compatibilidade** comparando manifests, e versionamento explícito de API (`v2`) — MVP aplica só a regra de evolução aditiva (FR-29).
+- **Pipeline de CI/CD com release independente por serviço** — MVP entrega Dockerfile por domínio (seam) e template GitHub Actions para lint.
+- **`tecton-admin generate k8s`** e **`generate ci <plataforma>`** além do template GitHub Actions — sob demanda, sem evidência de necessidade dia 1.
+- **Event Sourcing completo por domínio** (`persistence: eventSourced: true`, replay/snapshot) — reservado a domínios com exigência real de reconstrução no tempo (o próprio Custodiante, quando implementado).
+- **Kubernetes Native** (NetworkPolicies inclusas) e **mTLS/service mesh** (Istio/Linkerd, SPIFFE/SPIRE) — maturidade avançada de Zero Trust além da verificação por serviço já MVP (Constitution §9).
+- **Compilação AOT** e **Continuous Testing** — não servem os dois objetivos do produto com força suficiente agora.
+- **Rejeitados** (não roadmap, descartados): Single-File Applications (contradiz identidade modular, Constitution §1); Chaos Engineering (prematuro para projeto solo de portfólio).
+
+## 7. Success Metrics
+
+*Funcionar bem pesa mais que provar ao mundo que funciona — decisão explícita do autor. As duas métricas primárias são internas (migração real), não public-facing.*
+
+**Primary**
+- **SM-1**: Migrar com sucesso pelo menos um domínio real do **Arandu** (projeto irmão do autor, monólito maduro com domínios bem definidos e bem documentado) para o Tecton via `tecton-admin extract`, sem exigir mudança de arquitetura no core do framework depois do fato. Validates FR-1 a FR-5 (manifest), FR-16 (extract).
+- **SM-2**: Repetir o mesmo para o **Tupã** (segundo projeto irmão, mesmo perfil de monólito maduro/documentado). Provar que o Caso 1 generaliza — não é solução ajustada às particularidades de um único monólito. Validates FR-1 a FR-5, FR-16.
+
+**Secondary**
+- **SM-3**: Portfólio — repositório público no GitHub com código real rodando (não apenas conceito), documentação clara, e arquitetura que um revisor técnico reconheça como bem fundamentada, não "microsserviços por microsserviços".
+
+**Counter-metrics (do not optimize)**
+- **SM-C1**: Estrelas/forks/adoção externa no GitHub — Constitution §10 já trata adoção externa como ganho, nunca meta; perseguir esse número ativamente desviaria decisão de arquitetura da qualidade real das migrações (SM-1/SM-2), que é o que realmente importa aqui.
+
+## 8. API Contracts e Versionamento
+
+*Cluster "Developer Products" do template — Public Surface e Versioning/Deprecation Policy. Performance Budgets e Language/Runtime Targets são decisão de Arquitetura, não de PRD — ver Open Question em §9.*
+
+**Public Surface**: schema do manifest (`tecton.yaml`/`manifestVersion`), comandos/flags do `tecton-admin`, e interfaces de Provider (`AuthProvider`, `KeyCustodyProvider`, `TokenRevocationStore`, `ServiceDiscoveryProvider`, `ConfigProvider`, `WorkflowEngineProvider`) são tratados como a mesma classe de contrato público — mesma prioridade, mesma política de versionamento, nenhum tratado como mais ou menos estável que o outro.
+
+**Versioning/Deprecation Policy**: antes de um v1.0 (sem prazo definido), esses contratos podem quebrar livremente entre commits/releases — decisão explícita do autor. O changelog é a única garantia de compatibilidade nessa fase; não há política formal de depreciação, aviso prévio ou período de transição no MVP. Isso resolve a pendência aberta na FR-1 sobre política de migração entre versões do `manifestVersion`: não existe uma, por ora, por decisão deliberada.
+
+## 9. Open Questions
+
+1. **Performance Budgets e Runtime Targets** (cluster "Developer Products", deferido do PRD): existe orçamento de latência/overhead que o framework deve respeitar (ex.: overhead do manifest sobre uma rota Fastify pura), e qual a política de versão mínima de Node.js/TypeScript? Decisão de Arquitetura, não de PRD — revisitar em `bmad-architecture`.
+2. **Configuração de escopo de criptografia do Custodiante**: criptografar todos os campos ou só campos escolhidos é configurável no setup — mecânica exata (por domínio? por atributo do `objectClass`?) ainda não especificada; só relevante quando a implementação real do Custodiante sair do roadmap.
+3. **Hospedagem do MCP por domínio**: voto provisório do autor é serviço dedicado (isolamento de risco) — a confirmar com evidência quando o roadmap de MCP chegar.
+4. **Decisão final de motor para `WorkflowEngineProvider`**: Temporal é candidato forte (SDK TypeScript oficial, não prende nuvem específica), mas a decisão de motor está formalmente em aberto.
+
+## 10. Assumptions Index
+
+*Nenhum `[ASSUMPTION]` inline sobrevive no corpo do PRD — os dois candidatos vinham do brief:*
+- **Critérios de Sucesso** (brief, `[ASSUMPTION — validar com o Boss]`) — resolvido com o autor na §7 Success Metrics (SM-1/SM-2/SM-3/SM-C1).
+- **Visão de longo prazo** ("torna-se a referência open-source... idealmente com comunidade mantendo o projeto", brief, `[ASSUMPTION — validar com o Boss]`) — resolvido: adoção/comunidade nunca é critério de sucesso (Constitution §10, §5 Non-Goals, SM-C1); a aspiração permanece registrada no brief como aspiração, não como meta do PRD.
+
+`[NOTE FOR PM]` ativo: item roadmap do Custodiante real, marcado em §6.2, como o mais emocionalmente carregado do backlog — revisitar quando houver capacidade de engenharia dedicada.
