@@ -1,8 +1,8 @@
 ---
 title: PRD — Tecton
-status: draft
+status: final
 created: 2026-08-14
-updated: 2026-08-14
+updated: 2026-08-28
 ---
 
 # PRD: Tecton
@@ -10,7 +10,7 @@ updated: 2026-08-14
 
 ## 0. Document Purpose
 
-Este PRD formaliza os requisitos do framework Tecton a partir do [Product Brief](../../briefs/brief-Tecton-2026-08-10/brief.md) (+ `addendum.md`), já validado em sessões extensas de `bmad-party-mode`. Destina-se ao próprio autor (Boss) como PM/arquiteto/dev solo, e a qualquer colaborador futuro do projeto open source, além de alimentar os workflows seguintes do BMAD Method (UX, Arquitetura, Épicos/Histórias). Vocabulário ancorado no Glossário (§3); FRs numeradas globalmente e aninhadas por feature (§4); suposições marcadas inline com `[ASSUMPTION]` e indexadas em §9.
+Este PRD formaliza os requisitos do framework Tecton a partir do [Product Brief](../../briefs/brief-Tecton-2026-08-10/brief.md) (+ `addendum.md`), já validado em sessões extensas de `bmad-party-mode`. Destina-se ao próprio autor (Boss) como PM/arquiteto/dev solo, e a qualquer colaborador futuro do projeto open source, além de alimentar os workflows seguintes do BMAD Method (UX, Arquitetura, Épicos/Histórias). Vocabulário ancorado no Glossário (§3); FRs numeradas globalmente e aninhadas por feature (§4); suposições marcadas inline com `[ASSUMPTION]` e indexadas em §10.
 
 ## 1. Vision
 
@@ -101,7 +101,7 @@ Framework gera automaticamente documentação OpenAPI (via `@fastify/swagger`, d
 - Alterar um `input`/`output` de action e rodar o build atualiza o OpenAPI gerado sem edição manual.
 - Documento AsyncAPI gerado é validado com sucesso por `@asyncapi/parser` em CI.
 
-**Notes:** `[NOTE FOR PM]` — o formato v0 do manifest (fechado hoje) deve evoluir durante o desenvolvimento; `manifestVersion` existe pra isso, mas nenhuma política de migração entre versões do próprio formato foi definida ainda — candidato a Open Question.
+**Notes:** Política de migração entre versões do próprio formato do manifest, resolvida em §8 (API Contracts e Versionamento): nenhuma política formal pré-v1.0, por decisão deliberada do autor — ver §8.
 
 ### 4.2 Core de Diretório Hierárquico
 
@@ -125,7 +125,7 @@ Permissão setada num container flui para os descendentes por padrão; framework
 - Schema de relações permite evoluir para um motor externo (ex. OpenFGA) sem migração de dados.
 
 #### FR-8: Navegação e edição de objetos (sem drag-and-drop no MVP)
-Dev/usuário final navega a árvore de objetos (somente leitura de estrutura) e edita atributos de um objeto via formulário gerado (`react-jsonschema-form`) a partir de `objectClass.attributes`.
+Dev/usuário final navega a árvore de objetos (somente leitura de estrutura, sem *drag-and-drop* — ver §6.2) e edita atributos de um objeto via formulário gerado (`react-jsonschema-form`) a partir de `objectClass.attributes`.
 
 **Consequences (testable):**
 - Reordenar/mover um objeto na árvore via UI **não** está disponível no MVP — só leitura da hierarquia.
@@ -214,7 +214,7 @@ Framework fornece `TokenRevocationStore` com implementação Redis-backed real n
 **Consequences (testable):**
 - Após `extract`, o domínio antigo (no monólito) e o novo (Tecton) coexistem, com o gateway roteando por regra explícita (rota/percentual/flag).
 - Corte de dados é uma operação única, executada sob janela de manutenção — sem sincronização contínua no MVP.
-- Roteamento por percentual serve só para validação em estágio (ex.: canário de tráfego de leitura) antes do corte — nunca é um estado estável de produção: como o corte de dados é único e sem sync contínuo, a migração só é considerada viável/completa em produção quando o roteamento chega a 100% para o domínio novo. Um monólito pronto e um serviço migrado em arquiteturas diferentes não sustentam divisão de tráfego mutável por tempo indefinido.
+- Roteamento por percentual serve só para validação em estágio (ex.: canário de tráfego de leitura) antes do corte — nunca é um estado estável de produção: como o corte de dados é único e sem sync contínuo, a migração só é considerada viável/completa em produção quando o roteamento chega a 100% para o domínio novo. Um monólito em produção e um serviço recém-migrado, em arquiteturas diferentes, não sustentam divisão de tráfego mutável por tempo indefinido.
 - Requisições em andamento contra o domínio antigo no início da janela de manutenção são drenadas (aguardadas até concluir) antes do corte — nenhuma requisição nova é aceita durante a janela.
 - Decomissionar a fachada de roteamento e o código legado do domínio antigo, depois da migração validada em 100%, é um passo manual do dev — `tecton-admin extract` não automatiza remoção no MVP.
 
