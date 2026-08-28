@@ -76,6 +76,7 @@ Dev pode declarar `objectClass` (containment + ACL herdável) apenas quando o do
 **Consequences (testable):**
 - Domínio sem `objectClass` não aparece na árvore do Core de Diretório nem gera UI de gestão hierárquica.
 - Domínio com `objectClass` sem `containment.allowedParents` falha validação.
+- `tecton-admin lint` valida `containment.allowedParents` contra os manifests dos domínios referenciados, mesmo quando vivem em repositório/serviço distinto; referência a um `objectClass` não resolvível falha o lint explicitamente, nunca passa silenciosamente como válida.
 
 #### FR-3: Actions tipadas com aprovação/sensibilidade
 Dev declara `actions` com `input`/`output` tipados; pode marcar `sensitive.quorum` (exige `description` obrigatória) ou `approval` (aprovação simples reaproveitando ACL).
@@ -83,6 +84,8 @@ Dev declara `actions` com `input`/`output` tipados; pode marcar `sensitive.quoru
 **Consequences (testable):**
 - Manifest com `sensitive` sem `description` falha validação no `tecton-admin lint`.
 - Action com `approval.required: true` gera, na execução, um estado pendente em vez de retorno imediato.
+- `sensitive.quorum` e `approval` são mutuamente exclusivos na mesma action — manifest com os dois marcados falha validação; cada action usa só um primitivo de aprovação.
+- Action pode declarar `idempotent: true` quando é idempotente por natureza (leitura, ou mutação já idempotente por design, ex. upsert); o `ServiceClient` (FR-26) usa essa declaração para decidir retry automático, além do caminho explícito via `Idempotency-Key`.
 
 #### FR-4: Events publicados/consumidos
 Dev declara `events.publishes`/`events.consumes` com schema por evento; framework gera o conector de mensageria (Redis Streams, envelope CloudEvents) automaticamente.
@@ -112,6 +115,7 @@ Framework persiste a hierarquia de objetos via Closure Table, através do Prisma
 **Consequences (testable):**
 - Trocar o banco configurado (entre os três suportados) não exige mudança de schema ou código de domínio.
 - Mover um objeto na árvore é uma operação localizada (linhas do nó movido), nunca uma renumeração de árvore inteira.
+- Mover um objeto para dentro de um de seus próprios descendentes é rejeitado com erro de validação — a Closure Table detecta o ciclo antes de aplicar a operação.
 
 #### FR-7: Controle de acesso por herança aditiva
 Permissão setada num container flui para os descendentes por padrão; framework nunca oferece bloqueio/override por nó no MVP.
@@ -128,7 +132,7 @@ Dev/usuário final navega a árvore de objetos (somente leitura de estrutura) e 
 - Formulário de edição reflete automaticamente qualquer novo atributo adicionado ao `objectClass` sem código de UI escrito à mão.
 
 **Out of Scope:**
-- Mover objeto por *drag-and-drop* na UI — roadmap, herdado da implementação do Aether (ver §5 Non-Goals).
+- Mover objeto por *drag-and-drop* na UI — roadmap (ver `docs/aether-tecton-compatibility.md`).
 
 ### 4.3 Domínios Embutidos
 
@@ -142,6 +146,7 @@ Framework fornece o domínio Tenant como raiz da árvore — criação, status (
 **Consequences (testable):**
 - Todo objeto no Core de Diretório pertence, direta ou indiretamente, a um Tenant.
 - Ação de exportação de dados do tenant (`exportTenantData`) é marcada `sensitive` no manifest — mesmo sem o Custodiante implementado no MVP (ver FR-11), a marcação existe desde já.
+- Tenant `suspended` bloqueia execução de actions mutáveis em todos os objetos descendentes, mantendo leitura disponível; Tenant `archived` bloqueia toda execução de action (mutável ou não) nos descendentes, restando só leitura/exportação para fins de auditoria.
 
 #### FR-10: Domínio Usuário/Grupo
 Framework fornece Usuário e Grupo como objetos do Core de Diretório, contidos num Tenant, com associação usuário-grupo e atribuição de papel.
@@ -154,7 +159,7 @@ Framework fornece Usuário e Grupo como objetos do Core de Diretório, contidos 
 Framework declara a interface `KeyCustodyProvider` (agnóstica de fornecedor) e o conceito de ação `sensitive.quorum` no manifest. A implementação real (custódia de chave por limiar, integração com OpenBAO, aprovação x/n criptograficamente forçada, log de auditoria encadeado) é roadmap, não MVP.
 
 **Consequences (testable):**
-- Sem `KeyCustodyProvider` configurado, uma action `sensitive.quorum` **executa normalmente** (não bloqueia) — decisão explícita: não travar velocidade de desenvolvimento no MVP.
+- Sem `KeyCustodyProvider` configurado, uma action `sensitive.quorum` **executa normalmente** (não bloqueia) — decisão explícita: não travar velocidade de desenvolvimento no MVP. Isso tem precedência sobre o `202 pending_approval` da FR-25: o 202 só existe quando há de fato uma aprovação pendente pra aguardar (quórum real com provider configurado, ou `approval` de negócio, que nunca depende de `KeyCustodyProvider`) — sem provider, não existe pendência real pra reportar.
 - `tecton-admin lint` emite aviso de build/CI quando um domínio declara `sensitive.quorum` sem `KeyCustodyProvider` configurado (mesma família do `lint:gateway`).
 - Em runtime, a execução sem proteção real é logada com aviso explícito e consistente (ex.: `⚠️ action "exportTenantData" é sensitive.quorum mas nenhum KeyCustodyProvider está configurado — executando sem proteção de quórum`) — nunca falha silenciosamente.
 - `KeyCustodyProvider` sem implementação concreta não impede o restante do framework de funcionar.
@@ -185,6 +190,7 @@ Framework fornece `TokenRevocationStore` com implementação Redis-backed real n
 
 **Consequences (testable):**
 - Revogar um token o torna inválido em requisições subsequentes em até o tempo de propagação do Redis, sem esperar expiração natural do JWT.
+- Se o Redis do `TokenRevocationStore` estiver inacessível no momento da checagem, o serviço trata como falha e rejeita a requisição (fail closed) — nunca assume "não revogado" sem conseguir verificar, consistente com Zero Trust (Constitution §9).
 
 **Feature-specific NFRs:**
 - Toda comunicação leste-oeste (serviço-a-serviço) segue Constitution §9 (Zero Trust) — verificação própria obrigatória, sem exceção por "ambiente de confiança".
@@ -208,6 +214,9 @@ Framework fornece `TokenRevocationStore` com implementação Redis-backed real n
 **Consequences (testable):**
 - Após `extract`, o domínio antigo (no monólito) e o novo (Tecton) coexistem, com o gateway roteando por regra explícita (rota/percentual/flag).
 - Corte de dados é uma operação única, executada sob janela de manutenção — sem sincronização contínua no MVP.
+- Roteamento por percentual serve só para validação em estágio (ex.: canário de tráfego de leitura) antes do corte — nunca é um estado estável de produção: como o corte de dados é único e sem sync contínuo, a migração só é considerada viável/completa em produção quando o roteamento chega a 100% para o domínio novo. Um monólito pronto e um serviço migrado em arquiteturas diferentes não sustentam divisão de tráfego mutável por tempo indefinido.
+- Requisições em andamento contra o domínio antigo no início da janela de manutenção são drenadas (aguardadas até concluir) antes do corte — nenhuma requisição nova é aceita durante a janela.
+- Decomissionar a fachada de roteamento e o código legado do domínio antigo, depois da migração validada em 100%, é um passo manual do dev — `tecton-admin extract` não automatiza remoção no MVP.
 
 #### FR-17: Família de lint (`tecton-admin lint`)
 CLI oferece checagens automatizadas: `lint:gateway` (allowlist de dependência do gateway) e aviso de `sensitive.quorum` sem `KeyCustodyProvider` (FR-11).
@@ -235,6 +244,7 @@ Gateway roteia (a partir do manifest), valida token, aplica rate limiting (Redis
 
 **Consequences (testable):**
 - `tecton-admin lint:gateway` falha se o pacote do gateway importar uma dependência de circuit breaker, cache, ou qualquer pacote de domínio específico.
+- Se o Redis do rate limiting estiver inacessível, o gateway falha aberto (deixa passar, com aviso de log) em vez de recusar todo tráfego — postura diferente do fail-closed de autenticação (FR-13/FR-14): rate limiting é proteção de recurso, não fronteira de segurança Zero Trust.
 
 #### FR-20: Service Discovery estático
 Cada domínio expõe seu endereço via variável de ambiente gerada (`TECTON_SERVICE_<DOMÍNIO>_URL`); sem descoberta dinâmica em runtime no MVP. Resolução de endereço fica atrás de uma interface `ServiceDiscoveryProvider` prevista desde já, para que descoberta dinâmica via DNS nativo do Kubernetes (roadmap) troque a implementação sem exigir mudança no código de domínio que a consome.
@@ -247,14 +257,18 @@ Eventos entre domínios usam envelope CloudEvents, transportados por Redis Strea
 
 **Consequences (testable):**
 - Handler de evento gerado a partir de `events.consumes` é idempotente por design (chave de deduplicação) — reprocessar o mesmo evento não duplica efeito.
+- A chave de deduplicação é registrada só depois do efeito do handler ser aplicado com sucesso, nunca antes — se o processo falhar entre aplicar o efeito e registrar a chave, o evento é reprocessado (duplicata seguramente absorvida pelo handler idempotente), nunca perdido.
 - Ordem é garantida dentro de um stream (por domínio), não é garantida entre streams diferentes.
-- Um evento consumido sem credencial verificável do publisher é rejeitado pelo consumidor — mesma regra da FR-13, aplicada ao transporte assíncrono.
+- Um domínio publica todos os seus `events.publishes` num único stream (um stream por domínio, não por tipo de evento) — preserva ordem causal entre tipos de evento distintos do mesmo publisher.
+- Uma mensagem que falha processamento repetidamente após um número configurável de tentativas vai para uma stream de dead-letter, sem bloquear a entrega das mensagens seguintes do mesmo stream.
+- Um evento consumido sem credencial verificável do publisher é rejeitado pelo consumidor e tratado como ACK (removido do stream, logado como erro de segurança) — nunca um NACK que reentrega o mesmo evento indefinidamente, o que travaria o consumo do restante do stream.
 
 #### FR-22: ConfigProvider com validação tipada
 Configuração via env vars/`.env`, validada e tipada no startup — serviço falha rápido (não sobe) se a config estiver incompleta/inválida. Candidato de roadmap para um config server real: **OpenBAO** (não Vault), mesma lógica de interface agnóstica de fornecedor do `KeyCustodyProvider`; AWS Parameter Store/Secrets Manager como alternativa opcional pra quem já vive em AWS.
 
 **Consequences (testable):**
 - Subir um serviço com variável de ambiente obrigatória faltando falha antes de aceitar tráfego, com mensagem de erro identificando o campo.
+- Uma variável presente mas com formato/tipo inválido (ex.: URL malformada, valor não numérico onde se espera número) falha o startup da mesma forma que uma variável ausente, com mensagem identificando o campo e o formato esperado vs. recebido.
 
 ### 4.7 Formato de Resposta de API
 
@@ -273,12 +287,17 @@ Toda resposta de erro segue RFC 9457 (`type`/`title`/`status`/`detail`/`instance
 
 **Consequences (testable):**
 - Erro de validação de `input` de uma action retorna `invalid-params` listando cada campo inválido e a razão.
+- Erro de autorização negada, recurso não encontrado, ou erro interno também retorna o formato base RFC 9457 (`type`/`title`/`status`/`detail`/`instance`), sem o campo `invalid-params` — exclusivo de erro de validação de input.
 
 #### FR-25: Estado pendente como 202 Accepted dedicado
-Ação `sensitive.quorum`/`approval` pendente retorna `202 Accepted` com `{ status: "pending_approval", requestId, pollUrl }` — nunca usa o formato de erro.
+Ação `sensitive.quorum`/`approval` pendente retorna `202 Accepted` com `{ status: "pending_approval", requestId, pollUrl }` — nunca usa o formato de erro. Aplica-se apenas quando existe aprovação real pendente — quórum com `KeyCustodyProvider` configurado, ou `approval` de negócio (que nunca depende de provider); sem provider configurado, `sensitive.quorum` segue a FR-11 (executa normalmente com aviso), não este fluxo.
 
 **Consequences (testable):**
 - Cliente consegue distinguir programaticamente entre "falhou" (RFC 9457) e "está pendente" (202) sem inspecionar o corpo manualmente.
+- Consultar `pollUrl` enquanto ainda pendente repete o mesmo corpo `202`/`pending_approval`.
+- Quando a aprovação resolve com sucesso, `pollUrl` passa a retornar o payload de sucesso (FR-23) como se a action tivesse executado de forma síncrona.
+- Quando a aprovação/quórum é rejeitada, `pollUrl` retorna um erro RFC 9457 (FR-24) com `type` identificando rejeição — nunca fica pendente indefinidamente nem é descartada silenciosamente.
+- Uma aprovação pendente expira após um timeout configurável (com valor padrão); passado esse prazo, `pollUrl` retorna RFC 9457 indicando expiração, e um `requestId` desconhecido ou já expirado retorna `404` no mesmo formato.
 
 ### 4.8 Resiliência e Operação
 
@@ -291,7 +310,7 @@ Chamada síncrona direta entre domínios (declarada em `dependencies`) usa um `S
 
 **Consequences (testable):**
 - Retry automático de uma mutação sem `Idempotency-Key` declarado nunca acontece — falha propaga direto.
-- Timeout configurável por chamada, com valor padrão sensato se não especificado.
+- Timeout configurável por chamada; default de 5000ms (5s) se não especificado — sujeito a ajuste fino na Arquitetura (§9 OQ1).
 - Uma chamada do `ServiceClient` sem credencial verificável é rejeitada pelo serviço de destino, igual a qualquer outra chamada leste-oeste (FR-13).
 - O middleware de retry/timeout é desenhado como plugável, para acomodar circuit breaker/bulkhead (roadmap, candidato `opossum`) sem reforma do `ServiceClient` já existente.
 
@@ -322,6 +341,8 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 **Consequences (testable):**
 - Adicionar um campo opcional novo a `input`/`output` de uma action existente nunca quebra `test:contracts` (FR-18) dos consumidores já existentes.
 - Remover ou renomear um campo existente sem criar uma nova action é o sinal de quebra que `test:contracts`/lint deve capturar.
+- Mudar o tipo de um campo existente (ex.: `string` para `number`) sem removê-lo ou renomeá-lo conta como a mesma quebra de remover/renomear — `test:contracts` (FR-18) captura os três casos igualmente.
+- Criar uma action nova para uma mudança incompatível (ex.: `createTenantV2`) não obriga manter a antiga funcional indefinidamente nem sincronizada com a nova — mesma política de §8 (sem depreciação formal pré-v1.0); `test:contracts` testa cada action pelo seu próprio contrato, não a consistência entre versões.
 
 **Notes:** Detector automático de quebra de compatibilidade comparando duas versões do manifest (mesma família de ferramenta do `lint:gateway`, FR-19) fica roadmap — no MVP a regra é de disciplina de autoria, verificada indiretamente pelo `test:contracts` já existente.
 
@@ -377,7 +398,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 
 *(Todos os itens abaixo já passaram por triagem completa no brief/addendum — Bloco A-D do `Tecton.md`, 2026-08-13 — com veredito "roadmap" e razão registrada; aqui apenas consolidados.)*
 
-- **Árvore com *drag-and-drop* ciente de ACL** — MVP entrega só navegação/leitura (FR-8); reaproveita implementação do Aether num release posterior, sem duplicar trabalho.
+- **Árvore com *drag-and-drop* ciente de ACL** — MVP entrega só navegação/leitura (FR-8); roadmap (ver `docs/aether-tecton-compatibility.md`).
 - **Implementação real do domínio Custodiante** — integração com OpenBAO/Vault/HSM, quórum criptograficamente forçado, log de auditoria encadeado/assinado. `[NOTE FOR PM]` esse é o item roadmap mais emocionalmente carregado do brief (motivou a entrada ad hoc do especialista de segurança na sessão de fundação) — revisitar assim que houver capacidade de engenharia dedicada.
 - **`WorkflowEngineProvider`** com implementação real (candidato Temporal) — MVP entrega só a interface prevista.
 - **MCP por domínio** — 100% roadmap; o manifest já contém tudo que a geração futura vai precisar, sem preparação extra necessária agora.
@@ -400,8 +421,10 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **SM-1**: Migrar com sucesso pelo menos um domínio real do **Arandu** (projeto irmão do autor, monólito maduro com domínios bem definidos e bem documentado) para o Tecton via `tecton-admin extract`, sem exigir mudança de arquitetura no core do framework depois do fato. Validates FR-1 a FR-5 (manifest), FR-16 (extract).
 - **SM-2**: Repetir o mesmo para o **Tupã** (segundo projeto irmão, mesmo perfil de monólito maduro/documentado). Provar que o Caso 1 generaliza — não é solução ajustada às particularidades de um único monólito. Validates FR-1 a FR-5, FR-16.
 
+*Fallback*: se Arandu e/ou Tupã não estiverem em estado migrável quando o Tecton chegar a feature-complete, o caminho de validação alternativo é extrair um domínio sintético/interno equivalente (mesmo perfil: monólito maduro, domínio bem definido) só para exercitar `extract` de ponta a ponta — SM-1/SM-2 continuam a validação preferida, isso é só o plano B.
+
 **Secondary**
-- **SM-3**: Portfólio — repositório público no GitHub com código real rodando (não apenas conceito), documentação clara, e arquitetura que um revisor técnico reconheça como bem fundamentada, não "microsserviços por microsserviços".
+- **SM-3**: Portfólio — repositório público no GitHub com código real rodando (não apenas conceito), documentação clara, e arquitetura que um revisor técnico reconheça como bem fundamentada, não "microsserviços por microsserviços", medido por pelo menos uma revisão de arquitetura externa registrada (ex.: code review público linkável, ou avaliação de um par técnico convidado).
 
 **Counter-metrics (do not optimize)**
 - **SM-C1**: Estrelas/forks/adoção externa no GitHub — Constitution §10 já trata adoção externa como ganho, nunca meta; perseguir esse número ativamente desviaria decisão de arquitetura da qualidade real das migrações (SM-1/SM-2), que é o que realmente importa aqui.
