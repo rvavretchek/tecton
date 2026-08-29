@@ -13,6 +13,10 @@ Conteúdo levantado na sessão de `bmad-party-mode` de 2026-08-10 que aprofunda 
 
 Uma versão inicial desta sessão confundiu o Tecton com **Aether**, outro projeto do autor, descrevendo por engano um framework *monolítico*. Isso foi corrigido: Tecton é modular orientado a microsserviços por domínio; Aether é um projeto separado (framework monolítico). Não confundir os dois. O Aether é citado apenas uma vez, como referência de UX: o autor já está desenvolvendo lá uma interface *drag-and-drop* estilo Novell NetWare/NDS 4.1 para gestão de usuários/grupos, que inspira (mas não necessariamente compartilha código com) o core de objeto/diretório do Tecton.
 
+## Correção: Valkey no lugar de Redis (achada durante a Arquitetura, 2026-08-28)
+
+Toda menção a **Redis** como dependência de infraestrutura do próprio Tecton (Streams de eventos, rate limiting do gateway, `TokenRevocationStore`, Dev Services) foi substituída por **Valkey** neste brief, no addendum e no PRD. Motivo: em 2024 a Redis Ltd. mudou a licença de BSD-3-Clause para SSPL/RSALv2; a comunidade forkou a última versão BSD como **Valkey**, doado à Linux Foundation, com os mesmos clientes Node (`ioredis`/`node-redis` conectam sem mudança) e sem gap de feature para o uso que o Tecton faz (só primitivos puros — Streams, chave-valor com TTL — nunca módulos do Redis Stack). Mesmo raciocínio já aplicado à troca Vault→OpenBAO: preferir o fork mantido por fundação sem risco de mudança de licença. Menções a "Redis" que descrevem a stack de **concorrentes** (Moleculer.js, NestJS microservices) na seção "O Que Torna Isto Diferente" não foram alteradas — são fatos sobre terceiros, não escolha do Tecton.
+
 ## Por que não "monólito primeiro" aqui
 
 A analista (Mary) defendeu, e a mesa validou, a tese "Monolith First": para sistemas greenfield, a melhor estratégia é desenvolver monoliticamente e só migrar para microsserviços por domínio se surgirem problemas reais de escalabilidade. O Tecton assume essa tese como premissa — ele não compete com "comece em microsserviços", ele existe para a etapa seguinte.
@@ -144,7 +148,7 @@ Isso fecha a última pergunta que estava em aberto no `docs/aether-tecton-compat
 
 Mérito (Winston): estabelecer um limite claro de responsabilidade. Risco real (apontado pelo autor): garantir que esse limite continue sendo respeitado conforme o sistema evolui — gateways "finos" viram "gordos" com o tempo por acréscimos incrementais, não por decisão única.
 
-**Escopo do gateway**: roteamento gerado das `actions` do manifest, validação de token (primeira linha — não a única, ver Zero Trust acima), rate limiting via Redis (dependência já padrão, custo marginal baixo), propagação de `traceparent`.
+**Escopo do gateway**: roteamento gerado das `actions` do manifest, validação de token (primeira linha — não a única, ver Zero Trust acima), rate limiting via Valkey (dependência já padrão, custo marginal baixo), propagação de `traceparent`.
 
 **Explicitamente proibido no gateway** (lista do autor, adotada): circuit breaker; retries automáticos para operações mutáveis; cache de respostas; transformação de payload; agregação de múltiplos serviços; autorização baseada em regras de negócio.
 
@@ -156,7 +160,7 @@ MVP: estático via variável de ambiente por domínio (`TECTON_SERVICE_<DOMÍNIO
 
 ### Comunicação Assíncrona
 
-Transporte: Redis Streams (já decidido). Envelope de mensagem: **CloudEvents** (spec CNCF: `id`, `source`, `type`, `time`, `data`, `specversion`) em vez de formato próprio — mesmo princípio de adotar padrão existente do RFC 9457/W3C Trace Context. Garantia de entrega real do Redis Streams: **at-least-once** via consumer groups — todo handler de `events.consumes` no manifest precisa ser **idempotente** por design (regra documentada, não detalhe escondido). Ordem garantida dentro de um stream (por domínio), não entre streams diferentes.
+Transporte: Valkey Streams (já decidido). Envelope de mensagem: **CloudEvents** (spec CNCF: `id`, `source`, `type`, `time`, `data`, `specversion`) em vez de formato próprio — mesmo princípio de adotar padrão existente do RFC 9457/W3C Trace Context. Garantia de entrega real do Valkey Streams: **at-least-once** via consumer groups — todo handler de `events.consumes` no manifest precisa ser **idempotente** por design (regra documentada, não detalhe escondido). Ordem garantida dentro de um stream (por domínio), não entre streams diferentes.
 
 ### Config Externalizada
 
@@ -164,9 +168,9 @@ MVP: env vars + `.env`, validado e tipado no startup (falha rápido se config es
 
 ## Backlog do `Tecton.md` — Bloco B: resiliência e operação (fechado em 2026-08-13)
 
-**Circuit Breaker/Retry/Timeout/Bulkhead**: não moram no gateway (proibido no Bloco A) — moram no `ServiceClient` gerado a partir de `dependencies` no manifest, usado quando um domínio chama outro sincronamente (exceção — o padrão é evento via CloudEvents/Redis Streams). Retry+timeout são MVP: retry só em ação idempotente por natureza (leitura) ou mutação com `Idempotency-Key` explícito no header (mesmo padrão da API da Stripe) — nunca retry cego. Circuit breaker e bulkhead ficam roadmap, como middleware plugável no `ServiceClient` — candidato de biblioteca real: `opossum` (circuit breaker maduro para Node).
+**Circuit Breaker/Retry/Timeout/Bulkhead**: não moram no gateway (proibido no Bloco A) — moram no `ServiceClient` gerado a partir de `dependencies` no manifest, usado quando um domínio chama outro sincronamente (exceção — o padrão é evento via CloudEvents/Valkey Streams). Retry+timeout são MVP: retry só em ação idempotente por natureza (leitura) ou mutação com `Idempotency-Key` explícito no header (mesmo padrão da API da Stripe) — nunca retry cego. Circuit breaker e bulkhead ficam roadmap, como middleware plugável no `ServiceClient` — candidato de biblioteca real: `opossum` (circuit breaker maduro para Node).
 
-**Health Checks**: MVP, `/health`, `/ready`, `/live` gerados automaticamente por serviço — mesma convenção das probes de liveness/readiness do Kubernetes, então quando o roadmap de k8s chegar os endpoints já existem. `/ready` checa dependências reais (banco, Redis); `/live` só confirma o processo de pé.
+**Health Checks**: MVP, `/health`, `/ready`, `/live` gerados automaticamente por serviço — mesma convenção das probes de liveness/readiness do Kubernetes, então quando o roadmap de k8s chegar os endpoints já existem. `/ready` checa dependências reais (banco, Valkey); `/live` só confirma o processo de pé.
 
 **Deploy Independente**: MVP entrega Dockerfile por domínio (seam, gerado junto com `generate domain`). Pipeline de CI/CD com versionamento/release independente por serviço é roadmap — evolução do template GitHub Actions do Bloco A.
 
@@ -188,7 +192,7 @@ MVP: env vars + `.env`, validado e tipado no startup (falha rápido se config es
 
 **AsyncAPI, mecânica exata**: sem plugin único dominante como o Fastify tem pro OpenAPI. O `events` do manifest (já em envelope CloudEvents) é transformado direto num documento AsyncAPI, validado com `@asyncapi/parser`. Menos automático que o OpenAPI, ainda barato.
 
-**Dev Services**: `docker-compose.dev.yml` gerado por `tecton-admin new` (Redis + banco escolhido) — simples e transparente, sem mágica escondida.
+**Dev Services**: `docker-compose.dev.yml` gerado por `tecton-admin new` (Valkey + banco escolhido) — simples e transparente, sem mágica escondida.
 
 **Testes/CI (contexto diferente de Dev Services)**: **Testcontainers** (`testcontainers` no npm) — containers efêmeros descartados ao final de cada execução, para isolamento real de `test:contracts`/CI. Um é conveniência de loop de dev; o outro é isolamento de teste — ferramentas certas pros propósitos certos, não a mesma peça reaproveitada por preguiça.
 
@@ -218,7 +222,7 @@ Princípio adicionado como Constitution §9 (renumerando "Open source, sem press
 
 ## Estado ao final da sessão de 2026-08-11
 
-Lista de discussão do dia **fechada por completo**: identidade do projeto (microsserviços por domínio, não monólito/Aether), objetivos, dois casos de uso, princípio "encaixe agora, dor depois", manifest declarativo v0 (com `objectClass` opcional e `approval`), core de objeto/diretório (Closure Table, ACL aditivo simples), domínios embutidos (Tenant, Usuário/Grupo, Custodiante), auth (`AuthProvider`, `TokenRevocationStore` Redis-backed), ORM (Prisma), CLI v0 (`tecton-admin`), `WorkflowEngineProvider` (roadmap, candidato Temporal), MCP por domínio (roadmap, zero MVP), migração assistida Caso 1 (`extract`), formato de resposta/erro de API (RFC 9457 + Trace Context), e o protocolo de sincronização com o Aether (funcionando de verdade — já recebeu e aplicou uma crítica real). Elenco da sessão salvo como party reutilizável (`tecton-foundation`).
+Lista de discussão do dia **fechada por completo**: identidade do projeto (microsserviços por domínio, não monólito/Aether), objetivos, dois casos de uso, princípio "encaixe agora, dor depois", manifest declarativo v0 (com `objectClass` opcional e `approval`), core de objeto/diretório (Closure Table, ACL aditivo simples), domínios embutidos (Tenant, Usuário/Grupo, Custodiante), auth (`AuthProvider`, `TokenRevocationStore` Valkey-backed), ORM (Prisma), CLI v0 (`tecton-admin`), `WorkflowEngineProvider` (roadmap, candidato Temporal), MCP por domínio (roadmap, zero MVP), migração assistida Caso 1 (`extract`), formato de resposta/erro de API (RFC 9457 + Trace Context), e o protocolo de sincronização com o Aether (funcionando de verdade — já recebeu e aplicou uma crítica real). Elenco da sessão salvo como party reutilizável (`tecton-foundation`).
 
 **Próximo passo natural**: não há mais item pendente da lista original — decidir se a sessão continua garimpando o restante do backlog do `Tecton.md` (resiliência avançada, deploy independente, etc.) ou avança para os workflows formais do BMAD Method (PRD/Arquitetura) a partir deste brief.
 

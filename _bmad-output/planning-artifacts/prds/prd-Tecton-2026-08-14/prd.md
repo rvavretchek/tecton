@@ -46,7 +46,7 @@ O manifest é também o contrato que um agente de IA lê antes de alterar um ser
 - **Manifest** (`tecton.yaml`) — arquivo declarativo por domínio (YAML, `manifestVersion` próprio) que declara `objectClass` (opcional), `actions`, `events`, `dependencies`. Fonte única de verdade; gera conectores de mensageria, OpenAPI/AsyncAPI, e é o artefato que um agente de IA lê antes de alterar o domínio.
 - **ObjectClass** — declaração opcional no manifest que torna um domínio um objeto gerenciável no Core de Diretório (containment + ACL herdável). Só Tenant, Usuário/Grupo e Custodiante têm.
 - **Action** — uma capacidade exposta por um domínio (input/output tipados no manifest); pode ser `sensitive` (exige quórum do Custodiante) ou ter `approval` (aprovação simples de negócio).
-- **Event** — mensagem publicada/consumida entre domínios, envelope CloudEvents, transportada via Redis Streams (MVP), entrega at-least-once.
+- **Event** — mensagem publicada/consumida entre domínios, envelope CloudEvents, transportada via Valkey Streams (MVP), entrega at-least-once.
 - **Quórum** — número mínimo de Custodiantes que precisam aprovar uma ação sensível (configurável, ex. 3/5).
 - **Custodiante** — domínio embutido de custódia de chave de criptografia por limiar; guarda fragmento de chave do tenant, aprova ações sensíveis.
 - **Core de Diretório** — subsistema genérico de objeto/hierarquia do framework (persistido em Closure Table), com ACL por herança aditiva simples, gestão por *drag-and-drop*. Todo domínio-objeto é uma classe declarada nele.
@@ -88,7 +88,7 @@ Dev declara `actions` com `input`/`output` tipados; pode marcar `sensitive.quoru
 - Action pode declarar `idempotent: true` quando é idempotente por natureza (leitura, ou mutação já idempotente por design, ex. upsert); o `ServiceClient` (FR-26) usa essa declaração para decidir retry automático, além do caminho explícito via `Idempotency-Key`.
 
 #### FR-4: Events publicados/consumidos
-Dev declara `events.publishes`/`events.consumes` com schema por evento; framework gera o conector de mensageria (Redis Streams, envelope CloudEvents) automaticamente.
+Dev declara `events.publishes`/`events.consumes` com schema por evento; framework gera o conector de mensageria (Valkey Streams, envelope CloudEvents) automaticamente.
 
 **Consequences (testable):**
 - Nenhum código de integração de broker é escrito manualmente pelo dev para um evento declarado no manifest.
@@ -186,11 +186,11 @@ Todo serviço de domínio verifica a assinatura do token recebido por conta pró
 - Toda chamada serviço-a-serviço (não só gateway→serviço) carrega uma credencial verificável.
 
 #### FR-14: Revogação de token via TokenRevocationStore
-Framework fornece `TokenRevocationStore` com implementação Redis-backed real no MVP (não interface vazia).
+Framework fornece `TokenRevocationStore` com implementação Valkey-backed real no MVP (não interface vazia).
 
 **Consequences (testable):**
-- Revogar um token o torna inválido em requisições subsequentes em até o tempo de propagação do Redis, sem esperar expiração natural do JWT.
-- Se o Redis do `TokenRevocationStore` estiver inacessível no momento da checagem, o serviço trata como falha e rejeita a requisição (fail closed) — nunca assume "não revogado" sem conseguir verificar, consistente com Zero Trust (Constitution §9).
+- Revogar um token o torna inválido em requisições subsequentes em até o tempo de propagação do Valkey, sem esperar expiração natural do JWT.
+- Se o Valkey do `TokenRevocationStore` estiver inacessível no momento da checagem, o serviço trata como falha e rejeita a requisição (fail closed) — nunca assume "não revogado" sem conseguir verificar, consistente com Zero Trust (Constitution §9).
 
 **Feature-specific NFRs:**
 - Toda comunicação leste-oeste (serviço-a-serviço) segue Constitution §9 (Zero Trust) — verificação própria obrigatória, sem exceção por "ambiente de confiança".
@@ -202,7 +202,7 @@ Framework fornece `TokenRevocationStore` com implementação Redis-backed real n
 **Functional Requirements:**
 
 #### FR-15: Comandos essenciais do ciclo de vida
-`tecton-admin new <projeto>` (scaffold do workspace), `generate <tipo> <nome...>` (variádico, aceita múltiplos nomes ou `--from <arquivo>` para lote), `dev` (sobe gateway+domínios+Redis com live reload via `tsx watch`/`turbo run dev`), `migrate` (roda migrations Prisma).
+`tecton-admin new <projeto>` (scaffold do workspace), `generate <tipo> <nome...>` (variádico, aceita múltiplos nomes ou `--from <arquivo>` para lote), `dev` (sobe gateway+domínios+Valkey com live reload via `tsx watch`/`turbo run dev`), `migrate` (roda migrations Prisma).
 
 **Consequences (testable):**
 - `tecton-admin generate domain financeiro materiais comercial` cria os três domínios numa chamada.
@@ -240,11 +240,11 @@ CLI roda testes de contrato gerados dos dois lados do manifest (publisher vs. `o
 **Functional Requirements:**
 
 #### FR-19: Gateway fino com responsabilidades proibidas
-Gateway roteia (a partir do manifest), valida token, aplica rate limiting (Redis) e propaga `traceparent`. **Nunca** faz circuit breaker, retry automático em mutação, cache de resposta, transformação de payload, agregação de múltiplos serviços, ou autorização por regra de negócio.
+Gateway roteia (a partir do manifest), valida token, aplica rate limiting (Valkey) e propaga `traceparent`. **Nunca** faz circuit breaker, retry automático em mutação, cache de resposta, transformação de payload, agregação de múltiplos serviços, ou autorização por regra de negócio.
 
 **Consequences (testable):**
 - `tecton-admin lint:gateway` falha se o pacote do gateway importar uma dependência de circuit breaker, cache, ou qualquer pacote de domínio específico.
-- Se o Redis do rate limiting estiver inacessível, o gateway falha aberto (deixa passar, com aviso de log) em vez de recusar todo tráfego — postura diferente do fail-closed de autenticação (FR-13/FR-14): rate limiting é proteção de recurso, não fronteira de segurança Zero Trust.
+- Se o Valkey do rate limiting estiver inacessível, o gateway falha aberto (deixa passar, com aviso de log) em vez de recusar todo tráfego — postura diferente do fail-closed de autenticação (FR-13/FR-14): rate limiting é proteção de recurso, não fronteira de segurança Zero Trust.
 
 #### FR-20: Service Discovery estático
 Cada domínio expõe seu endereço via variável de ambiente gerada (`TECTON_SERVICE_<DOMÍNIO>_URL`); sem descoberta dinâmica em runtime no MVP. Resolução de endereço fica atrás de uma interface `ServiceDiscoveryProvider` prevista desde já, para que descoberta dinâmica via DNS nativo do Kubernetes (roadmap) troque a implementação sem exigir mudança no código de domínio que a consome.
@@ -252,8 +252,8 @@ Cada domínio expõe seu endereço via variável de ambiente gerada (`TECTON_SER
 **Consequences (testable):**
 - `tecton-admin new`/`generate domain` gera a variável correspondente automaticamente.
 
-#### FR-21: Comunicação assíncrona via CloudEvents sobre Redis Streams
-Eventos entre domínios usam envelope CloudEvents, transportados por Redis Streams com garantia at-least-once. Como qualquer tráfego serviço-a-serviço, publicar/consumir evento carrega credencial verificável — Zero Trust (Constitution §9) não é exceção pra tráfego assíncrono.
+#### FR-21: Comunicação assíncrona via CloudEvents sobre Valkey Streams
+Eventos entre domínios usam envelope CloudEvents, transportados por Valkey Streams com garantia at-least-once. Como qualquer tráfego serviço-a-serviço, publicar/consumir evento carrega credencial verificável — Zero Trust (Constitution §9) não é exceção pra tráfego assíncrono.
 
 **Consequences (testable):**
 - Handler de evento gerado a partir de `events.consumes` é idempotente por design (chave de deduplicação) — reprocessar o mesmo evento não duplica efeito.
@@ -318,7 +318,7 @@ Chamada síncrona direta entre domínios (declarada em `dependencies`) usa um `S
 Todo serviço expõe `/health`, `/ready`, `/live` automaticamente, seguindo a convenção de probes do Kubernetes.
 
 **Consequences (testable):**
-- `/ready` retorna não-saudável se uma dependência real (banco, Redis) estiver inacessível.
+- `/ready` retorna não-saudável se uma dependência real (banco, Valkey) estiver inacessível.
 - `/live` responde independente do estado das dependências — só confirma o processo de pé.
 
 #### FR-28: Dockerfile por domínio
@@ -353,7 +353,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 **Functional Requirements:**
 
 #### FR-30: Dev Services
-`tecton-admin new` gera um `docker-compose.dev.yml` com a infra de desenvolvimento (Redis + banco escolhido), sem exigir setup manual.
+`tecton-admin new` gera um `docker-compose.dev.yml` com a infra de desenvolvimento (Valkey + banco escolhido), sem exigir setup manual.
 
 **Consequences (testable):**
 - Subir `docker-compose.dev.yml` deixa o ambiente pronto para `tecton-admin dev` sem passo adicional de infraestrutura.
@@ -382,9 +382,9 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **Manifest declarativo** (FR-1 a FR-5): declaração de domínio, `objectClass` opcional, actions tipadas com `sensitive`/`approval`, events publicados/consumidos, geração automática de OpenAPI/AsyncAPI.
 - **Core de Diretório Hierárquico** (FR-6 a FR-8): Closure Table via Prisma, ACL por herança aditiva simples, navegação e edição de objetos via formulário gerado — sem *drag-and-drop*.
 - **Domínios embutidos** (FR-9 a FR-11): Tenant, Usuário/Grupo completos; Custodiante como interface (`KeyCustodyProvider`) e conceito `sensitive.quorum`, sem implementação real de custódia.
-- **Autenticação e Zero Trust** (FR-12 a FR-14): `AuthProvider` (Argon2id + Pepper, JWT + refresh confinado), verificação independente de assinatura por serviço, `TokenRevocationStore` Redis-backed real.
+- **Autenticação e Zero Trust** (FR-12 a FR-14): `AuthProvider` (Argon2id + Pepper, JWT + refresh confinado), verificação independente de assinatura por serviço, `TokenRevocationStore` Valkey-backed real.
 - **CLI `tecton-admin`** (FR-15 a FR-18): `new`, `generate` (variádico/`--from`), `dev`, `migrate`, `extract` (Caso 1, corte único), família `lint` (`lint:gateway` + aviso de `sensitive.quorum` sem provider), `test:contracts`.
-- **Interoperabilidade** (FR-19 a FR-22): gateway fino com responsabilidades proibidas explícitas, service discovery estático por variável de ambiente, CloudEvents sobre Redis Streams (at-least-once), `ConfigProvider` tipado com fail-fast no startup.
+- **Interoperabilidade** (FR-19 a FR-22): gateway fino com responsabilidades proibidas explícitas, service discovery estático por variável de ambiente, CloudEvents sobre Valkey Streams (at-least-once), `ConfigProvider` tipado com fail-fast no startup.
 - **Formato de resposta de API** (FR-23 a FR-25): sucesso sem envelope + `traceparent`, erro RFC 9457 + `invalid-params`, pendente como `202 Accepted` dedicado.
 - **Resiliência e operação** (FR-26 a FR-28): `ServiceClient` com retry/timeout seguro (nunca retry cego), health checks `/health`/`/ready`/`/live` por serviço, Dockerfile por domínio.
 - **Evolução de contrato** (FR-29): postura aditiva por padrão no manifest.
