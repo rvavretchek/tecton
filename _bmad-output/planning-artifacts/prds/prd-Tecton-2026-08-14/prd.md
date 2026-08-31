@@ -2,7 +2,7 @@
 title: PRD — Tecton
 status: final
 created: 2026-08-14
-updated: 2026-08-28
+updated: 2026-08-31
 ---
 
 # PRD: Tecton
@@ -54,6 +54,7 @@ O manifest é também o contrato que um agente de IA lê antes de alterar um ser
 - **`tecton-admin`** — CLI única do framework (`new`, `generate`, `dev`, `migrate`, `extract`, `test:contracts`, `mcp:serve`).
 - **Provider** (`AuthProvider`, `KeyCustodyProvider`, `TokenRevocationStore`, `ServiceDiscoveryProvider`, `ConfigProvider`, `WorkflowEngineProvider`) — interface de extensão plugável, nome sem prefixo de projeto, com implementação leve no MVP e integração com ferramenta madura como opção de roadmap.
 - **Strangler Fig** — padrão de migração incremental (Martin Fowler) usado por `tecton-admin extract`: serviço novo nasce ao lado do monólito, tráfego migra por trás de uma fachada de roteamento no gateway.
+- **i18nKey** — campo de extensão no corpo de erro RFC 9457 (FR-24) e nas mensagens de UI (FR-8) que identifica a mensagem de forma neutra de idioma, pra lookup de tradução do lado do cliente; `title`/`detail` continuam o texto já negociado por `Accept-Language`.
 
 ## 4. Features
 
@@ -130,6 +131,7 @@ Dev/usuário final navega a árvore de objetos (somente leitura de estrutura, se
 **Consequences (testable):**
 - Reordenar/mover um objeto na árvore via UI **não** está disponível no MVP — só leitura da hierarquia.
 - Formulário de edição reflete automaticamente qualquer novo atributo adicionado ao `objectClass` sem código de UI escrito à mão.
+- Labels e mensagens de validação do formulário gerado são multi-idioma (decisão de Arquitetura, 2026-08-28): PT-BR como padrão, EN como secundário, mesma infraestrutura de i18n da FR-24.
 
 **Out of Scope:**
 - Mover objeto por *drag-and-drop* na UI — roadmap (ver `docs/aether-tecton-compatibility.md`).
@@ -283,11 +285,12 @@ Resposta de sucesso é o `output` do manifest, sem envelope; correlação via he
 - Corpo de uma resposta de sucesso nunca contém campo de metadado (`requestId`, `meta`, etc.) — só o payload declarado.
 
 #### FR-24: Erro como RFC 9457 Problem Details
-Toda resposta de erro segue RFC 9457 (`type`/`title`/`status`/`detail`/`instance`), com extensão `invalid-params` para erro de validação de campo.
+Toda resposta de erro segue RFC 9457 (`type`/`title`/`status`/`detail`/`instance`), com extensão `invalid-params` para erro de validação de campo. `title`/`detail` são multi-idioma (decisão de Arquitetura, 2026-08-28): `type` continua uma URI estável neutra de idioma; `title`/`detail` são negociados por `Accept-Language`, com extensão `i18nKey` para lookup de máquina — framework entrega PT-BR (padrão) e EN (secundário) para os erros que ele mesmo gera, e disponibiliza a mesma infraestrutura de i18n para erros de actions de domínios de terceiros, sem obrigar tradução do código do dev.
 
 **Consequences (testable):**
 - Erro de validação de `input` de uma action retorna `invalid-params` listando cada campo inválido e a razão.
 - Erro de autorização negada, recurso não encontrado, ou erro interno também retorna o formato base RFC 9457 (`type`/`title`/`status`/`detail`/`instance`), sem o campo `invalid-params` — exclusivo de erro de validação de input.
+- Um erro do framework (ex.: token inválido, validação de manifest) sem `Accept-Language` reconhecido retorna `title`/`detail` em Português do Brasil por padrão, nunca falha por falta de locale.
 
 #### FR-25: Estado pendente como 202 Accepted dedicado
 Ação `sensitive.quorum`/`approval` pendente retorna `202 Accepted` com `{ status: "pending_approval", requestId, pollUrl }` — nunca usa o formato de erro. Aplica-se apenas quando existe aprovação real pendente — quórum com `KeyCustodyProvider` configurado, ou `approval` de negócio (que nunca depende de provider); sem provider configurado, `sensitive.quorum` segue a FR-11 (executa normalmente com aviso), não este fluxo.
@@ -386,6 +389,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **CLI `tecton-admin`** (FR-15 a FR-18): `new`, `generate` (variádico/`--from`), `dev`, `migrate`, `extract` (Caso 1, corte único), família `lint` (`lint:gateway` + aviso de `sensitive.quorum` sem provider), `test:contracts`.
 - **Interoperabilidade** (FR-19 a FR-22): gateway fino com responsabilidades proibidas explícitas, service discovery estático por variável de ambiente, CloudEvents sobre Valkey Streams (at-least-once), `ConfigProvider` tipado com fail-fast no startup.
 - **Formato de resposta de API** (FR-23 a FR-25): sucesso sem envelope + `traceparent`, erro RFC 9457 + `invalid-params`, pendente como `202 Accepted` dedicado.
+- **i18n de superfícies expostas ao usuário final** (FR-8, FR-24): PT-BR padrão + EN secundário via `Accept-Language`/`i18nKey`, infraestrutura extensível pelo dev — nunca obrigatório para código de domínio de terceiros.
 - **Resiliência e operação** (FR-26 a FR-28): `ServiceClient` com retry/timeout seguro (nunca retry cego), health checks `/health`/`/ready`/`/live` por serviço, Dockerfile por domínio.
 - **Evolução de contrato** (FR-29): postura aditiva por padrão no manifest.
 - **Developer Experience** (FR-30 a FR-31): Dev Services via `docker-compose.dev.yml`, Testcontainers para isolamento de `test:contracts`/CI.

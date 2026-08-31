@@ -37,7 +37,11 @@ O framework nunca reimplementa primitivos criptográficos (ex.: secret sharing p
 
 ## 8. Idioma
 
-Toda conversa e documentação de planejamento do projeto (specs, PRDs, ADRs, artefatos BMAD) em Português do Brasil. **Todo código e todo artefato gerado** — identificadores, comentários no código, mensagens de log/erro, texto de ajuda de CLI, documentação gerada automaticamente (ex.: OpenAPI/AsyncAPI a partir do manifest), nomes de arquivo de código — em inglês, sem exceção, quando a implementação começar. O corte não é "identificador vs. resto do código": é documentação de planejamento vs. qualquer coisa que vira parte do repositório de código/artefato entregável.
+Três eixos, não dois:
+
+1. **Conversa e documentação de planejamento** do projeto (specs, PRDs, ADRs, artefatos BMAD) — Português do Brasil.
+2. **Código e toda superfície voltada a dev/agente de IA** — identificadores, comentários no código, texto de ajuda de CLI (`tecton-admin --help` e saída de terminal), logs internos/de operação, documentação gerada automaticamente (ex.: OpenAPI/AsyncAPI a partir do manifest), nomes de arquivo de código — em inglês, sem exceção, quando a implementação começar. O corte não é "identificador vs. resto do código": é documentação de planejamento vs. qualquer coisa que vira parte do repositório de código/artefato entregável.
+3. **Mensagens e superfícies expostas ao usuário final de um sistema construído com o Tecton** (corpo de erro RFC 9457 `title`/`detail` retornado ao cliente, UI gerada — formulários, telas do Directory Service) — multi-idioma: o framework entrega Português do Brasil como padrão e inglês como secundário nas próprias superfícies (Directory Service, boilerplate de erro), e fornece a infraestrutura de i18n (catálogo de mensagens, negociação por `Accept-Language`) para que o dev que usa o framework estenda a domínios e idiomas próprios — nunca é obrigatório para código de domínio de terceiros, só possível.
 
 ## 9. Zero Trust na comunicação interna
 
