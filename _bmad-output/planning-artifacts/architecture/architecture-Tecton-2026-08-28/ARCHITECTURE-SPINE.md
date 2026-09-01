@@ -5,7 +5,7 @@ purpose: build-substrate
 altitude: initiative
 paradigm: 'DOMA (Domain-Oriented Microservice Architecture) + Hexagonal/Ports-and-Adapters per service'
 scope: 'Framework Tecton MVP completo — todas as 10 features do PRD (§4), FR-1 a FR-31'
-status: draft
+status: final
 created: '2026-08-28'
 updated: '2026-08-31'
 binds: ['FR-1..FR-31']
