@@ -15,7 +15,7 @@ sources:
   - '_bmad-output/planning-artifacts/briefs/brief-Tecton-2026-08-10/brief.md'
   - '_bmad-output/planning-artifacts/briefs/brief-Tecton-2026-08-10/addendum.md'
   - 'CONSTITUTION.md'
-companions: []
+companions: ['UML.md']
 ---
 
 # Architecture Spine — Tecton
@@ -110,7 +110,7 @@ graph TD
 
 | Concern | Convention |
 | --- | --- |
-| Naming (pacotes, arquivos) | Pacotes `@tecton/<nome>` kebab-case; pastas de domínio `domains/<nome>` kebab-case; classes TS `PascalCase`, funções/variáveis `camelCase`, arquivos `kebab-case` — convenção padrão do ecossistema Node/TS, sem invenção própria |
+| Naming (pacotes, arquivos) | Pacotes `@tecton/<nome>` kebab-case; pastas de domínio `domains/<nome>` kebab-case; classes TS `PascalCase`, funções/variáveis `camelCase`, arquivos `kebab-case` — convenção padrão do ecossistema Node/TS, sem invenção própria. Todo identificador em **inglês**, sem exceção (Constitution §8, eixo 2) — mesmo quando o `<nome>` do domínio em si vem de um conceito de negócio em português. |
 | Naming (eventos) | `type` do CloudEvents em reverse-DNS: `com.tecton.<domínio>.<evento>` (ex.: `com.tecton.tenant.exported`) |
 | Data & formats (ids) | UUID v7 (AD-5) |
 | Data & formats (datas) | ISO 8601 em UTC, sem exceção |
@@ -135,6 +135,7 @@ graph TD
 | React | 19.x — **verificar patch exato no início da implementação** (ecossistema muda rápido, não travar agora) |
 | OpenTelemetry | SDK Node atual, instrumentação automática de Fastify/Prisma — observabilidade distribuída já é escopo do MVP (PRD §6.1) |
 | Awilix | container de DI/IoC leve por serviço (PRD §6.1) — resolve Providers como dependências injetadas, não singletons globais |
+| Testcontainers | isolamento de `test:contracts`/CI (FR-31) — containers efêmeros descartados por execução, contexto diferente do Dev Services (FR-30) |
 | PostgreSQL / MySQL / MS-SQL | conforme escolha do dev, via Prisma |
 
 ## Structural Seed
@@ -164,19 +165,21 @@ tecton/                          # repositório do próprio framework (pnpm work
 ```mermaid
 graph TB
     Client["Cliente"] --> Gateway["Gateway<br/>(FR-19, fino, sem lógica de negócio)"]
-    Gateway --> Directory["Directory Service<br/>(Tenant + Usuário/Grupo + Custodiante)"]
-    Gateway --> DomainA["Domínio de negócio A"]
-    Gateway --> DomainB["Domínio de negócio B"]
-    DomainA -->|ServiceClient, sync, exceção| DomainB
+    Gateway -->|credencial verificável,<br/>Directory verifica ele mesmo — AD-7| Directory["Directory Service<br/>(Tenant + Usuário/Grupo + Custodiante)"]
+    Gateway -->|credencial verificável,<br/>A verifica ele mesmo — AD-7| DomainA["Domínio de negócio A"]
+    Gateway -->|credencial verificável,<br/>B verifica ele mesmo — AD-7| DomainB["Domínio de negócio B"]
+    DomainA -->|ServiceClient, sync, exceção,<br/>credencial verificável — AD-7/AD-9| DomainB
     DomainA -->|events.publishes| Valkey["Valkey Streams<br/>(CloudEvents, at-least-once)"]
-    DomainB -->|events.consumes| Valkey
+    DomainB -->|events.consumes,<br/>verifica credencial do publisher — AD-7| Valkey
     Directory -->|events.publishes| Valkey
     Directory --> DirDB[("Banco do Directory Service")]
     DomainA --> DBA[("Banco de A")]
     DomainB --> DBB[("Banco de B")]
     Gateway -.->|rate limit, fail-open| Valkey
-    Gateway -.->|valida token| AuthSvc["Serviço de Auth<br/>(AuthProvider)"]
+    Gateway -->|valida token,<br/>mas isso não dispensa cada<br/>serviço de verificar de novo — AD-7| AuthSvc["Serviço de Auth<br/>(AuthProvider)"]
 ```
+
+*Nenhuma seta acima é "confiar" — toda seta rotulada com AD-7 significa que o serviço de destino verifica a credencial por conta própria, mesmo que o Gateway já tenha validado antes. A validação do Gateway é a primeira linha, não a única (FR-13).*
 
 ## Capability → Architecture Map
 
