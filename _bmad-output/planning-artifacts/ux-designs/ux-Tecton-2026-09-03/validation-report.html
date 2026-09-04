@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>UX Design Validation: Tecton Directory Service Admin</title>
+<style>
+  :root {
+    --bg: #fafaf9;
+    --surface: #ffffff;
+    --border: #e7e5e4;
+    --text: #1c1917;
+    --muted: #78716c;
+
+    --verdict-strong: #16a34a;
+    --verdict-adequate: #65a30d;
+    --verdict-thin: #d97706;
+    --verdict-broken: #dc2626;
+
+    --sev-low: #64748b;
+    --sev-medium: #ca8a04;
+    --sev-high: #ea580c;
+    --sev-critical: #dc2626;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    font-size: 15px;
+  }
+  .container { max-width: 960px; margin: 0 auto; padding: 32px 24px 64px; }
+
+  header.report-header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 24px;
+  }
+  .title h1 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .title .subtitle { color: var(--muted); font-size: 13px; margin-top: 4px; font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+
+  .synthesis {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--muted);
+    border-radius: 8px;
+    padding: 18px 22px;
+    margin-bottom: 24px;
+    font-size: 15.5px;
+  }
+  .synthesis p { margin: 0 0 10px; }
+  .synthesis p:last-child { margin-bottom: 0; }
+
+  .dimension-summary {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 10px;
+    margin-bottom: 24px;
+  }
+  .dim-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+  }
+  .dim-card .dim-name { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+  .dim-card .dim-verdict { font-size: 14px; font-weight: 600; }
+
+  section.dimension, section.reviewer-section { margin-bottom: 14px; }
+  section.dimension details, section.reviewer-section details {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  section summary {
+    padding: 14px 20px;
+    cursor: pointer;
+    user-select: none;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  section summary::-webkit-details-marker { display: none; }
+  section summary::before {
+    content: "▸";
+    display: inline-block;
+    color: var(--muted);
+    transition: transform 0.15s ease;
+  }
+  section details[open] summary::before { transform: rotate(90deg); }
+  section summary h2 {
+    display: inline;
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: -0.005em;
+    flex: 1;
+  }
+  .verdict-pill {
+    font-size: 11px;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: white;
+  }
+  .verdict-strong { background: var(--verdict-strong); }
+  .verdict-adequate { background: var(--verdict-adequate); }
+  .verdict-thin { background: var(--verdict-thin); }
+  .verdict-broken { background: var(--verdict-broken); }
+
+  .dim-body { padding: 4px 20px 18px; }
+  .dim-judgment { color: var(--text); font-size: 14.5px; }
+  .dim-judgment p { margin: 0 0 10px; }
+
+  .findings-list { padding: 0 20px 4px; }
+  article.finding {
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  article.finding:first-child { border-top: none; }
+  article.finding header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+  }
+  .badge {
+    font-size: 10.5px;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    line-height: 1.4;
+  }
+  .badge-sev-low { background: rgba(100, 116, 139, 0.12); color: var(--sev-low); }
+  .badge-sev-medium { background: rgba(202, 138, 4, 0.14); color: var(--sev-medium); }
+  .badge-sev-high { background: rgba(234, 88, 12, 0.14); color: var(--sev-high); }
+  .badge-sev-critical { background: rgba(220, 38, 38, 0.14); color: var(--sev-critical); }
+  .finding-title { margin: 0; font-size: 15px; font-weight: 500; flex: 1; min-width: 200px; }
+  .finding-location { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12.5px; color: var(--muted); }
+  .finding-note, .finding-fix { margin-top: 6px; font-size: 14px; }
+  .finding-fix strong { color: var(--muted); font-weight: 500; }
+
+  .reviewer-source {
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+
+  .mechanical {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px 20px;
+    margin-top: 24px;
+    font-size: 14px;
+  }
+  .mechanical h3 { margin: 0 0 10px; font-size: 14px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .mechanical ul { margin: 0; padding-left: 20px; }
+  .mechanical li { margin-bottom: 4px; color: var(--text); }
+
+  footer.report-footer {
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--muted);
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  footer .meta { display: flex; gap: 24px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+  <div class="container">
+
+    <header class="report-header">
+      <div class="title">
+        <h1>Tecton Directory Service Admin — UX Design Validation Report</h1>
+        <div class="subtitle">_bmad-output/planning-artifacts/ux-designs/ux-Tecton-2026-09-03/{DESIGN,EXPERIENCE}.md</div>
+      </div>
+    </header>
+
+    <div class="synthesis">
+      <p>Par de spines coerente e de escopo propositalmente pequeno (só a experiência do Directory Service, per Sprint Change Proposal de 2026-09-02). Duas quebras mecânicas de referência de token e um padrão ARIA incompleto foram achados e corrigidos durante esta própria passada de revisão — nenhum achado sobrevive sem correção.</p>
+      <p>A lente de acessibilidade confirma, por cálculo direto de contraste, que a paleta default (Camada 0 da AD-10) sustenta a meta WCAG 2.2 AA declarada em todas as combinações carregadas de texto/UI, com <code>muted-foreground</code> na margem mais estreita (5.33:1 contra o limiar de 4.5:1) mas ainda dentro do padrão.</p>
+    </div>
+
+    <div class="dimension-summary">
+      <div class="dim-card"><div class="dim-name">1. Flow coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">2. Token completeness</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">3. Component coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">4. State coverage</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+      <div class="dim-card"><div class="dim-name">5. Visual reference coverage</div><div class="dim-verdict" style="color: var(--verdict-adequate)">Adequate</div></div>
+      <div class="dim-card"><div class="dim-name">6. Bloat &amp; overspecification</div><div class="dim-verdict" style="color: var(--verdict-adequate)">Adequate</div></div>
+      <div class="dim-card"><div class="dim-name">7. Inheritance discipline</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong (após correção)</div></div>
+      <div class="dim-card"><div class="dim-name">8. Shape fit</div><div class="dim-verdict" style="color: var(--verdict-strong)">Strong</div></div>
+    </div>
+
+    <section class="dimension">
+      <details>
+        <summary><h2>1. Flow coverage</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Fontes (Architecture Spine, UML, PRD, Sprint Change Proposal) não têm UJ nomeada para o admin do Directory Service — UJ-1/2/3 do PRD são dev-facing, fora deste escopo. Marina é protagonista nova desta sessão. Os 2 Key Flows têm protagonista nomeado, passos numerados, clímax e caminho de falha.</p></div></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary><h2>2. Token completeness</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Todos os 8 tokens de <code>colors</code>, 4 de <code>typography</code>, 2 de <code>rounded</code> e 5 de <code>spacing</code> são referenciados por algum componente ou prosa; toda referência <code>{path.to.token}</code> em <code>components</code> resolve contra o frontmatter. Sem hex faltando; par claro/escuro não necessário (modo escuro fora do MVP, decisão registrada).</p></div></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary><h2>3. Component coverage</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Árvore, busca, menu de contexto, painel de detalhe e formulário de atributo têm linha em <code>DESIGN.md.Components</code> (spec visual) e <code>EXPERIENCE.md.Component Patterns</code> (regra comportamental), nomes idênticos nos dois arquivos.</p></div></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary><h2>4. State coverage</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Superfície única (<code>/admin</code>) com 9 estados cobertos: carregando árvore, árvore vazia, nenhuma seleção, busca sem resultado, carregando detalhe, falha ao carregar, erro de validação, falha ao salvar, somente-leitura, nó sem permissão.</p></div></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary><h2>5. Visual reference coverage</h2><span class="verdict-pill verdict-adequate">Adequate</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Wireframe existe e é referenciado pela IA. Mock HTML de tela-chave (<code>mockups/</code>) ainda não gerado — próximo passo do Finalize, não lacuna desta revisão.</p></div></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary><h2>6. Bloat &amp; overspecification</h2><span class="verdict-pill verdict-adequate">Adequate</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>EXPERIENCE.md mantém prosa funcional sem voz editorial. Seção Roadmap é escolha deliberada (registra a visão de longo prazo da Marina sem confundir com escopo MVP), não bloat.</p></div></div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details open>
+        <summary><h2>7. Inheritance discipline</h2><span class="verdict-pill verdict-strong">Strong (após correção)</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Nomes de componente idênticos entre arquivos; <code>sources</code> do frontmatter resolvem todos.</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-low">Low — Fixed</span><h3 class="finding-title">Cross-reference de token em prosa solta, não sintaxe do spec</h3><span class="finding-location">EXPERIENCE.md § Accessibility Floor</span></header>
+            <div class="finding-note"><code>colors.primary</code> citado entre crases em vez de <code>{colors.primary}</code>.</div>
+            <div class="finding-fix"><strong>Fix:</strong> corrigido inline para a sintaxe de cross-reference exigida pelo spec.</div>
+          </article>
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">Medium — Fixed</span><h3 class="finding-title">Consequências testáveis de FR-8 não restated no Component Pattern</h3><span class="finding-location">EXPERIENCE.md § Component Patterns, linha "Formulário de atributo"</span></header>
+            <div class="finding-note">Faltava o requisito de i18n (rótulos/validação multi-idioma, FR-8/FR-24/AD-6) e o "reflete atributo novo sem código escrito à mão" (FR-8).</div>
+            <div class="finding-fix"><strong>Fix:</strong> ambos adicionados à linha do componente.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <section class="dimension">
+      <details>
+        <summary><h2>8. Shape fit</h2><span class="verdict-pill verdict-strong">Strong</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>DESIGN.md: 8 seções canônicas na ordem correta (Elevation &amp; Depth omitida — defensável, tema MVP simples). EXPERIENCE.md: seções obrigatórias presentes; Inspiration &amp; Anti-patterns incluída (referência NDS/AD explícita); Responsive &amp; Platform omitida corretamente (desktop-first sem multi-superfície no MVP).</p></div></div>
+      </details>
+    </section>
+
+    <section class="reviewer-section">
+      <details open>
+        <summary><h2>Accessibility review</h2><span class="reviewer-source">review-accessibility.md</span></summary>
+        <div class="dim-body"><div class="dim-judgment"><p>Adequado, com uma correção aplicada. Contraste calculado (fórmula WCAG) para todas as combinações carregadas de <code>DESIGN.md</code> — nenhuma abaixo do limiar AA. <code>muted-foreground</code> é a margem mais estreita (5.33:1 vs. 4.5:1 exigido).</p></div></div>
+        <div class="findings-list">
+          <article class="finding">
+            <header><span class="badge badge-sev-medium">Medium — Fixed</span><h3 class="finding-title">Padrão ARIA de árvore incompleto — faltava posição entre irmãos</h3><span class="finding-location">EXPERIENCE.md § Accessibility Floor</span></header>
+            <div class="finding-note"><code>aria-expanded</code>/<code>aria-level</code>/<code>aria-selected</code> especificados, mas <code>aria-posinset</code>/<code>aria-setsize</code> ausentes — sem eles o leitor de tela não anuncia "item 3 de 12" numa árvore de profundidade variável.</div>
+            <div class="finding-fix"><strong>Fix:</strong> ambos adicionados à especificação de nó da árvore.</div>
+          </article>
+        </div>
+      </details>
+    </section>
+
+    <div class="mechanical">
+      <h3>Mechanical notes</h3>
+      <ul>
+        <li>Nenhuma referência cruzada quebrada remanescente após as correções acima.</li>
+        <li><code>mockups/</code> ainda vazio — gerado no próximo passo do Finalize (Key-screen mocks), a partir do wireframe já aprovado.</li>
+      </ul>
+    </div>
+
+    <footer class="report-footer">
+      <div class="meta">
+        <span>Rubric: review-rubric.md</span>
+        <span>Generated: 2026-09-04</span>
+      </div>
+    </footer>
+  </div>
+</body>
+</html>

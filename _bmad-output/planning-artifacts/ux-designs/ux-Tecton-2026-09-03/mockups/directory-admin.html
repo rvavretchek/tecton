@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Tecton Directory Admin — /admin (mock)</title>
+<style>
+/*
+  Governed by: EXPERIENCE.md Foundation, Information Architecture, Component
+  Patterns (Árvore de objetos, Busca da árvore, Menu de contexto, Painel de
+  detalhe, Formulário de atributo), State Patterns (nenhuma seleção / seleção
+  ativa / edição). Tokens from DESIGN.md (colors, typography, rounded, spacing).
+  Two canonical states shown side by side: (A) view, (B) edit.
+*/
+:root {
+  --color-background: #FFFFFF;
+  --color-foreground: #1E1E1E;
+  --color-muted: #F4F4F5;
+  --color-muted-foreground: #6B6B6B;
+  --color-border: #D9D9D9;
+  --color-primary: #0F4C81;
+  --color-primary-foreground: #FFFFFF;
+  --color-selected-bg: #DBE9FF;
+  --color-destructive: #B3261E;
+  --font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "Cascadia Code", "SF Mono", Consolas, monospace;
+  --rounded-sm: 4px;
+  --rounded-md: 6px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 40px;
+  background: #E9E9E9;
+  font-family: var(--font-body);
+  color: var(--color-foreground);
+}
+.caption {
+  max-width: 1200px;
+  margin: 0 auto var(--space-4);
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+.frames {
+  display: flex;
+  gap: var(--space-6);
+  max-width: 1200px;
+  margin: 0 auto;
+  flex-wrap: wrap;
+}
+.frame-wrap { flex: 1; min-width: 460px; }
+.frame-label {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+  color: var(--color-muted-foreground);
+}
+.browser-frame {
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--color-background);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+.browser-chrome {
+  background: var(--color-muted);
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+.browser-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--color-border); }
+.browser-url {
+  flex: 1;
+  background: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-sm);
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--color-muted-foreground);
+  font-family: var(--font-mono);
+}
+.app-header {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: 14px;
+  font-weight: 500;
+}
+.app-body { display: flex; height: 420px; }
+.tree-panel {
+  width: 220px;
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+}
+.tree-search {
+  margin: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-sm);
+  font-size: 13px;
+  color: var(--color-muted-foreground);
+}
+.tree-list { padding: 0 var(--space-2); overflow-y: auto; }
+.tree-node {
+  padding: var(--space-1) var(--space-2);
+  font-size: 14px;
+  border-radius: var(--rounded-sm);
+  cursor: default;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tree-node .chevron { color: var(--color-muted-foreground); font-size: 11px; width: 10px; display: inline-block; }
+.tree-node.l1 { padding-left: var(--space-2); }
+.tree-node.l2 { padding-left: calc(var(--space-2) + 16px); }
+.tree-node.l3 { padding-left: calc(var(--space-2) + 32px); }
+.tree-node.selected { background: var(--color-selected-bg); font-weight: 500; }
+.detail-panel { flex: 1; padding: var(--space-4) var(--space-6); overflow-y: auto; }
+.detail-heading { font-size: 20px; font-weight: 600; margin: 0 0 var(--space-3); }
+.detail-divider { border: none; border-top: 1px solid var(--color-border); margin: 0 0 var(--space-3); }
+.attr-row { font-size: 14px; margin-bottom: var(--space-2); }
+.attr-row .label { color: var(--color-muted-foreground); }
+.btn {
+  display: inline-block;
+  border: none;
+  border-radius: var(--rounded-md);
+  font-size: 14px;
+  padding: 8px 16px;
+  cursor: default;
+  font-family: var(--font-body);
+}
+.btn-primary { background: var(--color-primary); color: var(--color-primary-foreground); }
+.btn-secondary { background: var(--color-muted); color: var(--color-foreground); }
+.form-row { margin-bottom: var(--space-4); }
+.form-label { display: block; font-size: 12px; font-weight: 500; color: var(--color-muted-foreground); margin-bottom: var(--space-1); }
+.form-input, .form-textarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--rounded-sm);
+  padding: 8px 10px;
+  font-size: 14px;
+  font-family: var(--font-body);
+  color: var(--color-foreground);
+  background: var(--color-background);
+}
+.form-textarea { min-height: 44px; resize: none; }
+.form-actions { display: flex; gap: var(--space-2); margin-top: var(--space-4); }
+.mono-id { font-family: var(--font-mono); font-size: 12px; color: var(--color-muted-foreground); }
+</style>
+</head>
+<body>
+  <div class="caption">Mock 1:1 — superfície única <code>/admin</code> (EXPERIENCE.md § Information Architecture). Estado (A): objeto selecionado, painel de detalhe em visualização. Estado (B): mesmo objeto, painel de detalhe em edição via formulário gerado (<code>@rjsf/core</code>). Fonte: <code>.working/flow-directory-admin-2026-09-03.excalidraw</code>.</div>
+  <div class="frames">
+
+    <div class="frame-wrap">
+      <div class="frame-label">(A) Navegar e visualizar</div>
+      <div class="browser-frame">
+        <div class="browser-chrome">
+          <span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span>
+          <div class="browser-url">acme-corp.tecton.app/admin</div>
+        </div>
+        <div class="app-header">Tecton — Directory Admin&nbsp;&nbsp;▸&nbsp;&nbsp;Acme Corp</div>
+        <div class="app-body">
+          <div class="tree-panel">
+            <div class="tree-search">Buscar objeto...</div>
+            <div class="tree-list">
+              <div class="tree-node l1"><span class="chevron">▾</span>Tenant: Acme Corp</div>
+              <div class="tree-node l2"><span class="chevron">▾</span>Grupos</div>
+              <div class="tree-node l3"><span class="chevron"> </span>Financeiro</div>
+              <div class="tree-node l3 selected"><span class="chevron"> </span>TI</div>
+              <div class="tree-node l2"><span class="chevron">▸</span>Usuários</div>
+              <div class="tree-node l2"><span class="chevron">▸</span>Custodiantes</div>
+            </div>
+          </div>
+          <div class="detail-panel">
+            <h1 class="detail-heading">Grupo: TI</h1>
+            <hr class="detail-divider">
+            <div class="attr-row"><span class="label">Nome:</span> TI</div>
+            <div class="attr-row"><span class="label">Descrição:</span> Departamento de Tecnologia</div>
+            <div class="attr-row"><span class="label">Membros:</span> 12 usuários</div>
+            <div class="attr-row mono-id">id: 018f2e4a-7b1c-7c3e-9c4a-1e6f2b8a0d3f</div>
+            <div style="margin-top: var(--space-4);">
+              <button class="btn btn-secondary">Editar atributos</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="frame-wrap">
+      <div class="frame-label">(B) Editar atributo</div>
+      <div class="browser-frame">
+        <div class="browser-chrome">
+          <span class="browser-dot"></span><span class="browser-dot"></span><span class="browser-dot"></span>
+          <div class="browser-url">acme-corp.tecton.app/admin</div>
+        </div>
+        <div class="app-header">Tecton — Directory Admin&nbsp;&nbsp;▸&nbsp;&nbsp;Acme Corp</div>
+        <div class="app-body">
+          <div class="tree-panel">
+            <div class="tree-search">Buscar objeto...</div>
+            <div class="tree-list">
+              <div class="tree-node l1"><span class="chevron">▾</span>Tenant: Acme Corp</div>
+              <div class="tree-node l2"><span class="chevron">▾</span>Grupos</div>
+              <div class="tree-node l3 selected"><span class="chevron"> </span>TI</div>
+              <div class="tree-node l2"><span class="chevron">▸</span>Usuários</div>
+              <div class="tree-node l2"><span class="chevron">▸</span>Custodiantes</div>
+            </div>
+          </div>
+          <div class="detail-panel">
+            <h1 class="detail-heading">Grupo: TI — Editando</h1>
+            <hr class="detail-divider">
+            <div class="form-row">
+              <label class="form-label">Nome</label>
+              <input class="form-input" value="TI" readonly>
+            </div>
+            <div class="form-row">
+              <label class="form-label">Descrição</label>
+              <textarea class="form-textarea" readonly>Departamento de Tecnologia</textarea>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-primary">Salvar</button>
+              <button class="btn btn-secondary">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</body>
+</html>
