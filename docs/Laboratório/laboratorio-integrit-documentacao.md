@@ -2015,6 +2015,58 @@ Fluxo feliz completo (`login` com credenciais corretas → access token + cookie
 
 ---
 
+# 46f. Validação real da Story 2.2 (Aether) — 3 achados reais + 1 bug de app real corrigido (2026-09-02)
+
+Contexto: Story 2.2 do Aether (rate limiting no login, `RateLimitHit` Postgres-backed) precisava validar via `curl` real contra o `aether-api` já deployado (seção 46e). Sincronizar o código novo pro host e testar de ponta a ponta revelou 3 problemas reais no próprio processo de deploy/lab, mais um bug real de aplicação nunca antes exercitado.
+
+## Incidente 1: `rsync --delete` apagou `Dockerfile.lab`
+
+```text
+Data: 2026-09-02
+Responsável: agente (Claude Code), a pedido de Ricardo
+Motivo: sincronizar código novo da Story 2.2 pro host
+Arquivo: /opt/aether-app/apps/aether-demo/Dockerfile.lab
+```
+
+**Causa raiz:** `Dockerfile.lab` (seção 46e) não é gerado por `aether-admin new` -- foi criado manualmente na sessão que fez o deploy inicial (46e), então não existe na árvore de arquivos que o gerador produz localmente. Sincronizar via `rsync -a --delete` (espelhando exatamente o diretório gerado localmente pro host) apagou esse arquivo por não existir na origem.
+
+**Correção:** `Dockerfile.lab` recriado à mão, baseado no `docker/Dockerfile.dev` que o próprio `aether-admin new` já gera (mesmo padrão: `node:24-slim`, `corepack enable`, `pnpm install`), mas com `WORKDIR /app/apps/api` + `CMD ["pnpm", "run", "dev"]` no final, pra rodar só a API (não o placeholder `pnpm run dev` da raiz do monorepo, que ainda não existe -- FR-4/Epic 1 Story 3).
+
+**Lição pros outros 3 projetos:** ao sincronizar um diretório gerado por scaffolding pra um deploy que tem arquivos extras não-gerados (Dockerfile específico de lab, `.env`, etc.), **nunca usar `rsync --delete`/espelhamento cego** -- ou excluir explicitamente os arquivos extras (`--exclude`), ou sincronizar só os subdiretórios que o gerador realmente produz.
+
+## Incidente 2: `@prisma/client` "vazio" dentro do container (mesmo achado da Story 2.1, mas no Dockerfile do lab)
+
+`Dockerfile.lab` rodava `pnpm install` mas nunca `prisma generate` -- container subia com `SyntaxError: The requested module '@prisma/client' does not provide an export named 'PrismaClient'`, o mesmo bug já documentado na Story 2.1 (Task 7, correção #2) pro CLI `aether-admin new`, mas que ainda não existia no `Dockerfile.lab` porque ele foi escrito à mão, fora do pipeline do gerador. **Correção:** `RUN pnpm --filter db run generate` adicionado ao `Dockerfile.lab`, depois do `pnpm install`.
+
+## Incidente 3 (bug real de aplicação, não do lab): `server.ts` nunca lia `HOST`, só escutava em `127.0.0.1`
+
+```text
+Data: 2026-09-02
+Motivo: curl de um container separado (mesma rede Docker) pro aether-api retornava
+        "Connection refused", apesar do DNS resolver e do container estar rodando
+```
+
+**Causa raiz:** `apps/api/src/server.ts` chamava `server.listen({ port })` sem `host` -- Fastify usa `127.0.0.1` como default quando `host` não é passado. Dentro de um container, isso significa que o processo só aceita conexão da própria loopback do container -- nem outro container na mesma rede Docker, nem uma porta publicada do host consegue alcançar. `docker-compose.yml` do lab **já** setava `HOST: 0.0.0.0` como env var (desde o deploy original, seção 46e) -- mas nada no código da aplicação lia essa variável. Isso nunca foi pego antes porque a Story 2.1 só testou requisições de *dentro* do próprio container `aether-api` (não documentado explicitamente assim, mas os `remoteAddress` dos logs da seção 46e eram do mesmo host); testar de um container curl **separado** (necessário pra Story 2.2 simular um atacante de IP diferente) foi a primeira vez que esse caminho foi exercitado de verdade.
+
+**Correção:** `server.ts` agora lê `const host = process.env.HOST ?? '127.0.0.1'` e passa pro `.listen({ port, host })` -- default preserva o comportamento de sempre no `pnpm dev` local (sem Docker), e containers que já setam `HOST=0.0.0.0` (como este lab) passam a funcionar de verdade.
+
+**Lição pros outros 3 projetos:** o bug é específico do **Fastify**, que tem default explícito `127.0.0.1` quando `host` não é passado pro `.listen()`. Já confirmado com o Tupã (2026-09-02) que **não se aplica** a `tupa-api` (NestJS/Express) nem a `tupa-web` (`http.Server` puro do Node) -- `http.Server.listen(port)` sem `host` já faz bind em todas as interfaces por padrão, sem precisar de nenhuma env var. **Lição geral, não "sempre setar HOST=0.0.0.0 em todo lugar":** antes de assumir que um serviço containerizado está de fato alcançável de fora do próprio container, checar o default de bind específico do framework/runtime em uso -- cada stack pode ter um default diferente, e um servidor que só aceita `curl` de dentro do próprio container passa despercebido até alguém testar de fora, exatamente como aconteceu aqui.
+
+## Validação final (depois dos 3 fixes)
+
+```bash
+# de um container curl separado, mesma rede Docker, IP diferente do aether-api
+for i in 1 2 3 4 5 6; do curl -X POST http://aether-api:3001/trpc/auth.login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"rate-limit-test@example.com","password":"wrong-password","tenantId":"nonexistent-tenant"}'; done
+# 1-5: HTTP 401 (~100ms cada, custo real do Argon2id)
+# 6: HTTP 429 TOO_MANY_REQUESTS (~6ms -- bloqueado ANTES de chamar Argon2id)
+```
+
+Confirma: `RateLimitHit` persistindo de verdade no Postgres compartilhado (bloqueio sobrevive entre requisições/conexões separadas), e o bloqueio realmente acontece antes da autenticação cara (diferença de responseTime ~100ms vs ~6ms nos logs).
+
+---
+
 # 47. Política de colaboração entre os 4 projetos (Aether, Tecton, Tupã, Arandu)
 
 Este laboratório é **infraestrutura compartilhada** entre os quatro projetos do mesmo autor. Cada projeto mantém sua própria cópia deste documento (`docs/Laboratório/laboratorio-integrit-documentacao.md`), mas todas as cópias devem convergir para o mesmo conteúdo -- este é o mais atualizado; ao encontrar uma cópia desatualizada em outro projeto, sincronize-a a partir desta.
