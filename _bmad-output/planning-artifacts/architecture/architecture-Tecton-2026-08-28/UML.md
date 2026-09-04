@@ -2,7 +2,7 @@
 title: UML — Tecton
 status: draft
 created: '2026-08-31'
-updated: '2026-08-31'
+updated: '2026-09-02'
 companion_of: 'ARCHITECTURE-SPINE.md'
 ---
 
@@ -19,31 +19,36 @@ graph TD
     manifest["@tecton/manifest<br/>schema/parser/validador do tecton.yaml"]
     core["@tecton/core<br/>geração de rota Fastify, conector<br/>CloudEvents/Valkey Streams, RFC 9457+i18n"]
     providers["@tecton/providers<br/>interfaces de Provider (portas) +<br/>implementações de referência"]
-    directory["@tecton/directory<br/>Directory Service pronto<br/>(Tenant + Usuário/Grupo + Custodiante)"]
+    directory["@tecton/directory<br/>Directory Service pronto<br/>(Tenant + Usuário/Grupo + Custodiante)<br/>+ SPA admin em /admin"]
     serviceClient["@tecton/service-client<br/>gerador do ServiceClient"]
+    ui["@tecton/ui<br/>runtime de frontend: binding<br/>@rjsf/core, tema, i18nKey"]
     cli["@tecton/cli<br/>binário tecton-admin"]
 
     core --> manifest
     providers --> manifest
     directory --> manifest
     directory --> providers
+    ui --> manifest
+    directory --> ui
     serviceClient --> manifest
     cli --> core
     cli --> providers
     cli --> directory
     cli --> serviceClient
+    cli --> ui
     cli --> manifest
 ```
 
-*Regra de dependência (AD-3): `manifest` nunca depende de nada interno; `core`/`providers`/`directory`/`service-client` podem depender de `manifest`; `cli` depende de todos; nunca o inverso.*
+*Regra de dependência (AD-3): `manifest` nunca depende de nada interno; `core`/`providers`/`service-client`/`ui` podem depender de `manifest`; `directory` pode depender de `manifest` e de `ui` (única dependência entre pacotes-irmãos, pela SPA admin embutida — AD-10); `cli` depende de todos; nunca o inverso.*
 
 ### 1.2 Sistema em runtime (app gerada por `tecton-admin new`)
 
 ```mermaid
 graph TB
     Client["Cliente"] --> Gateway["Gateway<br/>(FR-19, fino — AD-8)"]
+    Gateway -.->|roteia /admin, sem importar<br/>@tecton/directory nem @tecton/ui — AD-10| Directory
     Gateway -->|valida token (1ª linha,<br/>não a única — FR-13)| AuthSvc["Serviço de Auth<br/>(AuthProvider)"]
-    Gateway -->|credencial verificável,<br/>Directory verifica ele mesmo — AD-7| Directory["Directory Service<br/>@tecton/directory<br/>(Tenant + Usuário/Grupo + Custodiante)"]
+    Gateway -->|credencial verificável,<br/>Directory verifica ele mesmo — AD-7| Directory["Directory Service<br/>@tecton/directory<br/>(Tenant + Usuário/Grupo + Custodiante)<br/>+ SPA admin (@tecton/ui) em /admin"]
     Gateway -->|credencial verificável,<br/>A verifica ele mesmo — AD-7| DomainA["Domínio de negócio A<br/>(gerado, hexagonal)"]
     Gateway -->|credencial verificável,<br/>B verifica ele mesmo — AD-7| DomainB["Domínio de negócio B<br/>(gerado, hexagonal)"]
 
@@ -93,6 +98,35 @@ graph LR
     P5 -.-> A5
     P6 -.-> A6
 ```
+
+### 1.4 `@tecton/ui` — runtime de frontend (AD-10)
+
+```mermaid
+graph LR
+    subgraph "@tecton/ui"
+        Core["Núcleo de render<br/>(binding schema→formulário,<br/>resolução i18nKey, chamada ServiceClient)"]
+        subgraph "Porta"
+            P1["UiThemeProvider<br/>(registro de slots)"]
+        end
+        subgraph "Camada 0 — default"
+            Tokens["CSS custom properties<br/>(paleta, tipografia, espaçamento, radius)"]
+            D1["ObjectTreeView (default)"]
+            D2["AttributeForm (default,<br/>@rjsf/core)"]
+            D3["ScreenLayout (default)"]
+        end
+        subgraph "Camada 1 — override do dev"
+            O1["ObjectTreeView customizado"]
+            O2["AttributeForm customizado"]
+            O3["ScreenLayout customizado"]
+        end
+    end
+    Core --> P1
+    P1 -.->|default, sem override| D1 & D2 & D3
+    P1 -.->|slot substituído pelo dev| O1 & O2 & O3
+    D1 & D2 & D3 -.-> Tokens
+```
+
+*Mesmo padrão Hexagonal da seção 1.3 aplicado ao lado React: o núcleo de render nunca depende de uma implementação visual concreta, só da porta `UiThemeProvider`. Um slot não substituído cai no default da Camada 0, que já consome os tokens CSS — trocar identidade visual é só sobrescrever tokens, nunca exige componente.*
 
 ## 2. Diagramas de sequência — fluxos críticos
 

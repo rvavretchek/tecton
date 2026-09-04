@@ -126,7 +126,7 @@ Permissão setada num container flui para os descendentes por padrão; framework
 - Schema de relações permite evoluir para um motor externo (ex. OpenFGA) sem migração de dados.
 
 #### FR-8: Navegação e edição de objetos (sem drag-and-drop no MVP)
-Dev/usuário final navega a árvore de objetos (somente leitura de estrutura, sem *drag-and-drop* — ver §6.2) e edita atributos de um objeto via formulário gerado (`react-jsonschema-form`) a partir de `objectClass.attributes`.
+Dev/usuário final navega a árvore de objetos (somente leitura de estrutura, sem *drag-and-drop* — ver §6.2) e edita atributos de um objeto via formulário gerado (`@rjsf/core`, projeto react-jsonschema-form sob o namespace ativo `@rjsf` — o pacote `react-jsonschema-form` original no npm está abandonado desde ~2019) a partir de `objectClass.attributes`.
 
 **Consequences (testable):**
 - Reordenar/mover um objeto na árvore via UI **não** está disponível no MVP — só leitura da hierarquia.
@@ -351,7 +351,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 
 ### 4.10 Developer Experience
 
-**Description:** Conveniências de loop de desenvolvimento e isolamento de teste que reduzem fricção sem exigir infraestrutura externa — absorve os itens do Bloco D do `Tecton.md` que ainda não tinham FR própria (OpenAPI/AsyncAPI já é FR-5; UI Generation via `react-jsonschema-form` já é FR-8; Live Reload já está coberto como consequência da FR-15; Fastify é decisão de mecanismo, não comportamento observável novo).
+**Description:** Conveniências de loop de desenvolvimento e isolamento de teste que reduzem fricção sem exigir infraestrutura externa — absorve os itens do Bloco D do `Tecton.md` que ainda não tinham FR própria (OpenAPI/AsyncAPI já é FR-5; UI Generation via `@rjsf/core` já é FR-8; Live Reload já está coberto como consequência da FR-15; Fastify é decisão de mecanismo, não comportamento observável novo).
 
 **Functional Requirements:**
 

@@ -7,7 +7,7 @@ paradigm: 'DOMA (Domain-Oriented Microservice Architecture) + Hexagonal/Ports-an
 scope: 'Framework Tecton MVP completo — todas as 10 features do PRD (§4), FR-1 a FR-31'
 status: final
 created: '2026-08-28'
-updated: '2026-08-31'
+updated: '2026-09-02'
 binds: ['FR-1..FR-31']
 sources:
   - '_bmad-output/planning-artifacts/prds/prd-Tecton-2026-08-14/prd.md'
@@ -15,6 +15,7 @@ sources:
   - '_bmad-output/planning-artifacts/briefs/brief-Tecton-2026-08-10/brief.md'
   - '_bmad-output/planning-artifacts/briefs/brief-Tecton-2026-08-10/addendum.md'
   - 'CONSTITUTION.md'
+  - '_bmad-output/planning-artifacts/sprint-change-proposal-2026-09-02.md'
 companions: ['UML.md']
 ---
 
@@ -52,9 +53,9 @@ graph LR
 **Mecanismo de armazenamento dos atributos declarativos [ADOPTED]:** `objectClass.attributes` persiste como bag de atributos JSON/JSONB por objeto, validado contra o JSON Schema do `objectClass` em tempo de escrita pelo próprio Directory Service — nunca gera migração de schema relacional disparada por manifest de terceiros. Mesmo padrão do LDAP/Active Directory que inspirou o core. Trade-off aceito conscientemente: unicidade/FK/index reais não são garantidos pelo banco nesses atributos, só validação de aplicação — se um domínio precisar de constraint forte sobre um atributo customizado, isso é sinal de que o atributo pertence a um domínio de negócio próprio, não ao Directory Service.
 
 ### AD-3 — Direção de dependência entre pacotes do framework [ADOPTED]
-- **Binds:** `@tecton/*` (`manifest`, `core`, `providers`, `directory`, `service-client`, `cli`)
+- **Binds:** `@tecton/*` (`manifest`, `core`, `providers`, `directory`, `service-client`, `ui`, `cli`)
 - **Prevents:** dependência circular entre pacotes do próprio framework
-- **Rule:** `@tecton/manifest` não depende de nenhum outro pacote Tecton; `core`, `providers`, `directory` e `service-client` podem depender de `manifest`; `cli` pode depender de todos; nunca o inverso.
+- **Rule:** `@tecton/manifest` não depende de nenhum outro pacote Tecton; `core`, `providers`, `service-client` e `ui` podem depender de `manifest`; `directory` pode depender de `manifest` e de `ui` (única dependência entre pacotes-irmãos da spine, pela SPA administrativa embutida — AD-10); `cli` pode depender de todos; nunca o inverso.
 
 ```mermaid
 graph TD
@@ -63,16 +64,20 @@ graph TD
     providers["@tecton/providers"]
     directory["@tecton/directory"]
     serviceClient["@tecton/service-client"]
+    ui["@tecton/ui"]
     cli["@tecton/cli"]
 
     core --> manifest
     providers --> manifest
     directory --> manifest
     serviceClient --> manifest
+    ui --> manifest
+    directory --> ui
     cli --> core
     cli --> providers
     cli --> directory
     cli --> serviceClient
+    cli --> ui
     cli --> manifest
 ```
 
@@ -106,6 +111,17 @@ graph TD
 - **Prevents:** um domínio importando o código-fonte ou lendo diretamente o banco de outro domínio pra "economizar uma chamada" — furando tanto a regra de persistência-por-serviço quanto a fronteira de pacote que a AD-3 só cobre pra `@tecton/*`
 - **Rule:** o único jeito de um domínio A obter dado de um domínio B é (1) chamada síncrona via `ServiceClient` gerado a partir de `dependencies` (exceção, FR-26), ou (2) consumir `events.publishes` de B e manter modelo de leitura local (padrão, FR-4/FR-21) — nunca import direto de código nem acesso direto ao banco de outro domínio, Directory Service incluído.
 
+### AD-10 — `@tecton/ui`: runtime compartilhado de frontend, fronteira única do lado React
+- **Binds:** FR-8, FR-24 (parte de UI), qualquer superfície de tela do framework
+- **Prevents:** cada domínio reimplementando o binding schema→formulário (`@rjsf/core`, projeto react-jsonschema-form sob o namespace ativo `@rjsf`) ou o tratamento de `i18nKey` à sua maneira; colisão de namespace de `i18nKey` entre domínios (achado H5 da revisão adversarial anterior); a spine tratando o lado React do produto como um detalhe de stack em vez de uma fronteira arquitetural — apesar do Tecton ser definido como framework full-stack React.js + Node.js desde o Brief
+- **Rule:**
+  - `@tecton/ui` é o único runtime que sabe transformar um schema de manifest em tela. Todo consumidor importa, nenhum reimplementa. **Instância única:** dentro de um mesmo app rodando (a SPA admin do Directory, ou uma UI de domínio de negócio), `@tecton/ui` é montado como singleton — um único `Core`/catálogo de i18n consolidado; múltiplas telas ou módulos consomem essa mesma instância, nenhum cria a sua própria (fecha H10: dois módulos com dois `Core`s isolados reabririam a colisão de `i18nKey` que a regra de namespace existe pra evitar).
+  - **Camada 0 (default):** tema completo como CSS custom properties (paleta, tipografia, espaçamento, radius) já ligado aos templates/widgets do `@rjsf/core` (projeto react-jsonschema-form sob o namespace ativo `@rjsf` — o pacote `react-jsonschema-form` original no npm está abandonado desde 2019). Customização de identidade visual é só sobrescrever tokens — nunca exige escrever componente. Os nomes de custom property exportados são superfície pública versionada por semver — renomear um token é breaking change (major version), mesma disciplina que AD-4 já exige de qualquer pacote `@tecton/*` (fecha H14: sem isso, um consumidor bundlado/co-versionado e um consumidor externo por import opcional divergiam silenciosamente a cada release).
+  - **Camada 1 (escape hatch):** porta `UiThemeProvider` — registro de slots de componente (`ObjectTreeView`, `AttributeForm`, `ScreenLayout`) substituíveis um a um; o que não for substituído cai no default da Camada 0. O núcleo (binding schema→form, resolução de i18n, chamada `ServiceClient`) nunca depende da implementação visual concreta, só da porta — mesmo padrão Hexagonal já aplicado a `AuthProvider`/`ConfigProvider` (AD-1). **Composição:** o `Core` resolve os três slots via a porta e injeta os já-resolvidos como filhos em `ScreenLayout` — um `ScreenLayout` customizado nunca resolve `ObjectTreeView`/`AttributeForm` por conta própria nem os reimplementa inline; só recebe e posiciona o que o `Core` já montou (fecha H11: sem essa regra de composição, um slot substituído podia contornar o registro e divergir do comportamento dos outros dois).
+  - **Namespace de `i18nKey`** é obrigatório na forma `<domínio>.<chave>` (ex. `directory.tenant.error.notFound`, com sub-namespace por objectClass embutido quando mais de um vive no mesmo pacote — Tenant/Usuário-Grupo/Custodiante dentro de `@tecton/directory`), reforçado no ponto único de catálogo consolidado da instância singleton acima. Fecha H5 e a variante dele dentro do próprio Directory.
+  - **Escopo, herdado do PRD (Glossário §3):** `objectClass` — e com ele, especificamente o slot `ObjectTreeView` (containment + ACL herdável, que depende do modelo de dados do Directory) — é exclusivo de Tenant/Usuário-Grupo/Custodiante; nenhum domínio de terceiros o declara no MVP, e `tecton-admin generate domain` continua 100% backend, sem scaffold de frontend algum. Isso **não** restringe o slot `AttributeForm` (binding schema→formulário genérico, sem containment/ACL): um domínio de negócio pode importar `@tecton/ui` e apontar o `Core` pro JSON Schema do próprio `tecton.yaml` pra gerar formulário — é reuso legítimo do renderer, não uma segunda árvore de Diretório (fecha H15: o que é exclusivo do Directory é a semântica hierárquica de `ObjectTreeView`, não o binding genérico de formulário). Nesse reuso, o domínio de negócio importa só `@tecton/ui` e `@tecton/manifest` (que já define os tipos de schema) — **nunca `@tecton/directory` diretamente**, nem para tipagem: `@tecton/directory` não exporta nenhum tipo de `objectClass` para reuso externo, e código de domínio importando dele conta como "outro domínio" sob AD-9, `@tecton/directory` incluído mesmo sendo pacote do framework (fecha H12).
+  - **Hospedagem:** a SPA administrativa do Directory Service (construída sobre `@tecton/ui`) é empacotada dentro do próprio `@tecton/directory` e servida por ele mesmo (assets estáticos via Fastify) num path dedicado (`/admin`). O Gateway só roteia pra esse path a partir do manifest (AD-8/FR-19) — nunca importa `@tecton/directory` nem `@tecton/ui`. **Toda chamada de API da SPA — não só o carregamento inicial do shell/assets — atravessa o Gateway como qualquer outro cliente**; a SPA nunca fala direto com o host interno do Directory Service, mesmo sendo servida por ele, pra não perder rate-limit/postura Zero Trust de primeira linha no tráfego mais sensível do sistema (fecha H13). `tecton-admin dev` sobe essa UI junto, sem passo manual do dev.
+
 ## Consistency Conventions
 
 | Concern | Convention |
@@ -121,7 +137,8 @@ graph TD
 | Cross-cutting (auth) | JWT verificado por serviço, sempre (FR-13, AD-7) |
 | Cross-cutting (config) | Env vars + validação tipada, fail-fast no startup (FR-22) |
 | Cross-cutting (log interno) | Inglês, sempre (Constitution §8, eixo 2) |
-| Cross-cutting (mensagem exposta) | i18n, PT-BR padrão + EN secundário (AD-6) |
+| Cross-cutting (mensagem exposta) | i18n, PT-BR padrão + EN secundário (AD-6); `i18nKey` namespaced `<domínio>.<chave>` (AD-10) |
+| Frontend (tema) | CSS custom properties como default; override seletivo via porta `UiThemeProvider` (AD-10) |
 
 ## Stack
 
@@ -146,8 +163,9 @@ tecton/                          # repositório do próprio framework (pnpm work
     manifest/                    # @tecton/manifest — schema, parser, validador de tecton.yaml
     core/                        # @tecton/core — geração de rota Fastify, conector CloudEvents/Valkey Streams, formato de resposta
     providers/                   # @tecton/providers — interfaces de Provider + implementações de referência
-    directory/                   # @tecton/directory — Directory Service pronto (Tenant + Usuário/Grupo + Custodiante)
+    directory/                   # @tecton/directory — Directory Service pronto (Tenant + Usuário/Grupo + Custodiante) + SPA admin embutida (/admin, AD-10)
     service-client/              # @tecton/service-client — gerador do ServiceClient
+    ui/                          # @tecton/ui — runtime de frontend: binding @rjsf/core, tema (tokens CSS + porta UiThemeProvider), i18nKey (AD-10)
     cli/                         # @tecton/cli — binário tecton-admin
 ```
 
@@ -165,7 +183,8 @@ tecton/                          # repositório do próprio framework (pnpm work
 ```mermaid
 graph TB
     Client["Cliente"] --> Gateway["Gateway<br/>(FR-19, fino, sem lógica de negócio)"]
-    Gateway -->|credencial verificável,<br/>Directory verifica ele mesmo — AD-7| Directory["Directory Service<br/>(Tenant + Usuário/Grupo + Custodiante)"]
+    Gateway -.->|roteia /admin, sem importar<br/>@tecton/directory nem @tecton/ui — AD-8/AD-10| Directory
+    Gateway -->|credencial verificável,<br/>Directory verifica ele mesmo — AD-7| Directory["Directory Service<br/>(Tenant + Usuário/Grupo + Custodiante)<br/>+ SPA admin (@tecton/ui) em /admin"]
     Gateway -->|credencial verificável,<br/>A verifica ele mesmo — AD-7| DomainA["Domínio de negócio A"]
     Gateway -->|credencial verificável,<br/>B verifica ele mesmo — AD-7| DomainB["Domínio de negócio B"]
     DomainA -->|ServiceClient, sync, exceção,<br/>credencial verificável — AD-7/AD-9| DomainB
@@ -186,7 +205,7 @@ graph TB
 | Feature (PRD §4) | Lives in | Governed by |
 | --- | --- | --- |
 | 4.1 Manifest Declarativo | `@tecton/manifest` | AD-3 |
-| 4.2 Core de Diretório | `@tecton/directory` | AD-2 |
+| 4.2 Core de Diretório | `@tecton/directory` (backend) + `@tecton/ui` (telas, FR-8) | AD-2, AD-10 |
 | 4.3 Domínios Embutidos | `@tecton/directory` | AD-2 |
 | 4.4 Autenticação e Zero Trust | `@tecton/providers` (AuthProvider, TokenRevocationStore) | AD-7 |
 | 4.5 CLI | `@tecton/cli` | AD-3, AD-4 |
@@ -203,5 +222,7 @@ graph TB
 - **Implementação real do `KeyCustodyProvider`** (integração OpenBAO) — PRD roadmap; a interface e a exigência de interceptação no nível de dado (FR-11) já estão fixadas.
 - **Implementação real do `WorkflowEngineProvider`** (candidato Temporal) — PRD roadmap.
 - **Hospedagem do MCP por domínio** — PRD roadmap (Open Question §9-3).
-- **Versão exata de patch do React** — verificar no início real da implementação, não travar numa spine que pode ficar desatualizada rápido.
+- **Versão exata de patch do React** — verificar no início real da implementação, não travar numa spine que pode ficar desatualizada rápido. Verificado em 2026-09-02: `@rjsf/core` v6.1.2 declara peer dependency `react >=18` (sem teto), compatibilidade explícita com React 19 ainda não formalmente anunciada pelo mantenedor apesar de relatos de uso sem problemas — reconfirmar no início da implementação.
 - **Circuit breaker/bulkhead no `ServiceClient`** (candidato `opossum`) — PRD roadmap; AD-1/hexagonal já garante que isso entra como adaptador plugável sem reforma.
+- **Ferramenta de build/bundling da SPA de `@tecton/ui`** (Vite vs. alternativas) — verificar no início real da implementação; AD-10 fixa a fronteira de pacote e o contrato da porta `UiThemeProvider`, não a ferramenta de bundling.
+- **Catálogo/temas visuais alternativos prontos** (além do default de `@tecton/ui`) — roadmap; MVP entrega só o tema default (Camada 0 da AD-10) e a porta de override (Camada 1), não uma biblioteca de temas alternativos.
