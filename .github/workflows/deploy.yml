@@ -1,0 +1,14 @@
+name: Deploy (Salt - ambiente espelhado)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: [self-hosted]
+    steps:
+      - name: Aplicar state Salt em todos os hosts
+        run: |
+          sudo salt '*' state.apply deploy pillar="{\"project_name\": \"${{ github.event.repository.name }}\", \"git_url\": \"${{ github.server_url }}/${{ github.repository }}.git\", \"git_branch\": \"${{ github.ref_name }}\"}"
