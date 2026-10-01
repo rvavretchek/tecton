@@ -119,7 +119,7 @@ Falha: nenhum resultado — mensagem clara ("Nenhum objeto encontrado") em vez d
 
 ## Inspiration & Anti-patterns
 
-- **Lifted from NDS (Novell Directory Services) / Active Directory:** o padrão master-detail (árvore + detalhe), ícone por tipo de objeto, clique direito como ponto de entrada de ação — linguagem visual e de interação que a protagonista já reconhece de experiência anterior.
+- **Lifted from NDS (Novell Directory Services) / Active Directory:** o padrão master-detail (árvore + detalhe), ícone por tipo de objeto, clique direito como ponto de entrada de ação — linguagem visual e de interação que a protagonista já reconhece de experiência anterior. Referência visual concreta trazida pelo autor: [ConsoleOne 1.3](../../../../docs/Novell%20NDS/novell-consoleone-v1.3-main-window-display.png). Revisado em 2026-10-01: confirma o padrão do MVP (árvore à esquerda, ícone por classe, indentação, expand/collapse) sem mudar escopo. As diferenças em relação ao ConsoleOne ficaram registradas no Roadmap.
 - **Rejeitado deliberadamente no MVP — qualquer affordance visual de drag-and-drop:** cursor de arraste, drop-zone, item de menu "Mover para..." — tudo isso implica uma capacidade que o MVP não tem (PRD §6.2). Prometer visualmente o que não funciona é exatamente o cenário que faria a Marina desistir, por relato dela mesma sobre a experiência ruim do AD antigo.
 - **Rejeitado — nó bloqueado/cinza pra objeto sem permissão:** ver Component Patterns (Árvore de objetos) pro racional de Zero Trust.
 - **Rejeitado — confirmação "tem certeza?" ao cancelar edição:** edição de atributo é de baixo risco e reversível; confirmação desnecessária adiciona fricção sem proteger contra nada grave.
@@ -128,4 +128,7 @@ Falha: nenhum resultado — mensagem clara ("Nenhum objeto encontrado") em vez d
 
 - **Árvore com drag-and-drop ciente de ACL** (criar grupo, arrastar usuário pra dentro, gerenciar acesso visualmente) — visão completa relatada pela Marina; PRD §6.2 já planeja reaproveitar a implementação do Aether em vez de construir do zero.
 - **Clique direito com ações completas** (mover, criar objeto filho, excluir) — hoje limitado a Ver detalhes/Editar atributos; expande junto com o drag-and-drop.
+- **Painel direito como "conteúdo do container" (padrão ConsoleOne):** selecionar um container (Tenant, Grupo) lista os filhos diretos com ícone e contagem ("80 itens"), e os atributos passam a ficar numa ação "Propriedades". No MVP o painel direito mostra os atributos do objeto selecionado; a mudança fica para depois porque redefine o fluxo principal e depende de paginação e listagem em lote no backend.
+- **Barra de status** com usuário autenticado, Tenant/árvore atual e contagem de itens do container (padrão ConsoleOne). É barata, mas não foi pedida para o MVP.
+- **Raiz multi-árvore** ("My World" no ConsoleOne): um operador que administra vários Tenants vê todos sob uma raiz comum. Depende de definir o papel de operador multi-tenant, que hoje não está no PRD.
 - **Deep-linking por objeto** (`/admin?object={id}`) — não solicitado ainda, possível melhoria incremental sem mudança de arquitetura.

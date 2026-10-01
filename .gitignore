@@ -141,3 +141,6 @@ dist
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 .vite/
+
+# Laboratório Integrit: material do ambiente de desenvolvimento do autor (só para consulta local; cada contribuidor mantém o seu)
+docs/Laboratório/
