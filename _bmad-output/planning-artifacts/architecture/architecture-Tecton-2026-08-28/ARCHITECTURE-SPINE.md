@@ -128,6 +128,7 @@ graph TD
 | --- | --- |
 | Naming (pacotes, arquivos) | Pacotes `@tecton/<nome>` kebab-case; pastas de domínio `domains/<nome>` kebab-case; classes TS `PascalCase`, funções/variáveis `camelCase`, arquivos `kebab-case` — convenção padrão do ecossistema Node/TS, sem invenção própria. Todo identificador em **inglês**, sem exceção (Constitution §8, eixo 2) — mesmo quando o `<nome>` do domínio em si vem de um conceito de negócio em português. |
 | Naming (eventos) | `type` do CloudEvents em reverse-DNS: `com.tecton.<domínio>.<evento>` (ex.: `com.tecton.tenant.exported`) |
+| Naming (rotas HTTP) | RPC uniforme: toda action vira `POST /<domínio>/<action-em-kebab-case>` (ex.: `POST /tenant/create-tenant`). Previsível para dev e agente de IA, sem inferência de verbo pelo nome. Decidido em 2026-10-01 (stories do Epic 1, Story 1.7). |
 | Data & formats (ids) | UUID v7 (AD-5) |
 | Data & formats (datas) | ISO 8601 em UTC, sem exceção |
 | Data & formats (erro) | RFC 9457 Problem Details (FR-24), multi-idioma (AD-6) |
@@ -217,6 +218,7 @@ graph TB
 
 ## Deferred
 
+- **Override de rota HTTP por action** (campo opcional `http: { method, path }` no manifest, permitindo REST onde importar, ex.: `GET` cacheável para leitura): roadmap, decidido em 2026-10-01. O MVP usa só a convenção RPC uniforme da Consistency Conventions; o override entra como extensão aditiva do schema de `actions`, sem quebrar manifests existentes.
 - **Orquestração de deploy além do Dockerfile por domínio** (Kubernetes, pipeline de release independente) — PRD §6.2 já trata como roadmap explícito; esta spine não antecipa mecanismo.
 - **Topologia física do banco por serviço** (mesma instância de servidor com bancos lógicos separados vs. servidores físicos separados) — decisão operacional, revisitar no momento de deploy real (não muda o código).
 - **Implementação real do `KeyCustodyProvider`** (integração OpenBAO) — PRD roadmap; a interface e a exigência de interceptação no nível de dado (FR-11) já estão fixadas.
