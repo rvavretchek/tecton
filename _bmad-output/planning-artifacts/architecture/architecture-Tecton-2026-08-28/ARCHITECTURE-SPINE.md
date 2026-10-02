@@ -144,10 +144,10 @@ graph TD
 | --- | --- |
 | Naming (pacotes, arquivos) | Pacotes `@tecton/<nome>` kebab-case; pastas de domínio `domains/<nome>` kebab-case; classes TS `PascalCase`, funções/variáveis `camelCase`, arquivos `kebab-case` — convenção padrão do ecossistema Node/TS, sem invenção própria. Todo identificador em **inglês**, sem exceção (Constitution §8, eixo 2) — mesmo quando o `<nome>` do domínio em si vem de um conceito de negócio em português. |
 | Naming (eventos) | `type` do CloudEvents em reverse-DNS: `com.tecton.<domínio>.<evento>` (ex.: `com.tecton.tenant.exported`) |
-| Naming (rotas HTTP) | RPC uniforme: toda action vira `POST /<domínio>/<action-em-kebab-case>` (ex.: `POST /tenant/create-tenant`). Previsível para dev e agente de IA, sem inferência de verbo pelo nome. Decidido em 2026-10-01 (stories do Epic 1, Story 1.7). |
+| Naming (rotas HTTP) | RPC uniforme: toda action vira `POST /<domínio>/<action-em-kebab-case>` (ex.: `POST /tenant/create-tenant`). Previsível para dev e agente de IA, sem inferência de verbo pelo nome. Decidido em 2026-10-01 (stories do Epic 1, Story 1.7). **Exceções**, todas endpoints de infraestrutura e nunca actions: `GET /auth/.well-known/jwks.json` (padrão JWKS), `GET /health`, `/ready` e `/live` (probes do Kubernetes) e `GET /<domínio>/pending/<requestId>` (consulta de pendência do FR-25, decidido em 2026-10-02). |
 | Data & formats (ids) | UUID v7 (AD-5) |
 | Data & formats (datas) | ISO 8601 em UTC, sem exceção |
-| Data & formats (erro) | RFC 9457 Problem Details (FR-24), multi-idioma (AD-6) |
+| Data & formats (erro) | RFC 9457 Problem Details (FR-24), multi-idioma (AD-6). O `type` é uma URN estável e neutra de idioma no formato `urn:tecton:problem:<slug>` (ex.: `urn:tecton:problem:tenant-suspended`); erros de domínio de terceiros usam `urn:tecton:problem:<domínio>.<slug>`. Decidido em 2026-10-02: URN em vez de URL, para não depender de domínio próprio nem de páginas publicadas. |
 | Data & formats (envelope de evento) | CloudEvents sobre Valkey Streams (FR-4/FR-21) |
 | Publicação de evento | Transactional Outbox: o evento é gravado, já assinado (AD-7), numa tabela de outbox do banco do próprio domínio, na mesma transação Prisma da mudança que o originou (Unit of Work); um relay por domínio, com lock no Valkey, envia ao stream em ordem. Nunca publicação direta no Valkey a partir da action. Decidido em 2026-10-02 (Stories 3.10 e 3.11). |
 | Data & formats (sucesso) | Payload puro do `output`, sem envelope (FR-23) |
