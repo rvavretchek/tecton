@@ -179,6 +179,7 @@ Framework fornece `AuthProvider` (Argon2id + Pepper para hash local), emitindo J
 **Consequences (testable):**
 - Nenhum serviço de domínio jamais recebe ou processa um refresh token.
 - Gateway valida a assinatura do access token e propaga *claims* via header para os serviços de domínio.
+  - **Nota (2026-10-01):** substituído pelo AD-7 da Architecture Spine. O Gateway repassa o **token original** no header `Authorization`, nunca claims já decodificados, e cada serviço verifica a assinatura e extrai os próprios claims (FR-13). Mecanismo fixado na emenda do AD-7: EdDSA + JWKS, token de serviço em chamada serviço a serviço, refresh opaco com rotação.
 
 #### FR-13: Verificação independente por serviço (Zero Trust)
 Todo serviço de domínio verifica a assinatura do token recebido por conta própria — nunca aceita um header pré-decodificado sem verificação criptográfica local.

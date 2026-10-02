@@ -144,3 +144,6 @@ vite.config.ts.timestamp-*
 
 # Laboratório Integrit: material do ambiente de desenvolvimento do autor (só para consulta local; cada contribuidor mantém o seu)
 docs/Laboratório/
+
+# Configuração local do Obsidian (editor do autor)
+.obsidian/

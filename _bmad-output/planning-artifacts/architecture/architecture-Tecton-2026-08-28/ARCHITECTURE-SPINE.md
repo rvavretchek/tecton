@@ -7,7 +7,7 @@ paradigm: 'DOMA (Domain-Oriented Microservice Architecture) + Hexagonal/Ports-an
 scope: 'Framework Tecton MVP completo — todas as 10 features do PRD (§4), FR-1 a FR-31'
 status: final
 created: '2026-08-28'
-updated: '2026-09-02'
+updated: '2026-10-01'
 binds: ['FR-1..FR-31']
 sources:
   - '_bmad-output/planning-artifacts/prds/prd-Tecton-2026-08-14/prd.md'
@@ -53,9 +53,10 @@ graph LR
 **Mecanismo de armazenamento dos atributos declarativos [ADOPTED]:** `objectClass.attributes` persiste como bag de atributos JSON/JSONB por objeto, validado contra o JSON Schema do `objectClass` em tempo de escrita pelo próprio Directory Service — nunca gera migração de schema relacional disparada por manifest de terceiros. Mesmo padrão do LDAP/Active Directory que inspirou o core. Trade-off aceito conscientemente: unicidade/FK/index reais não são garantidos pelo banco nesses atributos, só validação de aplicação — se um domínio precisar de constraint forte sobre um atributo customizado, isso é sinal de que o atributo pertence a um domínio de negócio próprio, não ao Directory Service.
 
 ### AD-3 — Direção de dependência entre pacotes do framework [ADOPTED]
-- **Binds:** `@tecton/*` (`manifest`, `core`, `providers`, `directory`, `service-client`, `ui`, `cli`)
+- **Binds:** `@tecton/*` (`manifest`, `core`, `providers`, `auth`, `directory`, `service-client`, `ui`, `cli`)
 - **Prevents:** dependência circular entre pacotes do próprio framework
-- **Rule:** `@tecton/manifest` não depende de nenhum outro pacote Tecton; `core`, `providers`, `service-client` e `ui` podem depender de `manifest`; `directory` pode depender de `manifest` e de `ui` (única dependência entre pacotes-irmãos da spine, pela SPA administrativa embutida — AD-10); `cli` pode depender de todos; nunca o inverso.
+- **Rule:** `@tecton/manifest` não depende de nenhum outro pacote Tecton; `providers` e `ui` podem depender de `manifest`; `core` e `service-client` podem depender de `manifest` e `providers` (consomem as portas, AD-1); `auth` pode depender de `manifest`, `providers` e `core`; `directory` pode depender de `manifest`, `providers`, `core` e `ui` (a SPA administrativa embutida, AD-10); `cli` pode depender de todos; nunca o inverso.
+- **Emenda 2026-10-01 (stories do Epic 2):** entrou o pacote `@tecton/auth` (serviço de Auth pronto, decisão D1). Na mesma emenda, `core`, `service-client` e `directory` passaram a poder depender de `providers` (e `directory` de `core`): a regra anterior impedia o Directory de usar a geração de rota do `core` e impedia qualquer serviço de consumir as portas de `providers` (ex.: `TokenRevocationStore` na verificação de token), o que contradizia AD-1 e AD-7. O grafo continua acíclico.
 
 ```mermaid
 graph TD
@@ -65,14 +66,23 @@ graph TD
     directory["@tecton/directory"]
     serviceClient["@tecton/service-client"]
     ui["@tecton/ui"]
+    auth["@tecton/auth"]
     cli["@tecton/cli"]
 
     core --> manifest
+    core --> providers
     providers --> manifest
     directory --> manifest
+    directory --> providers
+    directory --> core
     serviceClient --> manifest
+    serviceClient --> providers
     ui --> manifest
     directory --> ui
+    auth --> manifest
+    auth --> providers
+    auth --> core
+    cli --> auth
     cli --> core
     cli --> providers
     cli --> directory
@@ -100,6 +110,11 @@ graph TD
 - **Binds:** `all` (toda chamada serviço-a-serviço, síncrona ou assíncrona)
 - **Prevents:** um serviço confiando num header pré-decodificado ou numa credencial de evento sem verificação própria; ou verificando a assinatura mas ainda assim decidindo autorização com base num claim repassado por outro serviço, reabrindo o mesmo buraco por outra porta (confused deputy)
 - **Rule:** todo serviço (incluindo o Directory Service) verifica a assinatura do token/credencial ele mesmo, sempre, e toma toda decisão de autorização exclusivamente a partir das claims que ele mesmo extraiu dessa verificação — nunca de um claim/header repassado por outro serviço, mesmo que a chamada de origem já tenha sido autenticada (Constitution §9).
+- **Mecanismo (emenda 2026-10-01, stories do Epic 2):**
+  - **Assinatura assimétrica EdDSA (Ed25519)** (D2). Só o serviço de Auth tem a chave privada e publica as chaves públicas num endpoint JWKS; os serviços verificam com a chave pública em cache e, por construção, nunca conseguem emitir token. Segredo compartilhado (HS256) é proibido.
+  - **O Gateway repassa o token original** no header `Authorization`, nunca claims já decodificados. Isso substitui a redação "propaga claims via header" do FR-12.
+  - **Toda chamada serviço a serviço carrega um token de serviço** (*client credentials* emitido pelo Auth, `sub: service:<domínio>`) (D3). Quando a chamada é feita em nome de um usuário, o token do usuário segue junto, e quem recebe verifica os dois de forma independente. O Epic 2 entrega emissão e verificação; o Epic 4 conecta isso ao `ServiceClient` e aos eventos.
+  - **Refresh token opaco**, guardado com hash só no banco do Auth, trocado a cada uso, com detecção de reuso que revoga a família inteira. Trafega em cookie `HttpOnly`/`Secure`/`SameSite=Strict` restrito ao caminho do endpoint de refresh.
 
 ### AD-8 — Gateway fino, com allowlist executável
 - **Binds:** FR-19
@@ -164,6 +179,7 @@ tecton/                          # repositório do próprio framework (pnpm work
     manifest/                    # @tecton/manifest — schema, parser, validador de tecton.yaml
     core/                        # @tecton/core — geração de rota Fastify, conector CloudEvents/Valkey Streams, formato de resposta
     providers/                   # @tecton/providers — interfaces de Provider + implementações de referência
+    auth/                        # @tecton/auth — serviço de Auth pronto: credenciais, emissão de JWT EdDSA, JWKS, refresh confinado (AD-7, emenda 2026-10-01)
     directory/                   # @tecton/directory — Directory Service pronto (Tenant + Usuário/Grupo + Custodiante) + SPA admin embutida (/admin, AD-10)
     service-client/              # @tecton/service-client — gerador do ServiceClient
     ui/                          # @tecton/ui — runtime de frontend: binding @rjsf/core, tema (tokens CSS + porta UiThemeProvider), i18nKey (AD-10)
@@ -174,6 +190,7 @@ tecton/                          # repositório do próprio framework (pnpm work
 {app-do-dev}/                    # scaffold gerado por `tecton-admin new` (Turborepo/Nx aqui, per PRD §6.1)
   apps/
     gateway/                     # gerado por new — roteamento fino (FR-19), nunca lógica de negócio
+    auth/                        # instância configurada do @tecton/auth (emenda 2026-10-01)
     directory/                   # instância configurada do @tecton/directory (AD-2)
     domains/
       <nome-do-domínio>/         # um por `generate domain` — dono do próprio banco (Prisma)
@@ -196,7 +213,7 @@ graph TB
     DomainA --> DBA[("Banco de A")]
     DomainB --> DBB[("Banco de B")]
     Gateway -.->|rate limit, fail-open| Valkey
-    Gateway -->|valida token,<br/>mas isso não dispensa cada<br/>serviço de verificar de novo — AD-7| AuthSvc["Serviço de Auth<br/>(AuthProvider)"]
+    Gateway -->|valida token,<br/>mas isso não dispensa cada<br/>serviço de verificar de novo — AD-7| AuthSvc["Serviço de Auth<br/>(@tecton/auth, AuthProvider)"]
 ```
 
 *Nenhuma seta acima é "confiar" — toda seta rotulada com AD-7 significa que o serviço de destino verifica a credencial por conta própria, mesmo que o Gateway já tenha validado antes. A validação do Gateway é a primeira linha, não a única (FR-13).*
@@ -208,7 +225,7 @@ graph TB
 | 4.1 Manifest Declarativo | `@tecton/manifest` | AD-3 |
 | 4.2 Core de Diretório | `@tecton/directory` (backend) + `@tecton/ui` (telas, FR-8) | AD-2, AD-10 |
 | 4.3 Domínios Embutidos | `@tecton/directory` | AD-2 |
-| 4.4 Autenticação e Zero Trust | `@tecton/providers` (AuthProvider, TokenRevocationStore) | AD-7 |
+| 4.4 Autenticação e Zero Trust | `@tecton/auth` (serviço de Auth: emissão, JWKS, refresh), `@tecton/providers` (AuthProvider, TokenRevocationStore, KeyCustodyProvider), `@tecton/core` (verificação local em cada serviço) | AD-7 |
 | 4.5 CLI | `@tecton/cli` | AD-3, AD-4 |
 | 4.6 Interoperabilidade | `@tecton/core` (gateway/discovery/mensageria), `@tecton/providers` (ConfigProvider) | AD-8 (gateway fino), AD-9 (isolamento de domínio), Consistency Conventions |
 | 4.7 Formato de Resposta de API | `@tecton/core` | AD-6, Consistency Conventions |

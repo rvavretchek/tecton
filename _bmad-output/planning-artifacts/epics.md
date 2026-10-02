@@ -12,7 +12,7 @@ inputDocuments:
 
 ## Overview
 
-This document provides the complete epic and story breakdown for Tecton, decomposing the requirements from the PRD, UX Design (Directory Service admin, restricted scope), and Architecture Spine into implementable stories. Tecton is the framework itself (packages `@tecton/manifest`, `core`, `providers`, `directory`, `service-client`, `ui`, `cli`) — these epics build the framework, not an app built with it.
+This document provides the complete epic and story breakdown for Tecton, decomposing the requirements from the PRD, UX Design (Directory Service admin, restricted scope), and Architecture Spine into implementable stories. Tecton is the framework itself (packages `@tecton/manifest`, `core`, `providers`, `auth`, `directory`, `service-client`, `ui`, `cli`) — these epics build the framework, not an app built with it.
 
 ## Requirements Inventory
 
@@ -67,7 +67,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 
 - AD-1: Todo serviço de domínio organizado em núcleo + portas (Providers) + adaptadores (Hexagonal); núcleo nunca importa infraestrutura concreta diretamente — paradigma DOMA + Hexagonal vinculante em todo domínio gerado
 - AD-2: Tenant/Usuário-Grupo/Custodiante vivem só dentro de `@tecton/directory`, distribuído como serviço pronto (nunca via `generate domain`); customização só por `objectClass.attributes` declarativo (JSON/JSONB validado contra JSON Schema, nunca migração relacional); acesso de outro domínio ao dado do Directory só via `events.publishes`, nunca leitura direta de banco
-- AD-3: Direção de dependência entre pacotes do framework: `manifest` não depende de nada interno; `core`/`providers`/`service-client`/`ui` podem depender de `manifest`; `directory` depende de `manifest` e de `ui`; `cli` depende de todos; nunca o inverso
+- AD-3 (emendado em 2026-10-01): `manifest` não depende de nada interno; `providers` e `ui` dependem de `manifest`; `core` e `service-client` de `manifest` e `providers`; `auth` de `manifest`, `providers` e `core`; `directory` de `manifest`, `providers`, `core` e `ui`; `cli` de todos; nunca o inverso
 - AD-4: Todo scaffold gerado declara `@tecton/*` como dependência versionada; nenhum comando do CLI grava código-fonte de pacote do framework no repo do dev
 - AD-5: UUID v7 canônico (36 caracteres, minúsculas, forma `8-4-4-4-12`) para todo identificador de entidade e `id` de evento, gerado por biblioteca padrão do ecossistema
 - AD-6: `i18nKey` como campo de extensão de lookup de máquina em toda mensagem/erro exposta ao usuário final
@@ -76,7 +76,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 - AD-9: Único jeito de um domínio A obter dado de domínio B é `ServiceClient` (síncrono, exceção) ou consumir `events.publishes` (padrão) — nunca import direto de código nem acesso direto a banco de outro domínio, Directory Service incluído
 - AD-10: `@tecton/ui` como único runtime de renderização schema→tela; tema default (tokens CSS) + porta `UiThemeProvider` (slots substituíveis, compostos pelo `Core`, nunca resolvidos pelo slot substituto); namespace de `i18nKey` `<domínio>.<chave>`; `ObjectTreeView` exclusivo do Directory (containment/ACL), `AttributeForm` reusável por qualquer domínio via `@tecton/manifest` (nunca import direto de `@tecton/directory`); SPA admin embutida em `@tecton/directory`, servida em `/admin`; toda chamada de API da SPA (não só o shell inicial) atravessa o Gateway
 - Stack fixado: Node.js 24.x, TypeScript 6.0.3, Fastify 5.12.x, Prisma 8.x, Valkey 9.1.x, React 19.x, `@rjsf/core` 6.1.2, OpenTelemetry, Awilix, Testcontainers
-- Estrutura de monorepo do framework: pnpm workspaces, pacotes `packages/{manifest,core,providers,directory,service-client,ui,cli}`; app gerada por `tecton-admin new` usa Turborepo/Nx com `apps/{gateway,directory,domains/<nome>}`
+- Estrutura de monorepo do framework: pnpm workspaces, pacotes `packages/{manifest,core,providers,auth,directory,service-client,ui,cli}`; app gerada por `tecton-admin new` usa Turborepo com `apps/{gateway,auth,directory,domains/<nome>}`
 - Sem starter template externo para o repositório do próprio framework — scaffold nasce do zero conforme o Structural Seed acima (não é greenfield de app, é o framework sendo construído)
 
 ### UX Design Requirements
@@ -163,14 +163,14 @@ Dev (ou agente de IA) cria um workspace Tecton, declara um domínio via `tecton.
 ### Story 1.1: Scaffold do monorepo do framework
 
 Como **contribuidor do framework (humano ou agente de IA)**,
-quero um monorepo pnpm com os 7 pacotes e a direção de dependência verificada automaticamente,
+quero um monorepo pnpm com os 8 pacotes e a direção de dependência verificada automaticamente,
 para que cada story seguinte tenha onde nascer sem violar o AD-3.
 
 **Critérios de Aceite:**
 
 **Dado** um clone limpo do repositório
 **Quando** eu rodo `pnpm install` e `pnpm build`
-**Então** os pacotes `@tecton/{manifest,core,providers,directory,service-client,ui,cli}` compilam com TypeScript 6.0.3, com `engines.node` fixado em 24.x
+**Então** os pacotes `@tecton/{manifest,core,providers,auth,directory,service-client,ui,cli}` compilam com TypeScript 6.0.3, com `engines.node` fixado em 24.x
 **E** o repositório do framework usa só pnpm workspaces, sem Turborepo nem Nx (Structural Seed). O Turborepo pertence à app gerada por `tecton-admin new` (Story 1.9), não a este repositório.
 
 **Dado** um pacote que importa uma dependência interna proibida (ex.: `@tecton/manifest` importando `@tecton/core`)
@@ -497,3 +497,306 @@ para começar a declarar actions e events imediatamente.
 **Então** falha com mensagem que indica `tecton-admin new`
 
 > **Nota:** a estrutura de código hexagonal do domínio (AD-1) chega no Epic 4. Os nomes de domínio seguem a convenção de identificador em inglês (Consistency Conventions), por isso o exemplo usa `finance inventory sales` e não o `financeiro materiais comercial` do PRD.
+
+## Epic 2: Autenticação e Zero Trust
+
+Dev tem um serviço de Auth pronto (`@tecton/auth`: Argon2id + Pepper, access token EdDSA verificável por JWKS, refresh opaco confinado ao Auth) e todo serviço verifica o token por conta própria, sem aceitar header pré-decodificado; revogação via `TokenRevocationStore` com Valkey e fail-closed; token de serviço em toda chamada entre serviços; interface `KeyCustodyProvider` para o Custodiante, sem implementação real. Mecanismo fixado na emenda do AD-7 de 2026-10-01.
+
+### Story 2.1: `AuthProvider` com Argon2id e Pepper
+
+Como **dev que precisa guardar senhas com segurança**,
+quero um `AuthProvider` que gere e verifique hash de senha com Argon2id e Pepper,
+para que nenhuma senha seja guardada de forma recuperável, mesmo se o banco vazar.
+
+**Critérios de Aceite:**
+
+**Dado** a interface `AuthProvider` em `@tecton/providers` e o adaptador de referência Argon2id
+**Quando** eu gero o hash de uma senha
+**Então** a senha passa primeiro por HMAC-SHA256 com o Pepper como chave e depois por Argon2id, com parâmetros mínimos configuráveis (padrão: 19 MiB de memória, 2 iterações, paralelismo 1)
+**E** o resultado guardado está no formato PHC, com os parâmetros e o identificador da versão do Pepper usado
+
+**Dado** uma senha correta e outra incorreta
+**Quando** eu as verifico contra o hash guardado
+**Então** a correta retorna verdadeiro e a incorreta retorna falso, com comparação em tempo constante e sem lançar exceção que revele o motivo
+
+**Dado** um hash guardado com parâmetros mais fracos que a configuração atual
+**Quando** a senha é verificada com sucesso
+**Então** o provider indica que o hash precisa ser refeito
+
+**Dado** um serviço que inicia sem Pepper configurado, ou com Pepper menor que 32 bytes
+**Quando** ele sobe
+**Então** a inicialização falha com mensagem clara, sem gerar nenhum hash
+
+**Dado** qualquer log, erro ou registro persistido
+**Quando** eu o inspeciono
+**Então** o Pepper e a senha em texto puro nunca aparecem
+
+**Dado** o núcleo de um serviço que usa o `AuthProvider`
+**Quando** eu verifico os imports
+**Então** ele depende só da interface, nunca da biblioteca de Argon2id diretamente (AD-1)
+
+> **Nota:** a leitura do Pepper usa validação mínima própria. O `ConfigProvider` formal com fail-fast é do Epic 4 (FR-22) e vai absorver essa leitura.
+
+### Story 2.2: Serviço `@tecton/auth`: login, access token EdDSA e JWKS
+
+Como **dev de um sistema construído com o Tecton**,
+quero um serviço de Auth pronto que autentique por login e senha e emita access token assinado,
+para que todo serviço consiga verificar a identidade por conta própria, sem conseguir forjá-la.
+
+**Critérios de Aceite:**
+
+**Dado** o pacote `@tecton/auth`
+**Quando** ele sobe
+**Então** ele guarda só credenciais (ID de sujeito em UUID v7, identificador de login normalizado e único, hash, status e lista de permissões) no próprio banco, via Prisma
+**E** nenhum outro serviço acessa esse banco (AD-9)
+
+**Dado** um workspace sem nenhuma credencial
+**Quando** eu rodo `tecton-admin auth bootstrap`
+**Então** a primeira credencial administrativa é criada
+**E** a senha é lida da entrada padrão ou de variável de ambiente, nunca de argumento da linha de comando
+
+**Dado** uma credencial válida
+**Quando** eu chamo `POST /auth/login` com identificador e senha
+**Então** recebo um access token JWT assinado com EdDSA (Ed25519), com `kid` no cabeçalho e os claims `iss`, `sub`, `aud`, `iat`, `exp` (padrão de 15 minutos, configurável), `jti` em UUID v7, `typ: user` e `perms`
+
+**Dado** um identificador inexistente ou uma senha errada
+**Quando** eu chamo o login
+**Então** a resposta é 401, idêntica nos dois casos e com tempo de resposta equivalente, para não revelar quais logins existem
+
+**Dado** o serviço de Auth em execução
+**Quando** eu chamo `GET /auth/.well-known/jwks.json`
+**Então** recebo só as chaves públicas, nunca a privada
+**E** o JWKS pode conter mais de uma chave, para permitir rotação sem invalidar tokens ainda válidos
+
+**Dado** um serviço de Auth que sobe sem chave privada configurada
+**Quando** ele inicia
+**Então** a inicialização falha com mensagem clara
+
+**Dado** um workspace novo
+**Quando** eu rodo `tecton-admin new`
+**Então** é gerado `apps/auth` como instância configurada de `@tecton/auth`, com dependência versionada (AD-4)
+
+**Dado** qualquer log do serviço de Auth
+**Quando** eu o inspeciono
+**Então** senha, hash, Pepper, chave privada e tokens nunca aparecem
+
+> **Notas:**
+> - O JWKS é um endpoint padrão de mercado e por isso usa `GET` em caminho `.well-known`, fora da convenção RPC das actions.
+> - Proteção contra força bruta fica com o rate limiting do Gateway (Epic 4, FR-19).
+> - Nesta story, `perms` vem da credencial. No Epic 3, a fonte passa a ser o ACL do Directory.
+
+### Story 2.3: Refresh token opaco com rotação e logout
+
+Como **usuário final de um sistema construído com o Tecton**,
+quero continuar autenticado sem digitar a senha a cada 15 minutos,
+para usar o sistema sem interrupção e sem que um refresh token roubado sirva para alguma coisa por muito tempo.
+
+**Critérios de Aceite:**
+
+**Dado** um login bem-sucedido
+**Quando** a resposta é enviada
+**Então** ela traz um cookie de refresh com valor aleatório opaco de pelo menos 256 bits, com os atributos `HttpOnly`, `Secure`, `SameSite=Strict` e `Path=/auth/refresh`
+**E** o corpo da resposta nunca contém o refresh token
+**E** o banco do Auth guarda só o hash do refresh, com identificador de família e validade (padrão de 7 dias, configurável)
+
+**Dado** um refresh válido
+**Quando** eu chamo `POST /auth/refresh`
+**Então** recebo um novo access token e um novo refresh, e o refresh anterior fica marcado como usado
+
+**Dado** um refresh que já foi usado
+**Quando** ele é apresentado de novo
+**Então** a resposta é 401, toda a família desse refresh é revogada e um evento de segurança é registrado em log (em inglês)
+
+**Dado** um refresh expirado ou desconhecido
+**Quando** ele é apresentado
+**Então** a resposta é 401
+
+**Dado** uma sessão ativa
+**Quando** eu chamo `POST /auth/logout`
+**Então** a família do refresh é revogada e o cookie é apagado
+
+**Dado** um serviço de domínio qualquer
+**Quando** ele recebe requisições
+**Então** nunca recebe nem processa refresh token (FR-12), garantido pelo `Path` do cookie e pela ausência do token no corpo das respostas
+
+> **Nota:** a revogação imediata do access token no logout depende do `TokenRevocationStore` e é coberta na Story 2.5.
+
+### Story 2.4: Verificação local do token em todo serviço
+
+Como **dev de um domínio**,
+quero que cada rota gerada verifique o token por conta própria antes de executar a action,
+para que nenhum serviço confie em outro, nem no Gateway, para decidir quem está chamando (Zero Trust, AD-7).
+
+**Critérios de Aceite:**
+
+**Dado** uma rota gerada pela Story 1.7 para uma action sem `auth.public: true`
+**Quando** chega uma requisição sem `Authorization: Bearer`
+**Então** a resposta é 401 antes de chegar ao handler
+
+**Dado** um token recebido
+**Quando** o plugin de verificação do `@tecton/core` o processa
+**Então** ele verifica a assinatura EdDSA com a chave pública do JWKS em cache, além de `exp`, `iss` e `aud`
+**E** rejeita qualquer token com `alg` diferente de `EdDSA`, incluindo `none` e `HS256`
+
+**Dado** um token com `kid` que não está no cache
+**Quando** ele chega
+**Então** o JWKS é buscado de novo uma única vez, com limite de frequência
+**E** se o `kid` continuar desconhecido, a resposta é 401
+
+**Dado** um serviço sem JWKS em cache e com o serviço de Auth inacessível
+**Quando** chega uma requisição autenticada
+**Então** ela é rejeitada, nunca aceita sem verificação (fail-closed)
+
+**Dado** um token válido do usuário A e um header como `x-user-id` ou `x-claims` dizendo ser o usuário B
+**Quando** a requisição é processada
+**Então** o serviço trata a chamada como do usuário A e ignora o header (AD-7)
+
+**Dado** uma chamada direta ao serviço, sem passar pelo Gateway, com token adulterado
+**Quando** ela chega
+**Então** o próprio serviço a rejeita com 401 (FR-13)
+
+**Dado** um token válido sem a permissão exigida em `auth.requires`
+**Quando** a action é chamada
+**Então** a resposta é 403
+
+**Dado** uma action com `auth.public: true`
+**Quando** ela é chamada sem token
+**Então** ela é executada
+
+> **Nota:** o corpo das respostas 401 e 403 é provisório. O formato final RFC 9457 é do Epic 5 (FR-24).
+
+### Story 2.5: `TokenRevocationStore` com Valkey e fail-closed
+
+Como **operador de um sistema construído com o Tecton**,
+quero revogar um token e vê-lo rejeitado em todos os serviços imediatamente,
+para não precisar esperar a expiração natural quando uma sessão é comprometida.
+
+**Critérios de Aceite:**
+
+**Dado** a interface `TokenRevocationStore` em `@tecton/providers` e o adaptador de referência Valkey
+**Quando** um token é revogado pelo `jti`
+**Então** a revogação é gravada no Valkey com tempo de vida igual ao que falta para o token expirar, sob chave com prefixo próprio do framework
+
+**Dado** um token revogado
+**Quando** ele é apresentado a qualquer serviço depois da revogação
+**Então** o plugin de verificação da Story 2.4 o rejeita com 401, sem esperar o `exp` (FR-14)
+
+**Dado** uma revogação de todos os tokens de um sujeito (ex.: conta desativada)
+**Quando** ela é registrada
+**Então** todo token desse sujeito emitido antes do momento da revogação passa a ser rejeitado
+
+**Dado** um Valkey inacessível ou que não responde dentro do tempo limite configurado
+**Quando** um serviço precisa checar a revogação
+**Então** a requisição é rejeitada (fail-closed), nunca tratada como "não revogada" (FR-14, Constitution §9)
+
+**Dado** um logout (Story 2.3)
+**Quando** ele é concluído
+**Então** o access token em uso também é revogado, além da família do refresh
+
+**Dado** a detecção de reuso de refresh (Story 2.3)
+**Quando** ela acontece
+**Então** os access tokens do sujeito emitidos até aquele momento também são revogados
+
+> **Nota:** o Dev Services com Valkey local é do Epic 6 (FR-30). Os testes desta story rodam contra um Valkey real em container.
+
+### Story 2.6: Bloqueio de login por identificador
+
+Como **operador de um sistema construído com o Tecton**,
+quero que um login seja bloqueado temporariamente depois de várias senhas erradas, venham de onde vierem,
+para que um ataque distribuído contra uma única conta não escape do rate limit por origem do Gateway.
+
+**Critérios de Aceite:**
+
+**Dado** um identificador de login normalizado
+**Quando** acontecem N falhas dentro da janela configurada (padrão: 5 falhas em 15 minutos)
+**Então** o login desse identificador fica bloqueado pelo tempo configurado (padrão: 15 minutos)
+**E** o contador fica no Valkey, compartilhado entre todas as instâncias do serviço de Auth
+
+**Dado** um identificador bloqueado
+**Quando** chega uma tentativa de login, mesmo com a senha correta
+**Então** a resposta é 429 com `Retry-After`, e a senha não é verificada
+
+**Dado** um identificador que não existe
+**Quando** ele recebe tentativas de login
+**Então** o contador e o bloqueio funcionam igual a um identificador existente, para que o bloqueio não revele quais logins existem
+
+**Dado** tentativas vindas de várias origens diferentes contra o mesmo identificador
+**Quando** o limite é atingido
+**Então** o bloqueio acontece do mesmo jeito, porque a contagem é por identificador e não por origem
+
+**Dado** um login bem-sucedido antes de atingir o limite
+**Quando** ele acontece
+**Então** o contador de falhas desse identificador é zerado
+
+**Dado** um bloqueio aplicado
+**Quando** ele acontece
+**Então** um evento de segurança é registrado em log (em inglês), com o identificador e sem nenhuma senha
+
+**Dado** um administrador que precisa liberar uma conta antes do prazo
+**Quando** ele roda `tecton-admin auth unlock <identificador>`
+**Então** o bloqueio e o contador desse identificador são removidos
+
+**Dado** um Valkey inacessível
+**Quando** chega uma tentativa de login
+**Então** ela é rejeitada (fail-closed), coerente com a Story 2.5
+
+### Story 2.7: Token de serviço para chamadas entre serviços
+
+Como **dev de um domínio que chama outro domínio**,
+quero que toda chamada entre serviços leve uma credencial própria do serviço chamador,
+para que quem recebe saiba qual serviço está chamando e em nome de qual usuário, verificando os dois por conta própria (FR-13, D3).
+
+**Critérios de Aceite:**
+
+**Dado** um domínio sem credencial de serviço
+**Quando** eu rodo `tecton-admin auth register-service <domínio>`
+**Então** é criada uma credencial `service:<domínio>` e o segredo aparece uma única vez na saída
+**E** o Auth guarda só o hash do segredo, gerado pelo `AuthProvider` da Story 2.1
+
+**Dado** uma credencial de serviço válida
+**Quando** o serviço chama `POST /auth/service-token`
+**Então** recebe um token EdDSA com `typ: service`, `sub: service:<domínio>`, `perms` do serviço e validade curta (padrão de 5 minutos, configurável)
+**E** nenhum refresh é emitido para token de serviço
+
+**Dado** uma chamada entre serviços em nome de um usuário
+**Quando** ela chega com o token de serviço em `Authorization` e o token do usuário em `Tecton-On-Behalf-Of`
+**Então** quem recebe verifica os dois tokens de forma independente, com as mesmas regras da Story 2.4
+**E** `auth.requires` é avaliado contra as permissões do usuário, nunca contra as do serviço
+
+**Dado** uma chamada entre serviços sem usuário (ex.: job ou consumo de evento)
+**Quando** ela chega só com o token de serviço
+**Então** `auth.requires` é avaliado contra as permissões do serviço
+
+**Dado** um token de serviço e um token de usuário em `Tecton-On-Behalf-Of` em que um dos dois é inválido, expirado ou revogado
+**Quando** a chamada chega
+**Então** ela é rejeitada com 401
+
+**Dado** um token de serviço
+**Quando** ele é apresentado a `POST /auth/refresh` ou a `POST /auth/login`
+**Então** ele é recusado
+
+> **Nota:** esta story entrega emissão e verificação. A anexação automática dos tokens no `ServiceClient` e na publicação e consumo de eventos é do Epic 4 (FR-21, FR-26).
+
+### Story 2.8: Interface `KeyCustodyProvider` e aviso de `sensitive.quorum` sem provider
+
+Como **dev que marcou uma action como `sensitive.quorum`**,
+quero que o framework declare o contrato do Custodiante e me avise toda vez que a action rodar sem proteção real,
+para que a ausência de custódia nunca passe despercebida e a implementação futura já nasça no lugar certo.
+
+**Critérios de Aceite:**
+
+**Dado** a interface `KeyCustodyProvider` em `@tecton/providers`
+**Quando** eu leio a documentação do contrato
+**Então** ela diz, em inglês, que a interceptação de `sensitive.quorum` acontece no nível de acesso ao dado e nunca só num middleware de rota HTTP (FR-11)
+**E** nenhum método da interface recebe objeto de requisição HTTP, o que impede por construção uma implementação presa à rota
+
+**Dado** uma action `sensitive.quorum` e nenhum `KeyCustodyProvider` configurado
+**Quando** ela é chamada
+**Então** ela executa normalmente, sem bloquear e sem responder `202` (FR-11, com precedência sobre o FR-25)
+**E** cada execução registra um aviso em log (em inglês) com o nome da action, dizendo que rodou sem proteção de quórum
+
+**Dado** um serviço sem `KeyCustodyProvider` configurado
+**Quando** ele sobe
+**Então** todas as outras funções do framework funcionam normalmente
+
+> **Nota:** o aviso de build/CI do `tecton-admin lint` para `sensitive.quorum` sem provider é do Epic 6 (FR-17). A implementação real (OpenBAO, quórum x/n, auditoria encadeada) é roadmap.
