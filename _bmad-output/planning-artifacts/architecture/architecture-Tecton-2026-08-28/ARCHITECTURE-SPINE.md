@@ -113,7 +113,8 @@ graph TD
 - **Mecanismo (emenda 2026-10-01, stories do Epic 2):**
   - **Assinatura assimétrica EdDSA (Ed25519)** (D2). Só o serviço de Auth tem a chave privada e publica as chaves públicas num endpoint JWKS; os serviços verificam com a chave pública em cache e, por construção, nunca conseguem emitir token. Segredo compartilhado (HS256) é proibido.
   - **O Gateway repassa o token original** no header `Authorization`, nunca claims já decodificados. Isso substitui a redação "propaga claims via header" do FR-12.
-  - **Toda chamada serviço a serviço carrega um token de serviço** (*client credentials* emitido pelo Auth, `sub: service:<domínio>`) (D3). Quando a chamada é feita em nome de um usuário, o token do usuário segue junto, e quem recebe verifica os dois de forma independente. O Epic 2 entrega emissão e verificação; o Epic 4 conecta isso ao `ServiceClient` e aos eventos.
+  - **Toda chamada serviço a serviço carrega um token de serviço** (*client credentials* emitido pelo Auth, `sub: service:<domínio>`) (D3). Quando a chamada é feita em nome de um usuário, o token do usuário segue junto, e quem recebe verifica os dois de forma independente. O Epic 2 entrega emissão e verificação; o Epic 3 (Interoperabilidade) conecta isso ao `ServiceClient` e aos eventos.
+  - **Eventos assinados pelo publicador** (decisão E1, 2026-10-02). Cada serviço tem um par de chaves Ed25519 próprio, registrado no Auth pelo `tecton-admin auth register-service`; o Auth publica a chave pública no mesmo JWKS. O publicador assina cada CloudEvent (envelope + dados) e o consumidor verifica a assinatura pelo JWKS. A assinatura não expira como o token de serviço (que não serve para eventos consumidos depois de minutos ou reprocessados da dead-letter) e amarra a credencial ao conteúdo: qualquer alteração no evento invalida a assinatura.
   - **Refresh token opaco**, guardado com hash só no banco do Auth, trocado a cada uso, com detecção de reuso que revoga a família inteira. Trafega em cookie `HttpOnly`/`Secure`/`SameSite=Strict` restrito ao caminho do endpoint de refresh.
 
 ### AD-8 — Gateway fino, com allowlist executável
@@ -148,6 +149,7 @@ graph TD
 | Data & formats (datas) | ISO 8601 em UTC, sem exceção |
 | Data & formats (erro) | RFC 9457 Problem Details (FR-24), multi-idioma (AD-6) |
 | Data & formats (envelope de evento) | CloudEvents sobre Valkey Streams (FR-4/FR-21) |
+| Publicação de evento | Transactional Outbox: o evento é gravado, já assinado (AD-7), numa tabela de outbox do banco do próprio domínio, na mesma transação Prisma da mudança que o originou (Unit of Work); um relay por domínio, com lock no Valkey, envia ao stream em ordem. Nunca publicação direta no Valkey a partir da action. Decidido em 2026-10-02 (Stories 3.10 e 3.11). |
 | Data & formats (sucesso) | Payload puro do `output`, sem envelope (FR-23) |
 | State & mutação | Persistência por serviço (FR geral), exceto Directory Service (AD-2); nunca acesso direto a banco de outro domínio |
 | Cross-cutting (auth) | JWT verificado por serviço, sempre (FR-13, AD-7) |

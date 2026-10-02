@@ -103,11 +103,11 @@ FR-2: Epic 1 - ObjectClass opcional
 FR-3: Epic 1 - Actions tipadas com aprovação/sensibilidade
 FR-4: Epic 1 - Events publicados/consumidos
 FR-5: Epic 1 - Geração de OpenAPI/AsyncAPI
-FR-6: Epic 3 - Persistência da hierarquia via Closure Table
-FR-7: Epic 3 - Controle de acesso por herança aditiva
-FR-8: Epic 3 - Navegação e edição de objetos (Directory admin UI)
-FR-9: Epic 3 - Domínio Tenant
-FR-10: Epic 3 - Domínio Usuário/Grupo
+FR-6: Epic 4 - Persistência da hierarquia via Closure Table
+FR-7: Epic 4 - Controle de acesso por herança aditiva
+FR-8: Epic 4 - Navegação e edição de objetos (Directory admin UI)
+FR-9: Epic 4 - Domínio Tenant
+FR-10: Epic 4 - Domínio Usuário/Grupo
 FR-11: Epic 2 - Domínio Custodiante (interface)
 FR-12: Epic 2 - AuthProvider com JWT e refresh confinado
 FR-13: Epic 2 - Verificação independente por serviço (Zero Trust)
@@ -116,16 +116,16 @@ FR-15: Epic 1 (parcial: new/generate) + Epic 6 (parcial: dev/migrate) - Comandos
 FR-16: Epic 6 - `extract` para migração assistida
 FR-17: Epic 6 - Família de lint
 FR-18: Epic 5 - `test:contracts`
-FR-19: Epic 4 - Gateway fino com responsabilidades proibidas
-FR-20: Epic 4 - Service Discovery estático
-FR-21: Epic 4 - Comunicação assíncrona via CloudEvents/Valkey Streams
-FR-22: Epic 4 - ConfigProvider com validação tipada
+FR-19: Epic 3 - Gateway fino com responsabilidades proibidas
+FR-20: Epic 3 - Service Discovery estático
+FR-21: Epic 3 - Comunicação assíncrona via CloudEvents/Valkey Streams
+FR-22: Epic 3 - ConfigProvider com validação tipada
 FR-23: Epic 5 - Sucesso como payload puro
 FR-24: Epic 5 - Erro como RFC 9457 Problem Details
 FR-25: Epic 5 - Estado pendente como 202 Accepted dedicado
-FR-26: Epic 4 - ServiceClient com retry/timeout seguro
-FR-27: Epic 4 - Health checks padrão por serviço
-FR-28: Epic 4 - Dockerfile por domínio
+FR-26: Epic 3 - ServiceClient com retry/timeout seguro
+FR-27: Epic 3 - Health checks padrão por serviço
+FR-28: Epic 3 - Dockerfile por domínio
 FR-29: Epic 5 - Evolução aditiva de contrato por padrão
 FR-30: Epic 6 - Dev Services
 FR-31: Epic 6 - Testcontainers para isolamento de teste/CI
@@ -137,19 +137,20 @@ Dev (ou agente de IA) cria um workspace Tecton, declara um domínio via `tecton.
 **FRs covered:** FR-1, FR-2, FR-3, FR-4, FR-5, FR-15 (parcial: `new`/`generate`)
 
 ### Epic 2: Autenticação e Zero Trust
-Dev tem um serviço de Auth funcional (Argon2id+Pepper, JWT de acesso + refresh confinado) e todo serviço gerado verifica a assinatura do token por conta própria, nunca aceitando header pré-decodificado; revogação de token via `TokenRevocationStore` Valkey-backed real, fail-closed se o Valkey estiver inacessível. Inclui Custodiante como primitivo de segurança — interface `KeyCustodyProvider` e conceito `sensitive.quorum`, sem implementação real de custódia (movido do Epic 3 por não compartilhar Closure Table/ACL/tela com Tenant/Usuário-Grupo — decisão da mesa de arquitetura, 2026-09-04). Restrição de design herdada do PRD (FR-11): a interceptação de `sensitive.quorum`, quando implementada, precisa acontecer no nível de acesso ao dado, nunca só num middleware de rota HTTP.
+Dev tem um serviço de Auth funcional (Argon2id+Pepper, JWT de acesso + refresh confinado) e todo serviço gerado verifica a assinatura do token por conta própria, nunca aceitando header pré-decodificado; revogação de token via `TokenRevocationStore` Valkey-backed real, fail-closed se o Valkey estiver inacessível. Inclui Custodiante como primitivo de segurança — interface `KeyCustodyProvider` e conceito `sensitive.quorum`, sem implementação real de custódia (movido do Epic 4 por não compartilhar Closure Table/ACL/tela com Tenant/Usuário-Grupo — decisão da mesa de arquitetura, 2026-09-04). Restrição de design herdada do PRD (FR-11): a interceptação de `sensitive.quorum`, quando implementada, precisa acontecer no nível de acesso ao dado, nunca só num middleware de rota HTTP.
 **FRs covered:** FR-12, FR-13, FR-14, FR-11
 
-### Epic 3: Core de Diretório e Domínios Embutidos
-Marina cria Tenant/Usuário/Grupo, navega a árvore de objetos em `/admin` (com busca, ícones por objectClass, navegação por teclado), edita atributos via formulário gerado (`@rjsf/core`) e gerencia ACL por herança aditiva — tudo autenticado via Epic 2. Backend (`@tecton/directory`) e frontend (`@tecton/ui`, tema + `UiThemeProvider`) entregues juntos, por serem o mesmo componente ponta-a-ponta.
-**FRs covered:** FR-6, FR-7, FR-8, FR-9, FR-10
-
-### Epic 4: Interoperabilidade entre Domínios
+### Epic 3: Interoperabilidade entre Domínios
 Dev gera domínios de negócio (via `generate domain` do Epic 1) que se comunicam com segurança — chamada síncrona via `ServiceClient` com retry seguro (nunca cego), e assíncrona via CloudEvents sobre Valkey Streams (at-least-once, dead-letter) — atrás de um Gateway fino com responsabilidades proibidas explícitas, `ConfigProvider` com fail-fast no startup, health checks padrão e Dockerfile por domínio. **Nota de dependência (decisão da mesa, 2026-09-04):** nasce com formato de erro provisório (status HTTP + corpo básico) — o formato final (RFC 9457/i18n) é entregue pelo Epic 5, que enriquece em vez de recriar; stories deste épico devem nomear explicitamente esse caráter provisório para não gerar retrabalho.
 **FRs covered:** FR-19, FR-20, FR-21, FR-22, FR-26, FR-27, FR-28
 
+### Epic 4: Core de Diretório e Domínios Embutidos
+Marina cria Tenant/Usuário/Grupo, navega a árvore de objetos em `/admin` (com busca, ícones por objectClass, navegação por teclado), edita atributos via formulário gerado (`@rjsf/core`) e gerencia ACL por herança aditiva — tudo autenticado via Epic 2. Backend (`@tecton/directory`) e frontend (`@tecton/ui`, tema + `UiThemeProvider`) entregues juntos, por serem o mesmo componente ponta-a-ponta.
+**FRs covered:** FR-6, FR-7, FR-8, FR-9, FR-10
+**Ordem (decisão de 2026-10-02):** vem depois da Interoperabilidade porque a SPA `/admin` chama a API pelo Gateway (AD-10), os outros domínios consomem os eventos do Directory (AD-2/AD-9) e a criação de usuário chama o Auth pelo `ServiceClient`. O `perms` do token passa a vir de uma consulta do Auth ao Directory no login e no refresh.
+
 ### Epic 5: Formato de API e Evolução de Contrato
-Toda action de todo domínio gerado responde em formato consistente — sucesso como payload puro, erro como RFC 9457 Problem Details multi-idioma, estado pendente como `202 Accepted` dedicado — com `test:contracts` garantindo que a evolução do manifest seja aditiva por padrão e nunca quebre um consumidor existente. Enriquece o formato de erro provisório do Epic 4 para a forma final, sem recriá-lo do zero.
+Toda action de todo domínio gerado responde em formato consistente — sucesso como payload puro, erro como RFC 9457 Problem Details multi-idioma, estado pendente como `202 Accepted` dedicado — com `test:contracts` garantindo que a evolução do manifest seja aditiva por padrão e nunca quebre um consumidor existente. Enriquece o formato de erro provisório do Epic 3 para a forma final, sem recriá-lo do zero.
 **FRs covered:** FR-18, FR-23, FR-24, FR-25, FR-29
 
 ### Epic 6: CLI Completo e Developer Experience
@@ -158,7 +159,7 @@ Dev tem o ciclo de vida completo do `tecton-admin`: `dev` (sobe ambiente local c
 
 ## Epic 1: Manifest Declarativo e Scaffold Inicial
 
-Dev (ou agente de IA) cria um workspace Tecton, declara um domínio via `tecton.yaml` e recebe validação + documentação OpenAPI/AsyncAPI geradas automaticamente, sem escrever código de plumbing. Este épico declara e valida; comportamento em execução de `approval` (Epic 5) e conector de mensageria (Epic 4) ficam fora.
+Dev (ou agente de IA) cria um workspace Tecton, declara um domínio via `tecton.yaml` e recebe validação + documentação OpenAPI/AsyncAPI geradas automaticamente, sem escrever código de plumbing. Este épico declara e valida; comportamento em execução de `approval` (Epic 5) e conector de mensageria (Epic 3) ficam fora.
 
 ### Story 1.1: Scaffold do monorepo do framework
 
@@ -302,7 +303,7 @@ para que os contratos assíncronos sejam validados e fiquem prontos para o Async
 **Quando** ele é validado
 **Então** ele passa sem erro
 
-> **Nota:** nenhum código de broker nasce aqui. O conector Valkey Streams é do Epic 4 (FR-21).
+> **Nota:** nenhum código de broker nasce aqui. O conector Valkey Streams é do Epic 3 (FR-21).
 
 ### Story 1.5: `objectClass` opcional
 
@@ -468,7 +469,7 @@ para ter a estrutura pronta e as dependências do framework declaradas, sem copi
 **Quando** eu rodo `tecton-admin new --help`
 **Então** todo o texto está em inglês (Constitution §8, eixo 2)
 
-> **Nota:** `apps/gateway` entra no Epic 4, `apps/directory` no Epic 3 e `docker-compose.dev.yml` no Epic 6. Cada épico estende o `new`.
+> **Nota:** `apps/gateway` entra no Epic 3, `apps/directory` no Epic 4 e `docker-compose.dev.yml` no Epic 6. Cada épico estende o `new`.
 
 ### Story 1.10: `tecton-admin generate domain <nomes...>`
 
@@ -496,7 +497,7 @@ para começar a declarar actions e events imediatamente.
 **Quando** ele procura o workspace
 **Então** falha com mensagem que indica `tecton-admin new`
 
-> **Nota:** a estrutura de código hexagonal do domínio (AD-1) chega no Epic 4. Os nomes de domínio seguem a convenção de identificador em inglês (Consistency Conventions), por isso o exemplo usa `finance inventory sales` e não o `financeiro materiais comercial` do PRD.
+> **Nota:** a estrutura de código hexagonal do domínio (AD-1) chega no Epic 3. Os nomes de domínio seguem a convenção de identificador em inglês (Consistency Conventions), por isso o exemplo usa `finance inventory sales` e não o `financeiro materiais comercial` do PRD.
 
 ## Epic 2: Autenticação e Zero Trust
 
@@ -535,7 +536,7 @@ para que nenhuma senha seja guardada de forma recuperável, mesmo se o banco vaz
 **Quando** eu verifico os imports
 **Então** ele depende só da interface, nunca da biblioteca de Argon2id diretamente (AD-1)
 
-> **Nota:** a leitura do Pepper usa validação mínima própria. O `ConfigProvider` formal com fail-fast é do Epic 4 (FR-22) e vai absorver essa leitura.
+> **Nota:** a leitura do Pepper usa validação mínima própria. O `ConfigProvider` formal com fail-fast é do Epic 3 (FR-22) e vai absorver essa leitura.
 
 ### Story 2.2: Serviço `@tecton/auth`: login, access token EdDSA e JWKS
 
@@ -582,8 +583,8 @@ para que todo serviço consiga verificar a identidade por conta própria, sem co
 
 > **Notas:**
 > - O JWKS é um endpoint padrão de mercado e por isso usa `GET` em caminho `.well-known`, fora da convenção RPC das actions.
-> - Proteção contra força bruta fica com o rate limiting do Gateway (Epic 4, FR-19).
-> - Nesta story, `perms` vem da credencial. No Epic 3, a fonte passa a ser o ACL do Directory.
+> - Proteção contra força bruta fica com o rate limiting do Gateway (Epic 3, FR-19).
+> - Nesta story, `perms` vem da credencial. No Epic 4, a fonte passa a ser o ACL do Directory.
 
 ### Story 2.3: Refresh token opaco com rotação e logout
 
@@ -775,7 +776,7 @@ para que quem recebe saiba qual serviço está chamando e em nome de qual usuár
 **Quando** ele é apresentado a `POST /auth/refresh` ou a `POST /auth/login`
 **Então** ele é recusado
 
-> **Nota:** esta story entrega emissão e verificação. A anexação automática dos tokens no `ServiceClient` e na publicação e consumo de eventos é do Epic 4 (FR-21, FR-26).
+> **Nota:** esta story entrega emissão e verificação. A anexação automática dos tokens no `ServiceClient` e na publicação e consumo de eventos é do Epic 3 (FR-21, FR-26).
 
 ### Story 2.8: Interface `KeyCustodyProvider` e aviso de `sensitive.quorum` sem provider
 
@@ -800,3 +801,451 @@ para que a ausência de custódia nunca passe despercebida e a implementação f
 **Então** todas as outras funções do framework funcionam normalmente
 
 > **Nota:** o aviso de build/CI do `tecton-admin lint` para `sensitive.quorum` sem provider é do Epic 6 (FR-17). A implementação real (OpenBAO, quórum x/n, auditoria encadeada) é roadmap.
+
+## Epic 3: Interoperabilidade entre Domínios
+
+Dev gera domínios de negócio que já nascem como serviços hexagonais completos e se comunicam com segurança: chamada síncrona via `ServiceClient` (retry só quando seguro, `Idempotency-Key` respeitado no servidor), assíncrona via CloudEvents assinados sobre Valkey Streams (at-least-once, deduplicação, dead-letter), atrás de um Gateway fino com rate limiting fail-open; `ConfigProvider` com fail-fast, health checks, OpenTelemetry e Dockerfile por domínio. O formato de erro deste épico é provisório (status HTTP + corpo básico); o RFC 9457 final é do Epic 5.
+
+### Story 3.1: `ConfigProvider` tipado com fail-fast
+
+Como **dev ou operador subindo um serviço**,
+quero que a configuração seja validada e tipada antes do serviço aceitar tráfego,
+para que uma variável faltando ou errada derrube o startup com mensagem clara, em vez de causar erro estranho em produção.
+
+**Critérios de Aceite:**
+
+**Dado** a interface `ConfigProvider` em `@tecton/providers` e o adaptador de referência de variáveis de ambiente (com suporte a `.env` em desenvolvimento)
+**Quando** um serviço declara o schema tipado da própria configuração
+**Então** o núcleo do serviço recebe um objeto de configuração já tipado e validado
+
+**Dado** uma variável obrigatória ausente
+**Quando** o serviço sobe
+**Então** o startup falha antes de abrir a porta, com mensagem (em inglês) que identifica o campo (FR-22)
+
+**Dado** uma variável presente com formato ou tipo inválido (ex.: URL malformada, texto onde se espera número)
+**Quando** o serviço sobe
+**Então** o startup falha da mesma forma, com mensagem que identifica o campo e mostra o formato esperado e o recebido (FR-22)
+**E** o valor recebido nunca aparece na mensagem quando o campo é marcado como secreto
+
+**Dado** uma configuração com vários problemas
+**Quando** o serviço sobe
+**Então** todos os problemas são listados de uma vez
+
+**Dado** o Pepper (Story 2.1) e a chave privada de assinatura (Story 2.2)
+**Quando** esta story é concluída
+**Então** a leitura deles passa a usar o `ConfigProvider`, e a validação mínima própria daquelas stories é removida
+
+**Dado** o núcleo de qualquer serviço
+**Quando** eu verifico o código
+**Então** ele nunca lê `process.env` diretamente; só o adaptador lê (AD-1)
+
+**Dado** um workspace gerado por `tecton-admin new`
+**Quando** eu inspeciono o `.gitignore`
+**Então** os arquivos `.env` estão ignorados
+
+### Story 3.2: Health checks padrão em todo serviço
+
+Como **operador de um sistema construído com o Tecton**,
+quero que todo serviço exponha `/health`, `/ready` e `/live` sem código escrito à mão,
+para que o orquestrador saiba quando um serviço está de pé e quando está pronto para receber tráfego.
+
+**Critérios de Aceite:**
+
+**Dado** qualquer serviço construído sobre o `@tecton/core`, incluindo o Auth
+**Quando** ele sobe
+**Então** expõe `GET /health`, `GET /ready` e `GET /live` automaticamente (FR-27)
+**E** essas rotas seguem a convenção de probes do Kubernetes e por isso usam `GET`, fora da convenção RPC das actions
+
+**Dado** um processo de pé com o banco ou o Valkey inacessível
+**Quando** eu chamo `/live`
+**Então** a resposta é 200 (FR-27)
+
+**Dado** uma dependência registrada (banco ou Valkey) inacessível
+**Quando** eu chamo `/ready`
+**Então** a resposta é 503 e o corpo informa qual dependência falhou (FR-27)
+
+**Dado** os adaptadores de Prisma e Valkey
+**Quando** o serviço sobe
+**Então** eles registram as próprias checagens automaticamente, sem configuração do dev
+
+**Dado** as rotas de health
+**Quando** são chamadas sem token
+**Então** respondem normalmente
+**E** nunca expõem string de conexão, credencial ou versão de dependência
+
+### Story 3.3: Observabilidade com OpenTelemetry
+
+Como **operador que precisa investigar uma falha que atravessa vários serviços**,
+quero que cada serviço gere traces e propague o `traceparent`,
+para seguir uma requisição de ponta a ponta sem instrumentar nada à mão (NFR-3).
+
+**Critérios de Aceite:**
+
+**Dado** qualquer serviço construído sobre o `@tecton/core`
+**Quando** ele sobe
+**Então** o SDK do OpenTelemetry é inicializado com instrumentação automática de Fastify, Prisma e cliente HTTP
+
+**Dado** uma requisição com `traceparent`
+**Quando** ela chega
+**Então** o trace existente continua; sem `traceparent`, um trace novo é criado
+
+**Dado** um endpoint de exportação OTLP configurado pelo `ConfigProvider`
+**Quando** o serviço sobe
+**Então** os traces são exportados para ele
+**E** sem endpoint configurado, o tracing fica desativado e o startup registra um aviso, sem falhar
+
+**Dado** os logs estruturados do serviço (JSON, em inglês)
+**Quando** são escritos dentro de uma requisição
+**Então** incluem o `trace_id`
+
+**Dado** qualquer span ou log
+**Quando** eu o inspeciono
+**Então** o header `Authorization`, tokens, senhas e cookies nunca aparecem
+
+> **Nota:** a propagação de `traceparent` no `ServiceClient` e nos eventos está nas Stories 3.9 e 3.10.
+
+### Story 3.4: Esqueleto hexagonal do domínio gerado e Dockerfile
+
+Como **dev que acabou de gerar um domínio**,
+quero que ele já nasça como um serviço completo na estrutura hexagonal, com Dockerfile próprio,
+para implementar só as regras de negócio, sem montar servidor, DI, configuração nem build de imagem.
+
+**Critérios de Aceite:**
+
+**Dado** `tecton-admin generate domain <nome>` (Story 1.10)
+**Quando** ele roda
+**Então** o domínio passa a nascer também com `src/core` (handlers das actions), `src/ports`, `src/adapters`, container Awilix e bootstrap do servidor
+**E** o bootstrap liga as rotas da Story 1.7, a verificação de token da Story 2.4, a configuração da Story 3.1, os health checks da Story 3.2 e a observabilidade da Story 3.3
+
+**Dado** uma action declarada no manifest
+**Quando** o domínio é gerado
+**Então** existe um handler stub em `src/core` que responde 501 até ser implementado
+
+**Dado** um arquivo em `src/core` que importa Fastify, Prisma, cliente Valkey ou outra infraestrutura concreta
+**Quando** a checagem de arquitetura do domínio roda
+**Então** ela falha e indica o import (AD-1)
+
+**Dado** o domínio gerado
+**Quando** eu construo a imagem com o Dockerfile dele
+**Então** a imagem é construída sem nenhum código de outro domínio (FR-28)
+**E** o build é multi-stage e o processo roda com usuário sem privilégio de root
+
+**Dado** o domínio gerado
+**Quando** eu inspeciono a configuração
+**Então** ele tem schema Prisma próprio e variável própria de URL de banco (persistência por serviço)
+**E** o arquivo de exemplo de ambiente do workspace ganha `TECTON_SERVICE_<DOMÍNIO>_URL`, com o nome em maiúsculas e hífen trocado por sublinhado (FR-20)
+
+**Dado** todo o código gerado
+**Quando** eu o inspeciono
+**Então** identificadores, comentários e mensagens estão em inglês (Constitution §8, eixo 2)
+
+> **Nota:** o comando `tecton-admin migrate` é do Epic 6.
+
+### Story 3.5: `ServiceDiscoveryProvider` estático
+
+Como **dev de um domínio que depende de outro**,
+quero resolver o endereço do outro domínio por uma porta, e não lendo variável de ambiente direto,
+para que a descoberta dinâmica do roadmap (DNS do Kubernetes) troque só o adaptador, sem mexer no meu código (FR-20).
+
+**Critérios de Aceite:**
+
+**Dado** a interface `ServiceDiscoveryProvider` em `@tecton/providers` e o adaptador estático
+**Quando** o núcleo pede o endereço de um domínio
+**Então** o adaptador devolve o valor de `TECTON_SERVICE_<DOMÍNIO>_URL`, lido pelo `ConfigProvider`
+
+**Dado** um domínio declarado em `dependencies` sem a variável correspondente, ou com URL inválida
+**Quando** o serviço sobe
+**Então** o startup falha (fail-fast, Story 3.1)
+
+**Dado** um teste que substitui o adaptador estático por um falso
+**Quando** ele roda
+**Então** nenhuma linha do código de domínio precisa mudar (FR-20)
+
+**Dado** o código de domínio
+**Quando** eu o verifico
+**Então** ele nunca lê `TECTON_SERVICE_*` diretamente
+
+### Story 3.6: Gateway fino
+
+Como **dev de um sistema construído com o Tecton**,
+quero um Gateway gerado que só roteie, verifique o token como primeira barreira e propague o trace,
+para ter um ponto de entrada único sem que ele acumule lógica de negócio (FR-19, AD-8).
+
+**Critérios de Aceite:**
+
+**Dado** um workspace novo
+**Quando** eu rodo `tecton-admin new`
+**Então** é gerado `apps/gateway`, como código editável do dev que importa `@tecton/core` como dependência versionada (AD-4, AD-8)
+
+**Dado** os manifests do workspace e o serviço de Auth
+**Quando** o Gateway é construído
+**Então** a tabela de rotas é gerada a partir deles: cada prefixo `/<domínio>/` encaminha para o endereço resolvido pelo `ServiceDiscoveryProvider`, e `/auth/` encaminha para o Auth
+**E** um prefixo desconhecido responde 404
+
+**Dado** uma requisição para uma action sem `auth.public: true`
+**Quando** o token falta ou é inválido
+**Então** o Gateway responde 401 sem encaminhar
+**E** quando o token é válido, o Gateway encaminha o header `Authorization` original sem alteração (AD-7)
+
+**Dado** uma requisição externa com `Tecton-On-Behalf-Of` ou com headers de identidade como `x-user-id`
+**Quando** ela passa pelo Gateway
+**Então** esses headers são removidos antes do encaminhamento, porque só chamadas entre serviços podem usá-los
+
+**Dado** qualquer requisição encaminhada
+**Quando** ela passa pelo Gateway
+**Então** o `traceparent` é propagado ou criado
+**E** corpo e resposta passam sem transformação, sem retry, sem cache e sem agregação de serviços (FR-19)
+
+**Dado** o cookie de refresh com `Path=/auth/refresh` (Story 2.3)
+**Quando** o navegador chama o refresh pelo Gateway
+**Então** o cookie chega ao Auth e a resposta volta sem alteração
+
+> **Notas:**
+> - O `tecton-admin lint:gateway` que vigia as dependências do Gateway é do Epic 6 (FR-17).
+> - O roteamento de `/admin` para o Directory entra no Epic 4.
+> - O rate limiting está na Story 3.7.
+
+### Story 3.7: Rate limiting no Gateway com fail-open
+
+Como **operador de um sistema construído com o Tecton**,
+quero limitar o volume de requisições por cliente no Gateway,
+para proteger os serviços de abuso sem derrubar todo o tráfego quando o Valkey falhar.
+
+**Critérios de Aceite:**
+
+**Dado** uma requisição anônima
+**Quando** ela passa pelo Gateway
+**Então** ela é contada pelo IP do cliente
+**E** uma requisição autenticada é contada pelo `sub` do token já verificado pelo Gateway
+
+**Dado** limites configuráveis por prefixo de rota, com um padrão global
+**Quando** um cliente ultrapassa o limite
+**Então** a resposta é 429 com `Retry-After`
+
+**Dado** várias instâncias do Gateway
+**Quando** elas atendem o mesmo cliente
+**Então** a contagem é compartilhada pelo Valkey
+
+**Dado** um header `X-Forwarded-For`
+**Quando** o Gateway determina o IP do cliente
+**Então** ele só confia nesse header se a requisição vier de um proxy configurado como confiável; caso contrário, usa o IP da conexão
+
+**Dado** um Valkey inacessível
+**Quando** chega uma requisição
+**Então** ela passa sem limite e é registrado um aviso em log (fail-open, FR-19)
+**E** o aviso tem limite de frequência, para não inundar o log durante a falha
+
+**Dado** as rotas de health do próprio Gateway
+**Quando** são chamadas
+**Então** não entram na contagem
+
+### Story 3.8: `Idempotency-Key` respeitado no servidor
+
+Como **dev de um domínio que recebe mutações**,
+quero que o framework guarde a resposta de uma mutação feita com `Idempotency-Key` e a devolva numa repetição,
+para que o retry do `ServiceClient` (Story 3.9) nunca execute o mesmo efeito duas vezes.
+
+**Critérios de Aceite:**
+
+**Dado** uma action sem `idempotent: true` chamada com o header `Idempotency-Key`
+**Quando** ela é executada pela primeira vez
+**Então** o status e o corpo da resposta são guardados no Valkey, numa chave formada pelo sujeito autenticado, pela action e pela chave de idempotência, com validade configurável (padrão de 24 horas)
+
+**Dado** a mesma chave, o mesmo sujeito e o mesmo corpo
+**Quando** a requisição é repetida
+**Então** a resposta guardada é devolvida e o handler não é executado de novo
+
+**Dado** a mesma chave com um corpo diferente
+**Quando** a requisição chega
+**Então** a resposta é 422 e nada é executado
+
+**Dado** uma repetição que chega enquanto a primeira execução ainda está em andamento
+**Quando** ela é recebida
+**Então** a resposta é 409 e nada é executado de novo
+
+**Dado** uma primeira execução que terminou com erro 5xx
+**Quando** a mesma chave é usada de novo
+**Então** a action pode ser executada novamente, porque respostas 5xx não são guardadas
+
+**Dado** uma chave de outro sujeito
+**Quando** ela é reutilizada
+**Então** a resposta guardada nunca é devolvida, porque o escopo inclui o sujeito
+
+**Dado** uma chave com mais de 255 caracteres ou fora de ASCII imprimível
+**Quando** ela chega
+**Então** a resposta é 400
+
+**Dado** um Valkey inacessível
+**Quando** chega uma requisição com `Idempotency-Key`
+**Então** ela é rejeitada com 503, porque não há como garantir a idempotência
+**E** requisições sem a chave não são afetadas
+
+### Story 3.9: `ServiceClient` gerado a partir de `dependencies`
+
+Como **dev de um domínio que precisa chamar outro de forma síncrona**,
+quero um cliente tipado gerado a partir do manifest do outro domínio,
+para chamar com segurança, com credencial, timeout e retry corretos, sem escrever nada disso à mão (FR-26).
+
+**Critérios de Aceite:**
+
+**Dado** um domínio declarado em `dependencies`
+**Quando** o `@tecton/service-client` gera o cliente
+**Então** cada action do domínio de destino vira um método tipado com o `input` e o `output` do manifest dele
+**E** chamar um domínio que não está em `dependencies` é erro de tipo na compilação e é recusado em execução
+
+**Dado** uma chamada pelo `ServiceClient`
+**Quando** ela é enviada
+**Então** o endereço vem do `ServiceDiscoveryProvider` e a chamada vai direto ao serviço de destino, sem passar pelo Gateway
+**E** ela leva o token de serviço em `Authorization`, obtido, guardado em cache e renovado automaticamente junto ao Auth (Story 2.7)
+**E** quando há um usuário no contexto, o token dele vai em `Tecton-On-Behalf-Of`
+**E** o `traceparent` é propagado
+
+**Dado** uma chamada sem timeout explícito
+**Quando** ela demora mais de 5000 ms
+**Então** ela é abortada com erro de timeout (FR-26)
+**E** o timeout pode ser configurado por chamada
+
+**Dado** uma falha de rede, timeout ou erro 5xx
+**Quando** a action de destino tem `idempotent: true`, ou a chamada leva `Idempotency-Key`
+**Então** a chamada é repetida com backoff exponencial até o limite configurado (padrão de 3 tentativas)
+**E** a mesma `Idempotency-Key` é usada em todas as tentativas
+
+**Dado** uma mutação sem `idempotent: true` e sem `Idempotency-Key`
+**Quando** ela falha
+**Então** não há nenhum retry e o erro é propagado direto (FR-26)
+
+**Dado** a pilha de middlewares do cliente (timeout, retry)
+**Quando** um middleware novo é adicionado num teste (simulando um circuit breaker)
+**Então** ele entra sem mudança no código do `ServiceClient` (FR-26)
+
+**Dado** uma resposta de erro do serviço de destino
+**Quando** ela chega
+**Então** é entregue ao chamador como erro tipado, com o formato provisório deste épico
+
+
+### Story 3.10: Publicação de eventos assinados via outbox transacional
+
+Como **dev de um domínio que publica eventos**,
+quero que publicar um evento faça parte da mesma transação de banco da mudança que o originou,
+para que nunca exista mudança gravada sem o evento correspondente, nem evento publicado sem a mudança (FR-4, FR-21, decisão E1).
+
+**Critérios de Aceite:**
+
+**Dado** `tecton-admin auth register-service <domínio>` (Story 2.7)
+**Quando** ele roda
+**Então** passa a gerar também um par de chaves Ed25519 do serviço
+**E** a chave privada aparece uma única vez na saída, para ser configurada no serviço como secreta (Story 3.1)
+**E** a chave pública é publicada no JWKS do Auth, identificada pelo domínio
+
+**Dado** o domínio gerado (Story 3.4)
+**Quando** eu inspeciono o schema Prisma dele
+**Então** existe a tabela de outbox no banco do próprio domínio, com sequência crescente, evento serializado e situação de publicação
+
+**Dado** um evento declarado em `events.publishes`
+**Quando** o domínio é gerado
+**Então** existe um método de publicação tipado com o schema do evento, disponível dentro da unidade de trabalho (Unit of Work) que o handler da action recebe
+
+**Dado** um handler que grava dados e publica um evento na mesma unidade de trabalho
+**Quando** a transação é confirmada
+**Então** os dados e a linha do outbox são gravados juntos numa única transação Prisma
+**E** se a transação falhar ou for desfeita, nem os dados nem o evento ficam gravados
+
+**Dado** uma publicação chamada fora de uma unidade de trabalho
+**Quando** ela é executada
+**Então** é gravada no outbox numa transação própria, nunca enviada direto ao Valkey
+
+**Dado** um evento gravado no outbox
+**Quando** a linha é criada
+**Então** o envelope já está completo e assinado: CloudEvents 1.0, `id` em UUID v7, `source` identificando o domínio, `type` no formato `com.tecton.<domínio>.<evento>`, `time` em ISO 8601 UTC, `traceparent` na extensão de distributed tracing e assinatura com a chave privada do serviço, cobrindo envelope e dados, num atributo de extensão
+
+**Dado** um payload que não segue o schema do evento
+**Quando** a publicação é chamada
+**Então** ela falha com erro, nada é gravado no outbox e a transação é desfeita
+
+**Dado** um Valkey inacessível
+**Quando** a action é executada
+**Então** a action e a gravação no outbox concluem normalmente, porque o envio ao Valkey é responsabilidade do relay (Story 3.11)
+
+**Dado** os três bancos suportados (PostgreSQL, MySQL e MS-SQL)
+**Quando** os testes desta story rodam
+**Então** o comportamento transacional é o mesmo nos três
+
+### Story 3.11: Relay do outbox para Valkey Streams
+
+Como **operador de um sistema construído com o Tecton**,
+quero que os eventos gravados no outbox cheguem ao stream do domínio em ordem e sem perda,
+para que a entrega at-least-once valha desde a gravação no banco até o consumidor (FR-21).
+
+**Critérios de Aceite:**
+
+**Dado** um serviço de domínio em execução
+**Quando** ele sobe
+**Então** o relay do outbox começa a rodar no próprio processo, sem configuração do dev
+
+**Dado** linhas pendentes no outbox
+**Quando** o relay roda
+**Então** ele as envia ao stream único do domínio na ordem da sequência e as marca como publicadas (FR-21)
+
+**Dado** várias instâncias do mesmo domínio
+**Quando** todas estão rodando
+**Então** só uma de cada vez faz o relay, por meio de um lock com tempo de vida no Valkey
+**E** se a instância dona do lock cair, outra assume quando o lock expira, mantendo a ordem
+
+**Dado** um processo que cai depois de enviar ao stream e antes de marcar a linha como publicada
+**Quando** o relay volta
+**Então** o evento é enviado de novo com o mesmo `id`, e a deduplicação do consumidor (Story 3.12) absorve a duplicata
+
+**Dado** um Valkey inacessível
+**Quando** o relay tenta enviar
+**Então** as linhas continuam pendentes e o relay tenta de novo com backoff, sem perder nada e sem pular a ordem
+
+**Dado** linhas pendentes há mais tempo que um limite configurável
+**Quando** o relay detecta isso
+**Então** registra um aviso em log e o `/ready` passa a informar o atraso, sem marcar o serviço como indisponível
+
+**Dado** linhas já publicadas há mais tempo que a retenção configurável (padrão de 7 dias)
+**Quando** a limpeza roda
+**Então** essas linhas são removidas do outbox
+
+### Story 3.12: Consumo de eventos com deduplicação e dead-letter
+
+Como **dev de um domínio que consome eventos de outro**,
+quero implementar só o handler do evento,
+para que verificação de assinatura, deduplicação, retry e dead-letter sejam feitos pelo framework (FR-21).
+
+**Critérios de Aceite:**
+
+**Dado** um evento declarado em `events.consumes`
+**Quando** o domínio é gerado
+**Então** existe um handler stub tipado e um consumer group próprio do domínio no stream do publicador
+
+**Dado** um evento recebido
+**Quando** o consumidor o processa
+**Então** a assinatura é verificada pelo JWKS antes de chamar o handler
+**E** a chave que assinou precisa pertencer ao domínio indicado em `source`, para que um serviço não publique em nome de outro
+
+**Dado** um evento sem assinatura, com assinatura inválida ou assinado por chave de outro domínio
+**Quando** ele é recebido
+**Então** o handler não é chamado, o evento é confirmado (ACK) e um erro de segurança é registrado em log (FR-21)
+
+**Dado** o JWKS inacessível e a chave ainda fora do cache
+**Quando** um evento chega
+**Então** o evento não é confirmado nem descartado, e é reprocessado depois, porque "não deu para verificar agora" é diferente de "assinatura inválida"
+
+**Dado** um evento já processado com sucesso por este consumidor
+**Quando** ele chega de novo
+**Então** é confirmado sem chamar o handler, usando o `id` do evento como chave de deduplicação (FR-21)
+
+**Dado** um handler que aplicou o efeito e o processo caiu antes de registrar a chave de deduplicação
+**Quando** o evento é reprocessado
+**Então** o handler é chamado de novo, porque a chave só é registrada depois do sucesso (FR-21)
+
+**Dado** um handler que falha repetidamente
+**Quando** o número configurável de tentativas é atingido (padrão de 5)
+**Então** o evento vai para o stream de dead-letter do consumidor e as mensagens seguintes continuam sendo entregues (FR-21)
+**E** um payload que não segue o schema vai direto para a dead-letter
+
+**Dado** eventos do mesmo stream
+**Quando** são consumidos
+**Então** a ordem de entrega é preservada dentro do stream, sem garantia entre streams diferentes (FR-21)
+**E** o `traceparent` do evento continua o trace no consumidor
