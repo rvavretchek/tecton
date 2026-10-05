@@ -121,6 +121,7 @@ graph TD
 - **Binds:** FR-19
 - **Prevents:** o gateway (código gerado, editável pelo dev — ao contrário dos pacotes `@tecton/*`) acumulando lógica de negócio, cache ou circuit breaker aos poucos, sem que ninguém decida isso explicitamente
 - **Rule:** o gateway nunca importa um pacote de circuit breaker, cache de resposta, ou qualquer pacote de domínio específico — `tecton-admin lint:gateway` verifica isso a cada build/CI, é a única AD desta spine com enforcement automatizado citado no próprio PRD (FR-19).
+- **Migração assistida (emenda 2026-10-05, stories do Epic 6):** no Strangler Fig do `tecton-admin extract`, o Gateway só desvia o caminho legado, sem tocar no conteúdo. A tradução entre a API legada e as actions fica num **adaptador de entrada legado dentro do domínio novo** (anti-corruption layer, AD-1), nunca no Gateway (decisão X1). A credencial do monólito é verificada pelo próprio domínio através da porta `LegacyAuthBridge` (decisão L1), que mantém o Zero Trust do AD-7. O framework entrega adaptadores prontos da ponte (endpoint de sessão do monólito, JWT do monólito, introspecção OAuth2 RFC 7662), configurados por arquivo; classe própria só para mecanismos fora desses três. Adaptador e ponte são removidos junto com a fachada quando a migração chega a 100%; migrar os clientes para a API nova é um passo opcional posterior.
 
 ### AD-9 — Isolamento de domínio: nunca DB nem código de outro domínio
 - **Binds:** `all` (todo domínio de negócio gerado, incluindo o Directory Service como publisher)
