@@ -168,13 +168,13 @@ graph TD
 | Node.js | 24.x (Active LTS, suportado até abr/2028) |
 | TypeScript | 6.0.3 (não 7.0 — sem API pública de compilador até a 7.1, ~out/2026; `ts-node`/`tsx` dependem dela. Revisitar na 7.1) |
 | Fastify | 5.12.x |
-| Prisma | 7.x (TypeScript puro, sem engine Rust). **Corrigido em 2026-10-06** (Assumption Audit das stories): a spine fixava 8.x como GA em 28/08/2026, mas o Prisma 8 ainda é release candidate (GA prevista para outubro de 2026) e não suporta MySQL, além de não ter isolation level, códigos `P2002` e `$extends`. O 7.x cobre PostgreSQL e MySQL, transação interativa e `@prisma/instrumentation`, e recebe correções por 18 meses após a GA do 8. Migrar para o 8 quando ele suportar MySQL. |
+| Prisma | 7.x (TypeScript puro, sem engine Rust). **Corrigido em 2026-10-06** (Assumption Audit das stories): a spine fixava 8.x como GA em 28/08/2026, mas o Prisma 8 ainda é release candidate (GA prevista para outubro de 2026) e não suporta MySQL, além de não ter isolation level, códigos `P2002` e `$extends`. O 7.x cobre PostgreSQL, MariaDB e MySQL, transação interativa e `@prisma/instrumentation`, e recebe correções por 18 meses após a GA do 8. Migrar para o 8 quando ele suportar MariaDB e MySQL. |
 | Valkey | 9.1.x (fork Linux Foundation, compatível com clientes `ioredis`/`node-redis`) |
 | React | 19.x — **verificar patch exato no início da implementação** (ecossistema muda rápido, não travar agora) |
 | OpenTelemetry | SDK Node atual, instrumentação automática de Fastify/Prisma — observabilidade distribuída já é escopo do MVP (PRD §6.1) |
 | Awilix | container de DI/IoC leve por serviço (PRD §6.1) — resolve Providers como dependências injetadas, não singletons globais |
 | Testcontainers | isolamento de `test:contracts`/CI (FR-31) — containers efêmeros descartados por execução, contexto diferente do Dev Services (FR-30) |
-| PostgreSQL / MySQL | conforme escolha do dev, via Prisma. MS-SQL saiu do MVP em 2026-10-06 (PRD §6.2) |
+| PostgreSQL / MariaDB / MySQL | conforme escolha do dev, via Prisma 7 (MariaDB 10.0+/11.0+ e MySQL pelo provider `mysql`; MariaDB com `@prisma/adapter-mariadb`). MariaDB entrou em 2026-10-07; MS-SQL saiu do MVP em 2026-10-06 (PRD §6.2) |
 
 ## Structural Seed
 
@@ -243,6 +243,7 @@ graph TB
 - **Override de rota HTTP por action** (campo opcional `http: { method, path }` no manifest, permitindo REST onde importar, ex.: `GET` cacheável para leitura): roadmap, decidido em 2026-10-01. O MVP usa só a convenção RPC uniforme da Consistency Conventions; o override entra como extensão aditiva do schema de `actions`, sem quebrar manifests existentes.
 - **Orquestração de deploy além do Dockerfile por domínio** (Kubernetes, pipeline de release independente) — PRD §6.2 já trata como roadmap explícito; esta spine não antecipa mecanismo.
 - **Topologia física do banco por serviço** (mesma instância de servidor com bancos lógicos separados vs. servidores físicos separados) — decisão operacional, revisitar no momento de deploy real (não muda o código).
+- **Keycloak e OpenBAO como adaptadores opcionais** (identidade via OIDC atrás do `AuthProvider`; segredos e custódia atrás do `ConfigProvider` e do `KeyCustodyProvider`) — opção, nunca padrão; o padrão é o `@tecton/auth`. PRD §6.2, registrado em 2026-10-07.
 - **Implementação real do `KeyCustodyProvider`** (integração OpenBAO) — PRD roadmap; a interface e a exigência de interceptação no nível de dado (FR-11) já estão fixadas.
 - **Implementação real do `WorkflowEngineProvider`** (candidato Temporal) — PRD roadmap.
 - **Hospedagem do MCP por domínio** — PRD roadmap (Open Question §9-3).

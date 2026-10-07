@@ -229,3 +229,7 @@ Lista de discussão do dia **fechada por completo**: identidade do projeto (micr
 ## Participantes da sessão
 
 Sessão conduzida via `bmad-party-mode`, elenco avulso (sem memória de grupo salva): Mary (Analista), John (PM), Winston (Arquiteto), Sally (UX), Amelia (Dev), com a entrada ad hoc de Vex (Segurança) na discussão de custódia de chave, e Paige (Tech Writer) para consolidação final. Nenhum grupo de party foi salvo como padrão; oferta de salvar o elenco pode ser feita ao usuário no encerramento.
+
+## Esclarecimento da Constitution §8: documentos do dev (2026-10-07)
+
+Decidido na revisão do `epics.md` em `bmad-party-mode`. O `tecton-admin new` passa a criar sementes de `AGENTS.md` e `README.md` que um agente de IA substitui pelos documentos reais, escritos no idioma escolhido pelo dev e mantidos só por agentes, sem nenhum trecho bloqueado. Isso colidia com a leitura literal do eixo 2 ("toda superfície voltada a dev/agente de IA em inglês"). A resolução: o eixo 2 rege o que o Tecton escreve ou gera; a documentação do produto do dev pertence ao dev. Salvaguardas acordadas: o `lint` avisa quando a seção marcada de domínios do `AGENTS.md` diverge dos manifests; a seção de regras invioláveis só pode crescer; mudanças no `AGENTS.md` passam por revisão de PR como código, porque o arquivo é instrução que todo agente obedece.

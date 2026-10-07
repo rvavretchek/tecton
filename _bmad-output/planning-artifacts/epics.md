@@ -23,7 +23,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 - FR-3: Actions tipadas com `sensitive.quorum`/`approval` (mutuamente exclusivos), flag `idempotent`
 - FR-4: Events publicados/consumidos com schema, conector de mensageria gerado automaticamente
 - FR-5: Geração de OpenAPI (`@fastify/swagger`) e AsyncAPI (validado por `@asyncapi/parser`) a partir do manifest
-- FR-6: Persistência da hierarquia via Closure Table (Prisma; PostgreSQL/MySQL; MS-SQL saiu do MVP em 2026-10-06), detecção de ciclo
+- FR-6: Persistência da hierarquia via Closure Table (Prisma; PostgreSQL, MariaDB e MySQL; MS-SQL saiu do MVP em 2026-10-06, MariaDB entrou em 2026-10-07), detecção de ciclo
 - FR-7: Controle de acesso por herança aditiva simples (sem override por nó no MVP)
 - FR-8: Navegação (leitura) e edição de atributo via formulário gerado (`@rjsf/core`) a partir de `objectClass.attributes`, sem drag-and-drop; i18n de labels/mensagens
 - FR-9: Domínio Tenant (raiz da árvore, status active/suspended/archived, isolamento multi-tenant)
@@ -55,7 +55,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 - NFR-1: Zero Trust em toda comunicação leste-oeste (serviço-a-serviço, síncrona ou assíncrona) — verificação criptográfica própria sempre, sem exceção por "ambiente de confiança" (Constitution §9; FR-13/FR-14/FR-21/FR-26)
 - NFR-2: i18n de toda superfície exposta a usuário final — PT-BR padrão, EN secundário via `Accept-Language`/`i18nKey`, nunca obrigatório para código de domínio de terceiros (FR-8, FR-24)
 - NFR-3: Observabilidade distribuída via OpenTelemetry, com propagação de `traceparent` (FR-19/FR-23)
-- NFR-4: Portabilidade de banco — trocar entre PostgreSQL/MySQL via Prisma nunca exige mudança de schema/código de domínio (FR-6)
+- NFR-4: Portabilidade de banco — trocar entre PostgreSQL, MariaDB e MySQL via Prisma nunca exige mudança de schema/código de domínio (FR-6)
 - NFR-5: Resiliência segura — retry automático só em ação idempotente por natureza ou com `Idempotency-Key` explícito; nunca retry cego (FR-26)
 - NFR-6: Fail-fast de configuração no startup vs. fail-closed de segurança (revogação de token) vs. fail-open de proteção de recurso (rate limiting) — três posturas distintas e deliberadas, nunca confundidas (FR-14/FR-19/FR-22)
 - NFR-7: Evolução de contrato nunca quebra consumidor existente por padrão — mudança incompatível exige nova action explícita, capturado por `test:contracts` (FR-18/FR-29)
@@ -75,7 +75,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 - AD-8: Gateway nunca importa pacote de circuit breaker, cache de resposta, ou pacote de domínio específico — `lint:gateway` enforça isso em CI
 - AD-9: Único jeito de um domínio A obter dado de domínio B é `ServiceClient` (síncrono, exceção) ou consumir `events.publishes` (padrão) — nunca import direto de código nem acesso direto a banco de outro domínio, Directory Service incluído
 - AD-10: `@tecton/ui` como único runtime de renderização schema→tela; tema default (tokens CSS) + porta `UiThemeProvider` (slots substituíveis, compostos pelo `Core`, nunca resolvidos pelo slot substituto); namespace de `i18nKey` `<domínio>.<chave>`; `ObjectTreeView` exclusivo do Directory (containment/ACL), `AttributeForm` reusável por qualquer domínio via `@tecton/manifest` (nunca import direto de `@tecton/directory`); SPA admin embutida em `@tecton/directory`, servida em `/admin`; toda chamada de API da SPA (não só o shell inicial) atravessa o Gateway
-- Stack fixado (corrigido em 2026-10-06): Node.js 24.x (>=24.7), TypeScript 6.0.3, Fastify 5.12.x, Prisma 7.x (o 8 ainda não suporta MySQL), Valkey 9.1.x, React 19.x, `@rjsf/core` 6.x mais recente, JSON Schema draft-07, OpenTelemetry, Awilix, Testcontainers
+- Stack fixado (corrigido em 2026-10-06): Node.js 24.x (>=24.7), TypeScript 6.0.3, Fastify 5.12.x, Prisma 7.x (o 8 ainda não suporta MySQL nem MariaDB), Valkey 9.1.x, React 19.x, `@rjsf/core` 6.x mais recente, JSON Schema draft-07, OpenTelemetry, Awilix, Testcontainers
 - Estrutura de monorepo do framework: pnpm workspaces, pacotes `packages/{manifest,core,providers,auth,directory,service-client,ui,cli}`; app gerada por `tecton-admin new` usa Turborepo com `apps/{gateway,auth,directory,domains/<nome>}`
 - Sem starter template externo para o repositório do próprio framework — scaffold nasce do zero conforme o Structural Seed acima (não é greenfield de app, é o framework sendo construído)
 
@@ -188,7 +188,7 @@ para que cada story seguinte tenha onde nascer sem violar o AD-3.
 
 **Dado** testes marcados como de persistência, a partir do momento em que existirem
 **Quando** o CI roda
-**Então** um job dedicado executa esses testes em PostgreSQL e MySQL e é obrigatório para merge
+**Então** um job dedicado executa esses testes em PostgreSQL, MariaDB e MySQL e é obrigatório para merge
 **E** no ciclo local e nos demais jobs, os testes de persistência rodam só em PostgreSQL, para manter o ciclo de desenvolvimento rápido
 
 ### Story 1.2: Núcleo do `tecton.yaml` (identidade do domínio)
@@ -485,6 +485,22 @@ para ter a estrutura pronta e as dependências do framework declaradas, sem copi
 **Quando** eu rodo `tecton-admin new --help`
 **Então** todo o texto está em inglês (Constitution §8, eixo 2)
 
+**Dado** um workspace novo
+**Quando** eu rodo `tecton-admin new`
+**Então** são criadas sementes curtas de `AGENTS.md` e `README.md`, em inglês, que dizem ao agente de IA que os documentos ainda não foram escritos e que ele deve escrevê-los seguindo o guia do Tecton e substituir a semente
+**E** é criado um `CLAUDE.md` que só aponta para o `AGENTS.md`, para não manter dois arquivos com o mesmo conteúdo
+
+**Dado** o guia de documentação para agentes, distribuído no pacote `@tecton/cli` em inglês
+**Quando** eu o leio
+**Então** ele define a estrutura recomendada do `AGENTS.md`, incluindo uma seção marcada com a lista de domínios e dependências em formato verificável e uma seção de regras invioláveis (nunca acessar o banco de outro domínio, nunca editar `@tecton/*`, nunca desligar a verificação de token)
+**E** orienta que o documento seja escrito e mantido só por agentes, no idioma escolhido pelo dev, preservando o máximo do conteúdo existente a cada atualização
+**E** determina que as regras invioláveis nunca sejam removidas nem enfraquecidas, só ampliadas, e que mudanças no `AGENTS.md` passem por revisão de PR como código
+**E** nenhum trecho dos documentos é bloqueado contra edição
+
+**Dado** a semente do `README.md`
+**Quando** o agente faz a primeira tarefa no workspace
+**Então** o guia o orienta a entrevistar o dev sobre o produto e escrever o README no idioma escolhido pelo dev
+
 > **Nota:** `apps/gateway` entra no Epic 3, `apps/directory` no Epic 4 e `docker-compose.dev.yml` na Story 1.11. Cada épico estende o `new`.
 
 ### Story 1.10: `tecton-admin generate domain <nomes...>`
@@ -518,6 +534,14 @@ para começar a declarar actions e events imediatamente.
 **Então** ele sobe um servidor Fastify com as rotas da Story 1.7, e cada action responde 501 até ser implementada
 **E** isso é o esqueleto executável mínimo (*walking skeleton*) que os épicos seguintes enriquecem
 
+**Dado** domínios gerados
+**Quando** o comando termina
+**Então** a saída lembra o agente de atualizar a seção marcada do `AGENTS.md`
+
+**Dado** um `AGENTS.md` cuja seção marcada não bate com os manifests do workspace
+**Quando** eu rodo `tecton-admin lint` (Story 1.6)
+**Então** aparece um aviso, sem falha, indicando os domínios ou dependências divergentes, também na saída `--format json`
+
 > **Nota:** a estrutura de código hexagonal do domínio (AD-1) chega no Epic 3. Os nomes de domínio seguem a convenção de identificador em inglês (Consistency Conventions), por isso o exemplo usa `finance inventory sales` e não o `financeiro materiais comercial` do PRD.
 
 ### Story 1.11: Dev Services
@@ -528,7 +552,7 @@ para subir banco e Valkey sem configurar nada à mão (FR-30).
 
 **Critérios de Aceite:**
 
-**Dado** `tecton-admin new <projeto> --db postgres|mysql` (padrão: `postgres`)
+**Dado** `tecton-admin new <projeto> --db postgres|mariadb|mysql` (padrão: `postgres`)
 **Quando** ele roda
 **Então** gera `docker-compose.dev.yml` com Valkey 9.1 e o banco escolhido (FR-30)
 **E** cada domínio tem seu banco lógico próprio, criado na primeira subida; o Auth (Story 2.2) e o Directory (Story 4.1) acrescentam os seus quando entram
@@ -1254,9 +1278,9 @@ para que nunca exista mudança gravada sem o evento correspondente, nem evento p
 **Quando** a action é executada
 **Então** a action e a gravação no outbox concluem normalmente, porque o envio ao Valkey é responsabilidade do relay (Story 3.11)
 
-**Dado** os dois bancos suportados (PostgreSQL e MySQL)
+**Dado** os bancos suportados (PostgreSQL, MariaDB e MySQL)
 **Quando** o job de matriz de bancos da Story 1.1 roda
-**Então** o comportamento transacional é o mesmo nos dois
+**Então** o comportamento transacional é o mesmo em todos
 
 **Dado** o registro de chaves de assinatura
 **Quando** ele é feito
@@ -1415,7 +1439,7 @@ para ter uma árvore de objetos com containment validado, portável entre os ban
 **Dado** o schema Prisma do Directory
 **Quando** eu o inspeciono
 **Então** existe uma tabela de objetos (ID em UUID v7, `objectClass`, nome em coluna própria para busca, atributos como bag JSON) e uma tabela de closure (ancestral, descendente, profundidade)
-**E** a bag de atributos é JSONB no PostgreSQL e JSON no MySQL
+**E** a bag de atributos é JSONB no PostgreSQL e JSON no MariaDB e no MySQL (no MariaDB, `JSON` é armazenado como texto com checagem de validade; a validação contra o schema continua sendo da aplicação, AD-2)
 
 **Dado** a criação de um objeto sob um pai
 **Quando** a classe do pai não está em `allowedParents` do filho, ou a classe do filho não está em `allowedChildren` do pai
@@ -1433,8 +1457,8 @@ para ter uma árvore de objetos com containment validado, portável entre os ban
 **E** mover para um pai que viola `allowedParents` é rejeitado
 
 **Dado** os testes de persistência do Directory
-**Quando** rodam no job de matriz de bancos da Story 1.1, contra PostgreSQL e MySQL
-**Então** passam nos dois sem mudança de schema nem de código de domínio (FR-6, NFR-4)
+**Quando** rodam no job de matriz de bancos da Story 1.1, contra PostgreSQL, MariaDB e MySQL
+**Então** passam em todos sem mudança de schema nem de código de domínio (FR-6, NFR-4)
 
 **Dado** os manifests dos `objectClass` embutidos
 **Quando** o pacote `@tecton/directory` é instalado
@@ -2142,9 +2166,9 @@ para manter cada banco em dia sem entrar serviço por serviço (FR-15).
 **Quando** o comando roda
 **Então** ele falha com a mensagem do `ConfigProvider` (Story 3.1)
 
-**Dado** os bancos suportados (PostgreSQL e MySQL)
+**Dado** os bancos suportados (PostgreSQL, MariaDB e MySQL)
 **Quando** o job de matriz de bancos da Story 1.1 roda
-**Então** o comando funciona nos dois
+**Então** o comando funciona em todos
 
 ### Story 6.2: `tecton-admin lint:gateway` e template de CI
 
@@ -2234,6 +2258,10 @@ para que o desvio funcione sem mudar os clientes e sem abrir mão do Zero Trust 
 **Então** posso escolher entre: (1) endpoint de sessão do monólito, que recebe o cookie ou header repassado e devolve o identificador do usuário; (2) JWT do monólito, verificado por JWKS ou chave pública, com o claim do identificador configurável; (3) introspecção OAuth2 (RFC 7662)
 **E** só preciso escrever classe própria se o monólito usar outro mecanismo
 
+**Dado** o adaptador de JWT do monólito (ex.: um Keycloak)
+**Quando** ele verifica um token
+**Então** confere, além da assinatura, `iss`, `aud` e, quando configurado, `azp`, de modo que um token emitido para outro cliente do mesmo provedor seja recusado
+
 **Dado** um JWT do monólito assinado com segredo compartilhado (HS256)
 **Quando** a ponte é configurada para ele
 **Então** funciona, mas o startup registra um aviso de que o segredo dá ao domínio o poder de emitir tokens do monólito
@@ -2284,6 +2312,11 @@ para que os clientes do monólito continuem chamando os mesmos endereços enquan
 **Dado** a tradução entre os formatos
 **Quando** eu verifico onde ela acontece
 **Então** acontece só no adaptador do domínio, nunca no Gateway (FR-19, AD-8)
+
+**Dado** um `extract` concluído
+**Quando** o agente atualiza a documentação
+**Então** o guia o orienta a ler o README do monólito e usar o que for pertinente ao domínio extraído no README do workspace, perguntando ao dev quando faltar informação
+**E** a saída do comando lembra o agente de atualizar a seção marcada do `AGENTS.md`
 
 ### Story 6.7: `extract`, parte 2: fachada no Gateway e janela de manutenção
 
@@ -2344,7 +2377,7 @@ para fazer o corte sem escrever script de migração do zero (FR-16).
 **Quando** ela acontece
 **Então** a importação daquela tabela é desfeita e o script indica onde parou, para ser rodado de novo sem duplicar dados
 
-**Dado** o banco do monólito em qualquer um dos bancos suportados (PostgreSQL ou MySQL)
+**Dado** o banco do monólito em qualquer um dos bancos suportados (PostgreSQL, MariaDB ou MySQL)
 **Quando** o script roda no job de matriz de bancos da Story 1.1
 **Então** funciona sem mudança
 

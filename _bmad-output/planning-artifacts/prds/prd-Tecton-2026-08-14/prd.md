@@ -111,7 +111,7 @@ Framework gera automaticamente documentação OpenAPI (via `@fastify/swagger`, d
 **Functional Requirements:**
 
 #### FR-6: Persistência agnóstica de banco via Closure Table
-Framework persiste a hierarquia de objetos via Closure Table, através do Prisma (PostgreSQL, MySQL). **Nota (2026-10-06):** MS-SQL saiu do MVP na elicitação das stories (custo alto de teste e falta do tipo `Json` no Prisma para SQL Server, com impacto pequeno no produto); ver §6.2.
+Framework persiste a hierarquia de objetos via Closure Table, através do Prisma (PostgreSQL, MariaDB, MySQL). **Nota (2026-10-07):** MariaDB entrou no MVP por ser o banco do laboratório onde rodam os monólitos do SM-1/SM-2 e por ser software livre sem ressalvas de licença; o Prisma 7 o suporta oficialmente (10.0+ e 11.0+) pelo mesmo provider `mysql`. **Nota (2026-10-06):** MS-SQL saiu do MVP na elicitação das stories (custo alto de teste e falta do tipo `Json` no Prisma para SQL Server, com impacto pequeno no produto); ver §6.2.
 
 **Consequences (testable):**
 - Trocar o banco configurado (entre os suportados) não exige mudança de schema ou código de domínio.
@@ -395,7 +395,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **Evolução de contrato** (FR-29): postura aditiva por padrão no manifest.
 - **Developer Experience** (FR-30 a FR-31): Dev Services via `docker-compose.dev.yml`, Testcontainers para isolamento de `test:contracts`/CI.
 - **DI/IoC leve**: container de injeção de dependência tipo Awilix dentro de cada serviço de domínio — barato, sem framework de DI pesado.
-- **Persistência**: Prisma sobre PostgreSQL ou MySQL.
+- **Persistência**: Prisma sobre PostgreSQL, MariaDB ou MySQL.
 - **Observabilidade distribuída** via OpenTelemetry (propagação de `traceparent` já é FR-19/FR-23).
 - **TypeScript full-stack** e Turborepo/Nx no scaffold gerado para apps construídas com o Tecton (não no repositório do próprio framework).
 
@@ -407,6 +407,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **Implementação real do domínio Custodiante** — integração com OpenBAO/Vault/HSM, quórum criptograficamente forçado, log de auditoria encadeado/assinado. `[NOTE FOR PM]` esse é o item roadmap mais emocionalmente carregado do brief (motivou a entrada ad hoc do especialista de segurança na sessão de fundação) — revisitar assim que houver capacidade de engenharia dedicada.
 - **`WorkflowEngineProvider`** com implementação real (candidato Temporal) — MVP entrega só a interface prevista.
 - **MCP por domínio** — 100% roadmap; o manifest já contém tudo que a geração futura vai precisar, sem preparação extra necessária agora.
+- **Keycloak e OpenBAO como opção de IAM/PAM e segredos** — o padrão do Tecton é o Auth próprio (`@tecton/auth`); Keycloak (identidade via OIDC, atrás do `AuthProvider`) e OpenBAO (segredos e custódia, atrás do `ConfigProvider` e do `KeyCustodyProvider`) entram depois do MVP como adaptadores opcionais, nunca como padrão. Mesma posição do projeto irmão (ver `docs/aether-tecton-compatibility.md`). Registrado em 2026-10-07.
 - **Suporte a MS-SQL** — removido do MVP em 2026-10-06 (elicitação das stories): o Prisma não tem o tipo `Json` no SQL Server (a bag de atributos do Directory exigiria tratamento especial), a imagem é pesada e sem ARM, e o ganho para o produto é pequeno. A Closure Table e o Prisma não impedem a volta dele.
 - **Verificação de contrato pelo provedor em execução** (`test:contracts --verify-providers`, com Testcontainers) — removida do MVP em 2026-10-06; roadmap logo após o MVP. O `test:contracts` do MVP compara schemas.
 - **Circuit breaker e bulkhead** no `ServiceClient` (candidato: `opossum`) — MVP entrega só retry+timeout seguro.
