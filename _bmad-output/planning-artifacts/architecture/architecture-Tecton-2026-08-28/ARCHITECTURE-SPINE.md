@@ -115,6 +115,7 @@ graph TD
   - **O Gateway repassa o token original** no header `Authorization`, nunca claims já decodificados. Isso substitui a redação "propaga claims via header" do FR-12.
   - **Toda chamada serviço a serviço carrega um token de serviço** (*client credentials* emitido pelo Auth, `sub: service:<domínio>`) (D3). Quando a chamada é feita em nome de um usuário, o token do usuário segue junto, e quem recebe verifica os dois de forma independente. O Epic 2 entrega emissão e verificação; o Epic 3 (Interoperabilidade) conecta isso ao `ServiceClient` e aos eventos.
   - **Eventos assinados pelo publicador** (decisão E1, 2026-10-02). Cada serviço tem um par de chaves Ed25519 próprio, registrado no Auth pelo `tecton-admin auth register-service`; o Auth publica a chave pública no mesmo JWKS. O publicador assina cada CloudEvent (envelope + dados) e o consumidor verifica a assinatura pelo JWKS. A assinatura não expira como o token de serviço (que não serve para eventos consumidos depois de minutos ou reprocessados da dead-letter) e amarra a credencial ao conteúdo: qualquer alteração no evento invalida a assinatura.
+  - **Endurecimento (auditoria de segurança de 2026-10-06):** o JWKS só é buscado por `https` fora do modo de desenvolvimento, sem seguir redirecionamento para outro host; registrar ou rotacionar credencial e chave de serviço exige administrador com `auth:service:register` e nunca sobrescreve registro existente sem rotação explícita; o `auth bootstrap` só existe localmente, com acesso direto ao banco do Auth; e o token de serviço só traz `call:<domínio>` para os domínios declarados em `dependencies`, exigido pelo serviço chamado além das permissões do usuário.
   - **Refresh token opaco**, guardado com hash só no banco do Auth, trocado a cada uso, com detecção de reuso que revoga a família inteira. Trafega em cookie `HttpOnly`/`Secure`/`SameSite=Strict` restrito ao caminho do endpoint de refresh.
 
 ### AD-8 — Gateway fino, com allowlist executável
@@ -147,6 +148,7 @@ graph TD
 | Naming (eventos) | `type` do CloudEvents em reverse-DNS: `com.tecton.<domínio>.<evento>` (ex.: `com.tecton.tenant.exported`) |
 | Naming (rotas HTTP) | RPC uniforme: toda action vira `POST /<domínio>/<action-em-kebab-case>` (ex.: `POST /tenant/create-tenant`). Previsível para dev e agente de IA, sem inferência de verbo pelo nome. Decidido em 2026-10-01 (stories do Epic 1, Story 1.7). **Exceções**, todas endpoints de infraestrutura e nunca actions: `GET /auth/.well-known/jwks.json` (padrão JWKS), `GET /health`, `/ready` e `/live` (probes do Kubernetes) e `GET /<domínio>/pending/<requestId>` (consulta de pendência do FR-25, decidido em 2026-10-02). |
 | Data & formats (ids) | UUID v7 (AD-5) |
+| Data & formats (JSON Schema) | Todo schema compilado a partir do manifest (`input`, `output`, `events`, `objectClass.attributes`) usa o dialeto **JSON Schema draft-07**, aceito pelo Ajv8 do Fastify e do `@rjsf`, pelo AsyncAPI 3 e pelo OpenAPI 3.1. Decidido em 2026-10-06 (Assumption Audit). |
 | Data & formats (datas) | ISO 8601 em UTC, sem exceção |
 | Data & formats (erro) | RFC 9457 Problem Details (FR-24), multi-idioma (AD-6). O `type` é uma URN estável e neutra de idioma no formato `urn:tecton:problem:<slug>` (ex.: `urn:tecton:problem:tenant-suspended`); erros de domínio de terceiros usam `urn:tecton:problem:<domínio>.<slug>`. Decidido em 2026-10-02: URN em vez de URL, para não depender de domínio próprio nem de páginas publicadas. |
 | Data & formats (envelope de evento) | CloudEvents sobre Valkey Streams (FR-4/FR-21) |
@@ -166,13 +168,13 @@ graph TD
 | Node.js | 24.x (Active LTS, suportado até abr/2028) |
 | TypeScript | 6.0.3 (não 7.0 — sem API pública de compilador até a 7.1, ~out/2026; `ts-node`/`tsx` dependem dela. Revisitar na 7.1) |
 | Fastify | 5.12.x |
-| Prisma | 8.x (GA em 28/08/2026, TypeScript puro sem engine Rust — mesmo racional que já valia pro 7.x, agora na versão atual) |
+| Prisma | 7.x (TypeScript puro, sem engine Rust). **Corrigido em 2026-10-06** (Assumption Audit das stories): a spine fixava 8.x como GA em 28/08/2026, mas o Prisma 8 ainda é release candidate (GA prevista para outubro de 2026) e não suporta MySQL, além de não ter isolation level, códigos `P2002` e `$extends`. O 7.x cobre PostgreSQL e MySQL, transação interativa e `@prisma/instrumentation`, e recebe correções por 18 meses após a GA do 8. Migrar para o 8 quando ele suportar MySQL. |
 | Valkey | 9.1.x (fork Linux Foundation, compatível com clientes `ioredis`/`node-redis`) |
 | React | 19.x — **verificar patch exato no início da implementação** (ecossistema muda rápido, não travar agora) |
 | OpenTelemetry | SDK Node atual, instrumentação automática de Fastify/Prisma — observabilidade distribuída já é escopo do MVP (PRD §6.1) |
 | Awilix | container de DI/IoC leve por serviço (PRD §6.1) — resolve Providers como dependências injetadas, não singletons globais |
 | Testcontainers | isolamento de `test:contracts`/CI (FR-31) — containers efêmeros descartados por execução, contexto diferente do Dev Services (FR-30) |
-| PostgreSQL / MySQL / MS-SQL | conforme escolha do dev, via Prisma |
+| PostgreSQL / MySQL | conforme escolha do dev, via Prisma. MS-SQL saiu do MVP em 2026-10-06 (PRD §6.2) |
 
 ## Structural Seed
 
@@ -244,7 +246,7 @@ graph TB
 - **Implementação real do `KeyCustodyProvider`** (integração OpenBAO) — PRD roadmap; a interface e a exigência de interceptação no nível de dado (FR-11) já estão fixadas.
 - **Implementação real do `WorkflowEngineProvider`** (candidato Temporal) — PRD roadmap.
 - **Hospedagem do MCP por domínio** — PRD roadmap (Open Question §9-3).
-- **Versão exata de patch do React** — verificar no início real da implementação, não travar numa spine que pode ficar desatualizada rápido. Verificado em 2026-09-02: `@rjsf/core` v6.1.2 declara peer dependency `react >=18` (sem teto), compatibilidade explícita com React 19 ainda não formalmente anunciada pelo mantenedor apesar de relatos de uso sem problemas — reconfirmar no início da implementação.
+- **Versão exata de patch do React** — verificar no início real da implementação, não travar numa spine que pode ficar desatualizada rápido. Verificado em 2026-09-02 e de novo em 2026-10-06: o `@rjsf/core` (6.11.0 em 2026-10-06; usar a 6.x mais recente) declara peer dependency `react >=18` (sem teto), compatibilidade explícita com React 19 ainda não formalmente anunciada pelo mantenedor apesar de relatos de uso sem problemas — reconfirmar no início da implementação.
 - **Circuit breaker/bulkhead no `ServiceClient`** (candidato `opossum`) — PRD roadmap; AD-1/hexagonal já garante que isso entra como adaptador plugável sem reforma.
 - **Ferramenta de build/bundling da SPA de `@tecton/ui`** (Vite vs. alternativas) — verificar no início real da implementação; AD-10 fixa a fronteira de pacote e o contrato da porta `UiThemeProvider`, não a ferramenta de bundling.
 - **Catálogo/temas visuais alternativos prontos** (além do default de `@tecton/ui`) — roadmap; MVP entrega só o tema default (Camada 0 da AD-10) e a porta de override (Camada 1), não uma biblioteca de temas alternativos.

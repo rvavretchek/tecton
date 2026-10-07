@@ -23,7 +23,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 - FR-3: Actions tipadas com `sensitive.quorum`/`approval` (mutuamente exclusivos), flag `idempotent`
 - FR-4: Events publicados/consumidos com schema, conector de mensageria gerado automaticamente
 - FR-5: Geração de OpenAPI (`@fastify/swagger`) e AsyncAPI (validado por `@asyncapi/parser`) a partir do manifest
-- FR-6: Persistência da hierarquia via Closure Table (Prisma; PostgreSQL/MySQL/MS-SQL), detecção de ciclo
+- FR-6: Persistência da hierarquia via Closure Table (Prisma; PostgreSQL/MySQL; MS-SQL saiu do MVP em 2026-10-06), detecção de ciclo
 - FR-7: Controle de acesso por herança aditiva simples (sem override por nó no MVP)
 - FR-8: Navegação (leitura) e edição de atributo via formulário gerado (`@rjsf/core`) a partir de `objectClass.attributes`, sem drag-and-drop; i18n de labels/mensagens
 - FR-9: Domínio Tenant (raiz da árvore, status active/suspended/archived, isolamento multi-tenant)
@@ -55,7 +55,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 - NFR-1: Zero Trust em toda comunicação leste-oeste (serviço-a-serviço, síncrona ou assíncrona) — verificação criptográfica própria sempre, sem exceção por "ambiente de confiança" (Constitution §9; FR-13/FR-14/FR-21/FR-26)
 - NFR-2: i18n de toda superfície exposta a usuário final — PT-BR padrão, EN secundário via `Accept-Language`/`i18nKey`, nunca obrigatório para código de domínio de terceiros (FR-8, FR-24)
 - NFR-3: Observabilidade distribuída via OpenTelemetry, com propagação de `traceparent` (FR-19/FR-23)
-- NFR-4: Portabilidade de banco — trocar entre PostgreSQL/MySQL/MS-SQL via Prisma nunca exige mudança de schema/código de domínio (FR-6)
+- NFR-4: Portabilidade de banco — trocar entre PostgreSQL/MySQL via Prisma nunca exige mudança de schema/código de domínio (FR-6)
 - NFR-5: Resiliência segura — retry automático só em ação idempotente por natureza ou com `Idempotency-Key` explícito; nunca retry cego (FR-26)
 - NFR-6: Fail-fast de configuração no startup vs. fail-closed de segurança (revogação de token) vs. fail-open de proteção de recurso (rate limiting) — três posturas distintas e deliberadas, nunca confundidas (FR-14/FR-19/FR-22)
 - NFR-7: Evolução de contrato nunca quebra consumidor existente por padrão — mudança incompatível exige nova action explícita, capturado por `test:contracts` (FR-18/FR-29)
@@ -75,7 +75,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 - AD-8: Gateway nunca importa pacote de circuit breaker, cache de resposta, ou pacote de domínio específico — `lint:gateway` enforça isso em CI
 - AD-9: Único jeito de um domínio A obter dado de domínio B é `ServiceClient` (síncrono, exceção) ou consumir `events.publishes` (padrão) — nunca import direto de código nem acesso direto a banco de outro domínio, Directory Service incluído
 - AD-10: `@tecton/ui` como único runtime de renderização schema→tela; tema default (tokens CSS) + porta `UiThemeProvider` (slots substituíveis, compostos pelo `Core`, nunca resolvidos pelo slot substituto); namespace de `i18nKey` `<domínio>.<chave>`; `ObjectTreeView` exclusivo do Directory (containment/ACL), `AttributeForm` reusável por qualquer domínio via `@tecton/manifest` (nunca import direto de `@tecton/directory`); SPA admin embutida em `@tecton/directory`, servida em `/admin`; toda chamada de API da SPA (não só o shell inicial) atravessa o Gateway
-- Stack fixado: Node.js 24.x, TypeScript 6.0.3, Fastify 5.12.x, Prisma 8.x, Valkey 9.1.x, React 19.x, `@rjsf/core` 6.1.2, OpenTelemetry, Awilix, Testcontainers
+- Stack fixado (corrigido em 2026-10-06): Node.js 24.x (>=24.7), TypeScript 6.0.3, Fastify 5.12.x, Prisma 7.x (o 8 ainda não suporta MySQL), Valkey 9.1.x, React 19.x, `@rjsf/core` 6.x mais recente, JSON Schema draft-07, OpenTelemetry, Awilix, Testcontainers
 - Estrutura de monorepo do framework: pnpm workspaces, pacotes `packages/{manifest,core,providers,auth,directory,service-client,ui,cli}`; app gerada por `tecton-admin new` usa Turborepo com `apps/{gateway,auth,directory,domains/<nome>}`
 - Sem starter template externo para o repositório do próprio framework — scaffold nasce do zero conforme o Structural Seed acima (não é greenfield de app, é o framework sendo construído)
 
@@ -112,7 +112,7 @@ FR-11: Epic 2 - Domínio Custodiante (interface)
 FR-12: Epic 2 - AuthProvider com JWT e refresh confinado
 FR-13: Epic 2 - Verificação independente por serviço (Zero Trust)
 FR-14: Epic 2 - Revogação de token via TokenRevocationStore
-FR-15: Epic 1 (parcial: new/generate) + Epic 6 (parcial: dev/migrate) - Comandos essenciais do ciclo de vida
+FR-15: Epic 1 (new/generate) + Epic 3 (dev, Story 3.13) + Epic 6 (migrate) - Comandos essenciais do ciclo de vida
 FR-16: Epic 6 - `extract` para migração assistida
 FR-17: Epic 6 - Família de lint
 FR-18: Epic 5 - `test:contracts`
@@ -127,14 +127,14 @@ FR-26: Epic 3 - ServiceClient com retry/timeout seguro
 FR-27: Epic 3 - Health checks padrão por serviço
 FR-28: Epic 3 - Dockerfile por domínio
 FR-29: Epic 5 - Evolução aditiva de contrato por padrão
-FR-30: Epic 6 - Dev Services
+FR-30: Epic 1 - Dev Services (Story 1.11)
 FR-31: Epic 6 - Testcontainers para isolamento de teste/CI
 
 ## Epic List
 
 ### Epic 1: Manifest Declarativo e Scaffold Inicial
 Dev (ou agente de IA) cria um workspace Tecton, declara um domínio via `tecton.yaml` com `objectClass` opcional, actions tipadas (`sensitive`/`approval`), events publicados/consumidos e dependencies, e recebe validação + documentação OpenAPI/AsyncAPI geradas automaticamente — sem escrever nenhum código de plumbing. Inclui o scaffold mínimo do monorepo (pnpm workspaces, `@tecton/manifest`) e uma versão inicial de `tecton-admin new`/`generate domain` suficiente para produzir o manifest.
-**FRs covered:** FR-1, FR-2, FR-3, FR-4, FR-5, FR-15 (parcial: `new`/`generate`)
+**FRs covered:** FR-1, FR-2, FR-3, FR-4, FR-5, FR-15 (parcial: `new`/`generate`), FR-30
 
 ### Epic 2: Autenticação e Zero Trust
 Dev tem um serviço de Auth funcional (Argon2id+Pepper, JWT de acesso + refresh confinado) e todo serviço gerado verifica a assinatura do token por conta própria, nunca aceitando header pré-decodificado; revogação de token via `TokenRevocationStore` Valkey-backed real, fail-closed se o Valkey estiver inacessível. Inclui Custodiante como primitivo de segurança — interface `KeyCustodyProvider` e conceito `sensitive.quorum`, sem implementação real de custódia (movido do Epic 4 por não compartilhar Closure Table/ACL/tela com Tenant/Usuário-Grupo — decisão da mesa de arquitetura, 2026-09-04). Restrição de design herdada do PRD (FR-11): a interceptação de `sensitive.quorum`, quando implementada, precisa acontecer no nível de acesso ao dado, nunca só num middleware de rota HTTP.
@@ -142,7 +142,7 @@ Dev tem um serviço de Auth funcional (Argon2id+Pepper, JWT de acesso + refresh 
 
 ### Epic 3: Interoperabilidade entre Domínios
 Dev gera domínios de negócio (via `generate domain` do Epic 1) que se comunicam com segurança — chamada síncrona via `ServiceClient` com retry seguro (nunca cego), e assíncrona via CloudEvents sobre Valkey Streams (at-least-once, dead-letter) — atrás de um Gateway fino com responsabilidades proibidas explícitas, `ConfigProvider` com fail-fast no startup, health checks padrão e Dockerfile por domínio. **Nota de dependência (decisão da mesa, 2026-09-04):** nasce com formato de erro provisório (status HTTP + corpo básico) — o formato final (RFC 9457/i18n) é entregue pelo Epic 5, que enriquece em vez de recriar; stories deste épico devem nomear explicitamente esse caráter provisório para não gerar retrabalho.
-**FRs covered:** FR-19, FR-20, FR-21, FR-22, FR-26, FR-27, FR-28
+**FRs covered:** FR-19, FR-20, FR-21, FR-22, FR-26, FR-27, FR-28, FR-15 (parcial: `dev`)
 
 ### Epic 4: Core de Diretório e Domínios Embutidos
 Marina cria Tenant/Usuário/Grupo, navega a árvore de objetos em `/admin` (com busca, ícones por objectClass, navegação por teclado), edita atributos via formulário gerado (`@rjsf/core`) e gerencia ACL por herança aditiva — tudo autenticado via Epic 2. Backend (`@tecton/directory`) e frontend (`@tecton/ui`, tema + `UiThemeProvider`) entregues juntos, por serem o mesmo componente ponta-a-ponta.
@@ -154,8 +154,8 @@ Toda action de todo domínio gerado responde em formato consistente — sucesso 
 **FRs covered:** FR-18, FR-23, FR-24, FR-25, FR-29
 
 ### Epic 6: CLI Completo e Developer Experience
-Dev tem o ciclo de vida completo do `tecton-admin`: `dev` (sobe ambiente local completo com Dev Services), `migrate` (Prisma), `extract` (migração assistida Strangler Fig, Caso 1), família `lint` (`lint:gateway` + aviso de quórum sem provider), e `test:contracts`/CI isolados via Testcontainers.
-**FRs covered:** FR-16, FR-17, FR-30, FR-31, FR-15 (parcial: `dev`/`migrate`)
+Dev tem o ciclo de vida completo do `tecton-admin`: `migrate` (Prisma), `extract` (migração assistida Strangler Fig, Caso 1), família `lint` (`lint:gateway` + aviso de quórum sem provider), e `test:contracts`/CI isolados via Testcontainers.
+**FRs covered:** FR-16, FR-17, FR-31, FR-15 (parcial: `migrate`)
 
 ## Epic 1: Manifest Declarativo e Scaffold Inicial
 
@@ -171,7 +171,7 @@ para que cada story seguinte tenha onde nascer sem violar o AD-3.
 
 **Dado** um clone limpo do repositório
 **Quando** eu rodo `pnpm install` e `pnpm build`
-**Então** os pacotes `@tecton/{manifest,core,providers,auth,directory,service-client,ui,cli}` compilam com TypeScript 6.0.3, com `engines.node` fixado em 24.x
+**Então** os pacotes `@tecton/{manifest,core,providers,auth,directory,service-client,ui,cli}` compilam com TypeScript 6.0.3, com `engines.node` fixado em `>=24.7 <25`
 **E** o repositório do framework usa só pnpm workspaces, sem Turborepo nem Nx (Structural Seed). O Turborepo pertence à app gerada por `tecton-admin new` (Story 1.9), não a este repositório.
 
 **Dado** um pacote que importa uma dependência interna proibida (ex.: `@tecton/manifest` importando `@tecton/core`)
@@ -185,6 +185,11 @@ para que cada story seguinte tenha onde nascer sem violar o AD-3.
 **Dado** que a story foi concluída
 **Quando** eu consulto o README do repositório
 **Então** encontro o test runner escolhido e o motivo da escolha, além dos comandos `pnpm build`, `pnpm test` e `pnpm check:deps`
+
+**Dado** testes marcados como de persistência, a partir do momento em que existirem
+**Quando** o CI roda
+**Então** um job dedicado executa esses testes em PostgreSQL e MySQL e é obrigatório para merge
+**E** no ciclo local e nos demais jobs, os testes de persistência rodam só em PostgreSQL, para manter o ciclo de desenvolvimento rápido
 
 ### Story 1.2: Núcleo do `tecton.yaml` (identidade do domínio)
 
@@ -239,7 +244,7 @@ para que contratos inconsistentes ou rotas abertas por esquecimento falhem antes
 **Dado** uma action com `name` (camelCase, único no domínio), `description`, `input`, `output` e `auth.requires`
 **Quando** ela é validada
 **Então** ela passa
-**E** `input` e `output` são compilados para JSON Schema, para uso na Story 1.7
+**E** `input` e `output` são compilados para JSON Schema draft-07 (Consistency Conventions), para uso na Story 1.7
 
 **Dado** um campo com tipo do sistema curto (`string`, `number`, `integer`, `boolean`, `uuid`, `date`, `datetime`, `enum[a,b]`)
 **Quando** ele é compilado
@@ -323,8 +328,9 @@ para que o domínio seja reconhecido como objeto de diretório e os atributos vi
 
 **Dado** `attributes` no formato curto (`name`, `type`, `required`, `default`, `values`, `unique`)
 **Quando** eles são compilados
-**Então** viram um JSON Schema que o `@rjsf/core` 6.1.2 e o validador de atributos do Directory conseguem consumir (AD-2)
+**Então** viram um JSON Schema draft-07 que o `@rjsf/core` 6.x e o validador de atributos do Directory conseguem consumir (AD-2)
 **E** `unique` vira o metadado de extensão `x-tecton-unique`, porque não existe em JSON Schema
+**E** um atributo com `readOnly: true` no manifest vira `readOnly` no JSON Schema
 
 **Dado** um `objectClass` sem `extends` ou sem `acl.inheritable`
 **Quando** ele é parseado
@@ -362,7 +368,8 @@ para que uma referência quebrada falhe explicitamente em vez de passar como vá
 
 **Dado** uma referência a outro domínio (`allowedParents`, `allowedChildren` ou `consumes`)
 **Quando** o lint tenta resolvê-la
-**Então** a resolução segue esta ordem: (1) manifest no workspace local; (2) manifest exportado por um pacote npm instalado, que é o caso dos `objectClass` embutidos do `@tecton/directory`, como `Root`, `User` e `Group`; (3) caminho explícito declarado em `dependencies`
+**Então** a resolução segue esta ordem: (1) manifest no workspace local; (2) manifest exportado por um pacote npm instalado; (3) caminho explícito declarado em `dependencies`
+**E** a resolução por pacote npm é testada com um pacote de fixture; o `@tecton/directory` (Story 4.1) e o `@tecton/auth` (Story 2.2) passam a usar esse mesmo caminho quando existirem
 
 **Dado** um `objectClass` em `allowedParents` ou `allowedChildren` que não é encontrado por nenhum dos três caminhos
 **Quando** o lint roda
@@ -375,6 +382,10 @@ para que uma referência quebrada falhe explicitamente em vez de passar como vá
 **Dado** uma dependência declarada por URL remota
 **Quando** o lint roda
 **Então** ele falha com mensagem clara de que esse modo de resolução não existe no MVP
+
+**Dado** domínios que dependem um do outro por chamada síncrona (ex.: Auth e Directory)
+**Quando** o lint encontra o ciclo em `dependencies`
+**Então** registra um aviso que nomeia o ciclo, sem falhar, porque o ciclo pode ser proposital
 
 > **Nota:** `lint:gateway` e o aviso de `sensitive.quorum` sem provider são do Epic 6 (FR-17), que estende este comando.
 
@@ -406,6 +417,11 @@ para que contrato HTTP e documentação nunca sejam escritos à mão nem fiquem 
 **Dado** que eu altero o `input` ou o `output` de uma action no manifest
 **Quando** eu rodo o build novamente
 **Então** o OpenAPI gerado reflete a mudança sem edição manual (FR-5)
+
+**Dado** qualquer erro gerado pelo framework, a partir desta story e em todos os épicos seguintes
+**Quando** ele é lançado
+**Então** passa por uma abstração única de erro do `@tecton/core` (status, `slug`, `i18nKey` e mensagem) e é convertido em resposta por um único serializador, provisório até o Epic 5
+**E** nenhum outro código monta corpo de resposta de erro por conta própria
 
 > **Nota:** a verificação de token em cada rota (Zero Trust) é do Epic 2; o formato final de resposta, do Epic 5.
 
@@ -469,7 +485,7 @@ para ter a estrutura pronta e as dependências do framework declaradas, sem copi
 **Quando** eu rodo `tecton-admin new --help`
 **Então** todo o texto está em inglês (Constitution §8, eixo 2)
 
-> **Nota:** `apps/gateway` entra no Epic 3, `apps/directory` no Epic 4 e `docker-compose.dev.yml` no Epic 6. Cada épico estende o `new`.
+> **Nota:** `apps/gateway` entra no Epic 3, `apps/directory` no Epic 4 e `docker-compose.dev.yml` na Story 1.11. Cada épico estende o `new`.
 
 ### Story 1.10: `tecton-admin generate domain <nomes...>`
 
@@ -497,7 +513,40 @@ para começar a declarar actions e events imediatamente.
 **Quando** ele procura o workspace
 **Então** falha com mensagem que indica `tecton-admin new`
 
+**Dado** um domínio recém-gerado
+**Quando** eu o inicio pelo script do próprio pacote
+**Então** ele sobe um servidor Fastify com as rotas da Story 1.7, e cada action responde 501 até ser implementada
+**E** isso é o esqueleto executável mínimo (*walking skeleton*) que os épicos seguintes enriquecem
+
 > **Nota:** a estrutura de código hexagonal do domínio (AD-1) chega no Epic 3. Os nomes de domínio seguem a convenção de identificador em inglês (Consistency Conventions), por isso o exemplo usa `finance inventory sales` e não o `financeiro materiais comercial` do PRD.
+
+### Story 1.11: Dev Services
+
+Como **dev começando num workspace Tecton**,
+quero a infraestrutura de desenvolvimento pronta num único arquivo,
+para subir banco e Valkey sem configurar nada à mão (FR-30).
+
+**Critérios de Aceite:**
+
+**Dado** `tecton-admin new <projeto> --db postgres|mysql` (padrão: `postgres`)
+**Quando** ele roda
+**Então** gera `docker-compose.dev.yml` com Valkey 9.1 e o banco escolhido (FR-30)
+**E** cada domínio tem seu banco lógico próprio, criado na primeira subida; o Auth (Story 2.2) e o Directory (Story 4.1) acrescentam os seus quando entram
+**E** o arquivo de exemplo de ambiente já aponta para esses bancos e para o Valkey
+
+**Dado** `tecton-admin generate domain <nome>`
+**Quando** ele roda depois desta story
+**Então** o banco lógico do domínio novo é acrescentado ao Dev Services
+
+**Dado** o `docker-compose.dev.yml` em execução
+**Quando** eu subo qualquer serviço do workspace
+**Então** banco e Valkey já estão disponíveis, sem nenhum passo adicional de infraestrutura (FR-30)
+
+**Dado** o arquivo gerado
+**Quando** eu o leio
+**Então** um comentário em inglês avisa que ele é só para desenvolvimento, não para produção
+
+> **Nota:** movida do Epic 6 no pre-mortem de 2026-10-05, para que o Valkey e o banco locais existam desde o Epic 2. O `tecton-admin dev`, que usa este arquivo, está na Story 3.13.
 
 ## Epic 2: Autenticação e Zero Trust
 
@@ -511,7 +560,7 @@ para que nenhuma senha seja guardada de forma recuperável, mesmo se o banco vaz
 
 **Critérios de Aceite:**
 
-**Dado** a interface `AuthProvider` em `@tecton/providers` e o adaptador de referência Argon2id
+**Dado** a interface `AuthProvider` em `@tecton/providers` e o adaptador de referência Argon2id, que usa o `crypto.argon2` nativo do Node (disponível desde a 24.7.0) se ele estiver estável na versão fixada, ou `@node-rs/argon2` caso ainda seja experimental, com a escolha e o motivo registrados no README do pacote
 **Quando** eu gero o hash de uma senha
 **Então** a senha passa primeiro por HMAC-SHA256 com o Pepper como chave e depois por Argon2id, com parâmetros mínimos configuráveis (padrão: 19 MiB de memória, 2 iterações, paralelismo 1)
 **E** o resultado guardado está no formato PHC, com os parâmetros e o identificador da versão do Pepper usado
@@ -555,6 +604,11 @@ para que todo serviço consiga verificar a identidade por conta própria, sem co
 **Quando** eu rodo `tecton-admin auth bootstrap`
 **Então** a primeira credencial administrativa é criada
 **E** a senha é lida da entrada padrão ou de variável de ambiente, nunca de argumento da linha de comando
+**E** o comando grava direto no banco do Auth, com acesso local a ele; não existe endpoint HTTP de bootstrap
+
+**Dado** um Auth que já tem pelo menos uma credencial
+**Quando** alguém roda `tecton-admin auth bootstrap`
+**Então** o comando falha sem alterar nada
 
 **Dado** uma credencial válida
 **Quando** eu chamo `POST /auth/login` com identificador e senha
@@ -573,6 +627,11 @@ para que todo serviço consiga verificar a identidade por conta própria, sem co
 **Quando** ele inicia
 **Então** a inicialização falha com mensagem clara
 
+**Dado** o pacote `@tecton/auth`
+**Quando** eu inspeciono o que ele exporta
+**Então** ele traz o próprio `tecton.yaml`, com as actions do Auth (`login`, `refresh`, `logout`, `service-token` e, a partir da Story 4.3, `create-credential`), resolvível pelo lint como pacote npm (Story 1.6)
+**E** o JWKS fica fora do manifest, porque não é action
+
 **Dado** um workspace novo
 **Quando** eu rodo `tecton-admin new`
 **Então** é gerado `apps/auth` como instância configurada de `@tecton/auth`, com dependência versionada (AD-4)
@@ -585,6 +644,8 @@ para que todo serviço consiga verificar a identidade por conta própria, sem co
 > - O JWKS é um endpoint padrão de mercado e por isso usa `GET` em caminho `.well-known`, fora da convenção RPC das actions.
 > - Proteção contra força bruta fica com o rate limiting do Gateway (Epic 3, FR-19).
 > - Nesta story, `perms` vem da credencial. No Epic 4, a fonte passa a ser o ACL do Directory.
+
+> **Nota de tamanho (pre-mortem de 2026-10-05):** story grande para uma única sessão de agente; candidata a divisão no `bmad-create-story`.
 
 ### Story 2.3: Refresh token opaco com rotação e logout
 
@@ -664,6 +725,11 @@ para que nenhum serviço confie em outro, nem no Gateway, para decidir quem est�
 **Quando** ela é chamada sem token
 **Então** ela é executada
 
+**Dado** a URL do JWKS configurada no serviço
+**Quando** o serviço sobe fora do modo de desenvolvimento
+**Então** o startup falha se a URL não for `https`
+**E** um redirecionamento do JWKS para outro host é recusado, para que ninguém na rede interna consiga entregar uma chave falsa (AD-7)
+
 > **Nota:** o corpo das respostas 401 e 403 é provisório. O formato final RFC 9457 é do Epic 5 (FR-24).
 
 ### Story 2.5: `TokenRevocationStore` com Valkey e fail-closed
@@ -698,7 +764,7 @@ para não precisar esperar a expiração natural quando uma sessão é compromet
 **Quando** ela acontece
 **Então** os access tokens do sujeito emitidos até aquele momento também são revogados
 
-> **Nota:** o Dev Services com Valkey local é do Epic 6 (FR-30). Os testes desta story rodam contra um Valkey real em container.
+> **Nota:** o Valkey local de desenvolvimento vem do Dev Services (Story 1.11). Os testes desta story rodam contra um Valkey real em container.
 
 ### Story 2.6: Bloqueio de login por identificador
 
@@ -741,6 +807,8 @@ para que um ataque distribuído contra uma única conta não escape do rate limi
 **Quando** chega uma tentativa de login
 **Então** ela é rejeitada (fail-closed), coerente com a Story 2.5
 
+> **Risco aceito (auditoria de segurança de 2026-10-06):** como a contagem é por identificador, alguém pode bloquear de propósito a conta de outra pessoa errando a senha dela. É o custo conhecido de bloquear por conta; o `tecton-admin auth unlock` existe para isso. Registrado na documentação de operação.
+
 ### Story 2.7: Token de serviço para chamadas entre serviços
 
 Como **dev de um domínio que chama outro domínio**,
@@ -750,9 +818,17 @@ para que quem recebe saiba qual serviço está chamando e em nome de qual usuár
 **Critérios de Aceite:**
 
 **Dado** um domínio sem credencial de serviço
-**Quando** eu rodo `tecton-admin auth register-service <domínio>`
+**Quando** eu rodo `tecton-admin auth register-service <domínio>` autenticado como administrador com a permissão `auth:service:register`
 **Então** é criada uma credencial `service:<domínio>` e o segredo aparece uma única vez na saída
 **E** o Auth guarda só o hash do segredo, gerado pelo `AuthProvider` da Story 2.1
+
+**Dado** uma chamada de registro sem token de administrador ou sem `auth:service:register`
+**Quando** ela chega ao Auth
+**Então** é recusada e nada é criado
+
+**Dado** um domínio que já tem credencial de serviço
+**Quando** alguém tenta registrá-lo de novo
+**Então** a operação falha, a menos que use `--rotate`, que também exige administrador, gera credenciais novas e revoga as antigas e todos os tokens emitidos com elas
 
 **Dado** uma credencial de serviço válida
 **Quando** o serviço chama `POST /auth/service-token`
@@ -776,7 +852,18 @@ para que quem recebe saiba qual serviço está chamando e em nome de qual usuár
 **Quando** ele é apresentado a `POST /auth/refresh` ou a `POST /auth/login`
 **Então** ele é recusado
 
+**Dado** o registro de um serviço
+**Quando** o Auth emite o token de serviço
+**Então** o token traz `call:<domínio>` só para os domínios declarados em `dependencies` no manifest do serviço chamador, lido no registro
+
+**Dado** uma chamada entre serviços, com ou sem `Tecton-On-Behalf-Of`
+**Quando** ela chega
+**Então** o serviço chamado exige `call:<próprio domínio>` no token de serviço, além das permissões avaliadas para `auth.requires`
+**E** um serviço que não declarou o domínio chamado em `dependencies` recebe 403, mesmo trazendo um token de usuário válido
+
 > **Nota:** esta story entrega emissão e verificação. A anexação automática dos tokens no `ServiceClient` e na publicação e consumo de eventos é do Epic 3 (FR-21, FR-26).
+
+> **Risco aceito (auditoria de segurança de 2026-10-06):** um serviço comprometido pode reaproveitar, até expirarem (15 minutos), tokens de usuário que recebeu. É inerente à propagação de token; a exigência de `call:<domínio>` limita para onde ele pode usá-los. Registrado na documentação de operação.
 
 ### Story 2.8: Interface `KeyCustodyProvider` e aviso de `sensitive.quorum` sem provider
 
@@ -914,7 +1001,7 @@ para implementar só as regras de negócio, sem montar servidor, DI, configuraç
 
 **Dado** `tecton-admin generate domain <nome>` (Story 1.10)
 **Quando** ele roda
-**Então** o domínio passa a nascer também com `src/core` (handlers das actions), `src/ports`, `src/adapters`, container Awilix e bootstrap do servidor
+**Então** o esqueleto executável da Story 1.10 é reorganizado em `src/core` (handlers das actions), `src/ports`, `src/adapters`, container Awilix e bootstrap do servidor
 **E** o bootstrap liga as rotas da Story 1.7, a verificação de token da Story 2.4, a configuração da Story 3.1, os health checks da Story 3.2 e a observabilidade da Story 3.3
 
 **Dado** uma action declarada no manifest
@@ -940,6 +1027,8 @@ para implementar só as regras de negócio, sem montar servidor, DI, configuraç
 **Então** identificadores, comentários e mensagens estão em inglês (Constitution §8, eixo 2)
 
 > **Nota:** o comando `tecton-admin migrate` é do Epic 6.
+
+> **Nota de tamanho (pre-mortem de 2026-10-05):** story grande para uma única sessão de agente; candidata a divisão no `bmad-create-story`.
 
 ### Story 3.5: `ServiceDiscoveryProvider` estático
 
@@ -1122,7 +1211,6 @@ para chamar com segurança, com credencial, timeout e retry corretos, sem escrev
 **Quando** ela chega
 **Então** é entregue ao chamador como erro tipado, com o formato provisório deste épico
 
-
 ### Story 3.10: Publicação de eventos assinados via outbox transacional
 
 Como **dev de um domínio que publica eventos**,
@@ -1156,7 +1244,7 @@ para que nunca exista mudança gravada sem o evento correspondente, nem evento p
 
 **Dado** um evento gravado no outbox
 **Quando** a linha é criada
-**Então** o envelope já está completo e assinado: CloudEvents 1.0, `id` em UUID v7, `source` identificando o domínio, `type` no formato `com.tecton.<domínio>.<evento>`, `time` em ISO 8601 UTC, `traceparent` na extensão de distributed tracing e assinatura com a chave privada do serviço, cobrindo envelope e dados, num atributo de extensão
+**Então** o envelope já está completo e assinado: CloudEvents 1.0, `id` em UUID v7, `source` identificando o domínio, `type` no formato `com.tecton.<domínio>.<evento>`, `time` em ISO 8601 UTC, `traceparent` na extensão de distributed tracing e assinatura com a chave privada do serviço, cobrindo envelope e dados, num atributo de extensão com nome válido pela especificação do CloudEvents (só letras minúsculas e dígitos, ex.: `tectonsig`)
 
 **Dado** um payload que não segue o schema do evento
 **Quando** a publicação é chamada
@@ -1166,9 +1254,13 @@ para que nunca exista mudança gravada sem o evento correspondente, nem evento p
 **Quando** a action é executada
 **Então** a action e a gravação no outbox concluem normalmente, porque o envio ao Valkey é responsabilidade do relay (Story 3.11)
 
-**Dado** os três bancos suportados (PostgreSQL, MySQL e MS-SQL)
-**Quando** os testes desta story rodam
-**Então** o comportamento transacional é o mesmo nos três
+**Dado** os dois bancos suportados (PostgreSQL e MySQL)
+**Quando** o job de matriz de bancos da Story 1.1 roda
+**Então** o comportamento transacional é o mesmo nos dois
+
+**Dado** o registro de chaves de assinatura
+**Quando** ele é feito
+**Então** segue as mesmas regras da Story 2.7: exige administrador, nunca sobrescreve um registro existente sem `--rotate`, e a rotação retira a chave antiga do JWKS
 
 ### Story 3.11: Relay do outbox para Valkey Streams
 
@@ -1250,6 +1342,57 @@ para que verificação de assinatura, deduplicação, retry e dead-letter sejam 
 **Então** a ordem de entrega é preservada dentro do stream, sem garantia entre streams diferentes (FR-21)
 **E** o `traceparent` do evento continua o trace no consumidor
 
+**Dado** a verificação de assinatura de eventos
+**Quando** o consumidor busca o JWKS
+**Então** valem as mesmas regras de transporte da Story 2.4: `https` fora do modo de desenvolvimento e nenhum redirecionamento para outro host
+
+### Story 3.13: `tecton-admin dev`
+
+Como **dev no dia a dia**,
+quero subir o sistema inteiro com um comando e ver minhas mudanças sem reiniciar nada à mão,
+para desenvolver com ciclo curto de feedback (FR-15).
+
+**Critérios de Aceite:**
+
+**Dado** o Dev Services parado
+**Quando** eu rodo `tecton-admin dev`
+**Então** ele sobe o `docker-compose.dev.yml` e espera banco e Valkey ficarem prontos (FR-15, FR-30)
+
+**Dado** migrations pendentes
+**Quando** o `dev` inicia
+**Então** elas são aplicadas em cada serviço e registradas na saída (o comando `tecton-admin migrate` do Epic 6 expõe a mesma mecânica de forma avulsa)
+
+**Dado** o workspace
+**Quando** o `dev` termina de subir
+**Então** Gateway, Auth e todos os domínios estão rodando via `turbo run dev`, com `tsx watch`
+**E** a saída mostra, em inglês, o endereço do Gateway
+**E** o Directory e a SPA `/admin` entram nessa lista quando existirem (Story 4.7)
+
+**Dado** uma alteração num arquivo de um domínio
+**Quando** eu salvo
+**Então** só aquele serviço reinicia
+
+**Dado** um serviço que falha ao subir (ex.: configuração inválida)
+**Quando** isso acontece
+**Então** a saída indica o serviço e o erro, e os outros continuam rodando
+
+**Dado** um workspace sem nenhuma credencial
+**Quando** o `dev` sobe
+**Então** a saída sugere rodar `tecton-admin auth bootstrap`
+
+**Dado** o modo de desenvolvimento
+**Quando** o `dev` sobe ou um domínio novo é gerado
+**Então** a credencial de serviço e o par de chaves de assinatura de cada domínio são registrados no Auth automaticamente e gravados no `.env` local do domínio, ignorado pelo Git (Story 3.1)
+**E** a verificação de token continua ligada em todos os serviços, sem exceção para desenvolvimento (AD-7)
+**E** esse registro automático só existe no `tecton-admin dev`, nunca em build de produção
+**E** o endpoint de registro automático só existe quando o Auth sobe com o modo de desenvolvimento ligado de forma explícita na configuração, e nesse modo o startup do Auth registra um aviso; fora dele, o endpoint não existe
+
+**Dado** `Ctrl+C`
+**Quando** eu interrompo
+**Então** todos os serviços param de forma limpa e o Dev Services continua rodando
+
+> **Nota:** movida do Epic 6 no pre-mortem de 2026-10-05, para eliminar o atrito de subir serviços e copiar credenciais à mão nos Epics 3 a 5.
+
 ## Epic 4: Core de Diretório e Domínios Embutidos
 
 Marina administra a estrutura do Tenant: o Directory Service pronto (`@tecton/directory`) guarda Tenant, Usuário e Grupo numa árvore com Closure Table e ACL por herança aditiva, publica eventos para os outros domínios e serve a SPA `/admin` (construída sobre `@tecton/ui`), onde ela navega a árvore, busca objetos e edita atributos por formulário gerado. Vem depois da Interoperabilidade (Epic 3), da qual depende: Gateway, `ServiceClient` e eventos.
@@ -1260,7 +1403,7 @@ Marina administra a estrutura do Tenant: o Directory Service pronto (`@tecton/di
 
 Como **dev de um sistema construído com o Tecton**,
 quero um Directory Service pronto que guarde objetos numa hierarquia com Closure Table,
-para ter uma árvore de objetos com containment validado, portável entre os três bancos suportados.
+para ter uma árvore de objetos com containment validado, portável entre os bancos suportados.
 
 **Critérios de Aceite:**
 
@@ -1272,7 +1415,7 @@ para ter uma árvore de objetos com containment validado, portável entre os tr�
 **Dado** o schema Prisma do Directory
 **Quando** eu o inspeciono
 **Então** existe uma tabela de objetos (ID em UUID v7, `objectClass`, nome em coluna própria para busca, atributos como bag JSON) e uma tabela de closure (ancestral, descendente, profundidade)
-**E** a bag de atributos é JSONB no PostgreSQL, JSON no MySQL e texto no MS-SQL, porque o Prisma não suporta o tipo `Json` no SQL Server
+**E** a bag de atributos é JSONB no PostgreSQL e JSON no MySQL
 
 **Dado** a criação de um objeto sob um pai
 **Quando** a classe do pai não está em `allowedParents` do filho, ou a classe do filho não está em `allowedChildren` do pai
@@ -1290,12 +1433,17 @@ para ter uma árvore de objetos com containment validado, portável entre os tr�
 **E** mover para um pai que viola `allowedParents` é rejeitado
 
 **Dado** os testes de persistência do Directory
-**Quando** rodam contra PostgreSQL, MySQL e MS-SQL
-**Então** passam nos três sem mudança de schema nem de código de domínio (FR-6, NFR-4)
+**Quando** rodam no job de matriz de bancos da Story 1.1, contra PostgreSQL e MySQL
+**Então** passam nos dois sem mudança de schema nem de código de domínio (FR-6, NFR-4)
 
 **Dado** os manifests dos `objectClass` embutidos
 **Quando** o pacote `@tecton/directory` é instalado
 **Então** eles ficam disponíveis para o `tecton-admin lint` resolver referências como `Root`, `User` e `Group` (Story 1.6)
+
+**Dado** um atributo `readOnly` no `objectClass`
+**Quando** a action genérica de edição de atributos tenta alterá-lo
+**Então** a alteração é rejeitada; só actions específicas mudam atributos `readOnly`
+**E** nos `objectClass` embutidos, `status` (Tenant e usuário) nasce `readOnly`
 
 ### Story 4.2: Domínio Tenant
 
@@ -1308,6 +1456,11 @@ para isolar os dados de cada cliente e suspender ou arquivar um cliente sem apag
 **Dado** um usuário com `tenant:create`
 **Quando** ele chama `createTenant`
 **Então** é criado um Tenant como raiz de uma árvore própria, com status `active`
+
+**Dado** a permissão `tenant:create`
+**Quando** alguém tenta concedê-la
+**Então** ela só pode ser concedida na raiz da plataforma (`Root`), nunca dentro de um Tenant
+**E** um administrador de Tenant nunca recebe permissão em `Root`
 
 **Dado** qualquer objeto do Directory
 **Quando** ele é criado
@@ -1354,6 +1507,7 @@ para representar a organização na árvore e dar a cada usuário uma credencial
 **Dado** `createUser` com uma senha inicial
 **Quando** ele é executado
 **Então** o Directory cria o objeto `User` e pede ao Auth, pelo `ServiceClient` com token de serviço, a criação da credencial com o mesmo ID de sujeito (FR-10)
+**E** para isso o manifest do Directory declara `auth` em `dependencies`, e o Auth ganha a action `create-credential` no próprio manifest
 **E** a senha inicial só trafega até o Auth e nunca é gravada nem registrada em log pelo Directory
 
 **Dado** uma falha em qualquer etapa da criação (Auth inacessível, erro ao gravar no Directory)
@@ -1371,6 +1525,14 @@ para representar a organização na árvore e dar a cada usuário uma credencial
 **Dado** `tecton-admin auth bootstrap` (Story 2.2)
 **Quando** ele roda depois desta story
 **Então** cria também o Tenant inicial e o usuário administrador correspondente no Directory
+**E** esse administrador é operador da plataforma (permissões em `Root`, incluindo `tenant:create`) e administrador do Tenant inicial
+
+**Dado** um ambiente novo
+**Quando** eu sigo a documentação de primeira subida
+**Então** a ordem é explícita: Dev Services, Auth, registro das credenciais de serviço do Directory, Directory e por fim `auth bootstrap`
+**E** o `auth bootstrap` falha com mensagem clara se o Directory ou a credencial de serviço dele não estiverem prontos
+
+> **Nota de tamanho (pre-mortem de 2026-10-05):** story grande para uma única sessão de agente; candidata a divisão no `bmad-create-story`.
 
 ### Story 4.4: ACL por herança aditiva e `perms` do token
 
@@ -1400,12 +1562,18 @@ para gerenciar acesso por estrutura, sem configurar objeto por objeto (FR-7).
 
 **Dado** um login ou refresh no Auth
 **Quando** o access token é emitido
-**Então** o Auth consulta o Directory pelo `ServiceClient` e preenche `perms` com as permissões que o usuário tem sobre a raiz do Tenant (decisão de 2026-10-02)
+**Então** o Auth, que declara `directory` em `dependencies` no próprio manifest, consulta o Directory pelo `ServiceClient` e preenche `perms` com as permissões que o usuário tem sobre a raiz do Tenant (decisão de 2026-10-02)
 **E** as permissões sobre objetos específicos continuam sendo verificadas pelo Directory a cada action
 
 **Dado** um Directory inacessível durante o login ou o refresh
 **Quando** o Auth tenta consultar
 **Então** o login ou o refresh falha (fail-closed), nunca emite token com `perms` vazio ou antigo
+**E** o `/ready` do Auth passa a indicar que o Directory está indisponível
+
+**Dado** a documentação de operação
+**Quando** eu a consulto
+**Então** ela registra que o Directory é ponto único de falha do login, como consequência aceita da decisão de 2026-10-02
+**E** não existe conta de emergência nem caminho de login que pule a verificação de token ou a consulta ao Directory (AD-7)
 
 **Dado** a remoção de uma permissão
 **Quando** ela é gravada
@@ -1475,7 +1643,7 @@ para personalizar a identidade visual sem escrever componente e sem colisão de 
 **Quando** eu verifico as dependências
 **Então** ele não importa `@tecton/directory` (AD-3, AD-10)
 
-**Dado** os itens deixados em aberto pela spine (ferramenta de build da SPA e versão exata do React com o `@rjsf/core` 6.1.2)
+**Dado** os itens deixados em aberto pela spine (ferramenta de build da SPA e versão exata do React com o `@rjsf/core` 6.x)
 **Quando** a story é concluída
 **Então** a escolha e o motivo ficam registrados no README do pacote
 
@@ -1516,7 +1684,14 @@ para começar a administrar a estrutura do meu Tenant.
 **Quando** eu a uso
 **Então** a SPA chama `/auth/logout`, descarta o token da memória e volta para o login
 
-> **Nota:** subir a SPA junto com o ambiente local pelo `tecton-admin dev` é do Epic 6.
+**Dado** `tecton-admin dev` (Story 3.13)
+**Quando** ele sobe depois desta story
+**Então** o Directory e a SPA `/admin` sobem junto, e o endereço do `/admin` aparece na saída
+
+**Dado** qualquer resposta do `/admin`
+**Quando** ela é enviada
+**Então** traz Content-Security-Policy restritiva (sem script inline e sem `eval`), `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: no-referrer`
+**E** o `/admin` não pode ser carregado dentro de iframe de outra origem
 
 ### Story 4.8: Árvore de objetos navegável e acessível
 
@@ -1613,6 +1788,10 @@ para consultar e partir para a edição sem procurar botões (UX-DR7, UX-DR8).
 **Então** o botão "Editar atributos" aparece
 **E** sem essa permissão, o botão não aparece, nem desabilitado com explicação (UX-DR10)
 
+**Dado** um valor de atributo com HTML ou script
+**Quando** ele é exibido no painel de detalhe, na árvore ou na busca
+**Então** é renderizado como texto, nunca interpretado como HTML
+
 ### Story 4.11: Formulário de edição de atributos gerado
 
 Como **Marina**,
@@ -1649,6 +1828,10 @@ para corrigir dados sem que alguém precise escrever tela para cada atributo (FR
 **Dado** "Cancelar" ou `Esc`
 **Quando** eu uso
 **Então** a edição é descartada sem pedido de confirmação e o painel volta ao modo de visualização
+
+**Dado** um atributo `readOnly`
+**Quando** o formulário é gerado
+**Então** o campo aparece só para leitura e nunca é enviado na gravação
 
 ### Story 4.12: Estados da interface e acessibilidade da superfície
 
@@ -1735,6 +1918,7 @@ para tratar falhas sem decifrar formatos diferentes por serviço (FR-24, AD-6).
 **Dado** os pontos que usavam o formato provisório (Gateway, verificação de token, rate limiting, `Idempotency-Key`, `ServiceClient` e Directory, nos Epics 2, 3 e 4)
 **Quando** esta story é concluída
 **Então** todos passam a responder no formato RFC 9457 e o formato provisório deixa de existir
+**E** a troca é feita só no serializador da abstração única de erro (Story 1.7), sem alterar o código desses pontos
 
 **Dado** a SPA `/admin` (Epic 4)
 **Quando** recebe um erro
@@ -1869,6 +2053,8 @@ para que a action só execute com a minha decisão e quem pediu saiba o resultad
 **Quando** alguém tenta decidir de novo
 **Então** a resposta é 409 em RFC 9457 e nada muda
 
+> **Nota de tamanho (pre-mortem de 2026-10-05):** story grande para uma única sessão de agente; candidata a divisão no `bmad-create-story`.
+
 ### Story 5.7: `tecton-admin test:contracts`
 
 Como **dev que altera o contrato de um domínio**,
@@ -1929,35 +2115,9 @@ para nunca quebrar um consumidor existente por acidente (FR-29, NFR-7).
 
 ## Epic 6: CLI Completo e Developer Experience
 
-Dev tem o ciclo de vida completo do `tecton-admin`: Dev Services, `migrate`, `dev` com live reload, família `lint` (com `lint:gateway` e aviso de quórum sem provider), testes isolados por Testcontainers com verificação de contrato pelo provedor, e `extract` para migração assistida por Strangler Fig: domínio novo com adaptador legado, `LegacyAuthBridge` com adaptadores prontos, fachada no Gateway com janela de manutenção e script único de dados.
+Dev Services e `tecton-admin dev` foram antecipados no pre-mortem de 2026-10-05 (Stories 1.11 e 3.13). Dev tem o ciclo de vida completo do `tecton-admin`: `migrate`, família `lint` (com `lint:gateway` e aviso de quórum sem provider), testes isolados por Testcontainers, e `extract` para migração assistida por Strangler Fig: domínio novo com adaptador legado, `LegacyAuthBridge` com adaptadores prontos, fachada no Gateway com janela de manutenção e script único de dados.
 
-### Story 6.1: Dev Services
-
-Como **dev começando num workspace Tecton**,
-quero a infraestrutura de desenvolvimento pronta num único arquivo,
-para subir banco e Valkey sem configurar nada à mão (FR-30).
-
-**Critérios de Aceite:**
-
-**Dado** `tecton-admin new <projeto> --db postgres|mysql|mssql` (padrão: `postgres`)
-**Quando** ele roda
-**Então** gera `docker-compose.dev.yml` com Valkey 9.1 e o banco escolhido (FR-30)
-**E** cada serviço (Auth, Directory e cada domínio) tem seu banco lógico próprio, criado na primeira subida
-**E** o arquivo de exemplo de ambiente já aponta para esses bancos e para o Valkey
-
-**Dado** `tecton-admin generate domain <nome>`
-**Quando** ele roda depois desta story
-**Então** o banco lógico do domínio novo é acrescentado ao Dev Services
-
-**Dado** o `docker-compose.dev.yml` em execução
-**Quando** eu rodo `tecton-admin dev`
-**Então** o ambiente sobe sem nenhum passo adicional de infraestrutura (FR-30)
-
-**Dado** o arquivo gerado
-**Quando** eu o leio
-**Então** um comentário em inglês avisa que ele é só para desenvolvimento, não para produção
-
-### Story 6.2: `tecton-admin migrate`
+### Story 6.1: `tecton-admin migrate`
 
 Como **dev que alterou o schema de um serviço**,
 quero aplicar as migrations de todos os serviços com um comando,
@@ -1982,48 +2142,11 @@ para manter cada banco em dia sem entrar serviço por serviço (FR-15).
 **Quando** o comando roda
 **Então** ele falha com a mensagem do `ConfigProvider` (Story 3.1)
 
-**Dado** os três bancos suportados
-**Quando** os testes desta story rodam
-**Então** o comando funciona nos três
+**Dado** os bancos suportados (PostgreSQL e MySQL)
+**Quando** o job de matriz de bancos da Story 1.1 roda
+**Então** o comando funciona nos dois
 
-### Story 6.3: `tecton-admin dev`
-
-Como **dev no dia a dia**,
-quero subir o sistema inteiro com um comando e ver minhas mudanças sem reiniciar nada à mão,
-para desenvolver com ciclo curto de feedback (FR-15).
-
-**Critérios de Aceite:**
-
-**Dado** o Dev Services parado
-**Quando** eu rodo `tecton-admin dev`
-**Então** ele sobe o `docker-compose.dev.yml` e espera banco e Valkey ficarem prontos (FR-15, FR-30)
-
-**Dado** migrations pendentes
-**Quando** o `dev` inicia
-**Então** elas são aplicadas e registradas na saída
-
-**Dado** o workspace
-**Quando** o `dev` termina de subir
-**Então** Gateway, Auth, Directory (com a SPA `/admin`) e todos os domínios estão rodando via `turbo run dev`, com `tsx watch`
-**E** a saída mostra, em inglês, os endereços do Gateway e do `/admin`
-
-**Dado** uma alteração num arquivo de um domínio
-**Quando** eu salvo
-**Então** só aquele serviço reinicia
-
-**Dado** um serviço que falha ao subir (ex.: configuração inválida)
-**Quando** isso acontece
-**Então** a saída indica o serviço e o erro, e os outros continuam rodando
-
-**Dado** um workspace sem nenhuma credencial
-**Quando** o `dev` sobe
-**Então** a saída sugere rodar `tecton-admin auth bootstrap`
-
-**Dado** `Ctrl+C`
-**Quando** eu interrompo
-**Então** todos os serviços param de forma limpa e o Dev Services continua rodando
-
-### Story 6.4: `tecton-admin lint:gateway` e template de CI
+### Story 6.2: `tecton-admin lint:gateway` e template de CI
 
 Como **mantenedor de um sistema construído com o Tecton**,
 quero que o build falhe se o Gateway ganhar dependências proibidas,
@@ -2049,7 +2172,7 @@ para que ele nunca acumule circuit breaker, cache ou lógica de domínio sem dec
 **Quando** eu rodo `tecton-admin new`
 **Então** é gerado um workflow do GitHub Actions que roda `lint`, `test:contracts` e os testes, e falha o build numa violação do Gateway (FR-17)
 
-### Story 6.5: Aviso de `sensitive.quorum` sem `KeyCustodyProvider`
+### Story 6.3: Aviso de `sensitive.quorum` sem `KeyCustodyProvider`
 
 Como **dev que marcou actions como `sensitive.quorum`**,
 quero ser avisado no build quando o domínio não tem provider de custódia configurado,
@@ -2070,11 +2193,11 @@ para nunca ir para produção achando que existe proteção de quórum quando n�
 **Quando** o lint roda
 **Então** não há aviso
 
-### Story 6.6: Testcontainers e verificação de contrato pelo provedor
+### Story 6.4: Testcontainers para isolamento de teste e CI
 
 Como **mantenedor que roda testes no CI**,
-quero que os testes usem containers descartáveis e que os contratos sejam verificados contra o provedor rodando de verdade,
-para ter isolamento real e saber que a resposta real bate com o que os consumidores esperam (FR-31).
+quero que os testes usem containers descartáveis,
+para ter isolamento real entre execuções sem depender de infraestrutura persistente (FR-31).
 
 **Critérios de Aceite:**
 
@@ -2082,11 +2205,6 @@ para ter isolamento real e saber que a resposta real bate com o que os consumido
 **Quando** rodam no CI
 **Então** usam Testcontainers para banco e Valkey, descartados ao final de cada execução (FR-31)
 **E** não dependem de nenhuma infraestrutura externa persistente (FR-31)
-
-**Dado** `tecton-admin test:contracts --verify-providers`
-**Quando** ele roda
-**Então** cada provedor sobe contra containers descartáveis, recebe requisições montadas a partir dos snapshots dos consumidores (Story 5.7) e tem as respostas reais conferidas contra o que esses consumidores esperam
-**E** uma diferença faz o comando falhar, indicando provedor, action, consumidor e campo
 
 **Dado** duas execuções seguidas de `test:contracts`
 **Quando** a segunda roda
@@ -2096,33 +2214,9 @@ para ter isolamento real e saber que a resposta real bate com o que os consumido
 **Quando** um comando que usa Testcontainers roda
 **Então** falha com mensagem clara dizendo que precisa de Docker
 
-### Story 6.7: `extract`, parte 1: domínio novo e adaptador legado
+> **Nota:** a verificação de contrato pelo provedor rodando de verdade (`test:contracts --verify-providers`) saiu do MVP na elicitação de 2026-10-06 e é roadmap logo após o MVP. O FR-31 continua atendido: o `test:contracts` compara schemas sem guardar estado, e os demais testes de CI usam containers descartáveis.
 
-Como **dev migrando um domínio de um monólito maduro**,
-quero gerar o domínio novo e um adaptador que entenda a API antiga,
-para que os clientes do monólito continuem chamando os mesmos endereços enquanto o domínio novo assume (FR-16, decisão X1).
-
-**Critérios de Aceite:**
-
-**Dado** um manifest do domínio escrito pelo dev ou por agente de IA
-**Quando** eu rodo `tecton-admin extract <domínio> --manifest <arquivo>`
-**Então** o domínio é gerado como na Story 3.4, usando esse manifest
-**E** o comando não tenta descobrir limites de domínio sozinho (PRD §5)
-
-**Dado** um arquivo de rotas legadas (método, caminho e action de destino)
-**Quando** eu o passo com `--legacy-routes <arquivo>`
-**Então** é gerado um adaptador de entrada legado em `src/adapters/legacy`, com um tradutor por rota: requisição legada para `input` da action, `output` para resposta legada, e erro para o formato de erro legado
-**E** os tradutores nascem como stubs que o dev completa
-
-**Dado** uma requisição recebida pelo adaptador legado
-**Quando** ela é traduzida
-**Então** a action é executada pelo mesmo caminho de qualquer chamada, com validação, verificação de identidade (Story 6.8) e ACL, nunca por atalho
-
-**Dado** a tradução entre os formatos
-**Quando** eu verifico onde ela acontece
-**Então** acontece só no adaptador do domínio, nunca no Gateway (FR-19, AD-8)
-
-### Story 6.8: `LegacyAuthBridge` com adaptadores prontos
+### Story 6.5: `LegacyAuthBridge` com adaptadores prontos
 
 Como **dev migrando um domínio cujos clientes autenticam no monólito**,
 quero que o domínio novo aceite a credencial do monólito sem eu escrever código de autenticação,
@@ -2131,9 +2225,9 @@ para que o desvio funcione sem mudar os clientes e sem abrir mão do Zero Trust 
 **Critérios de Aceite:**
 
 **Dado** a porta `LegacyAuthBridge` em `@tecton/providers`
-**Quando** o adaptador legado recebe uma requisição
-**Então** a credencial do monólito é verificada pelo próprio domínio através da ponte, antes de chamar a action (AD-7)
-**E** credencial ausente ou inválida resulta em 401 no formato de erro legado
+**Quando** uma requisição com credencial do monólito precisa ser verificada por um domínio
+**Então** a credencial é verificada pelo próprio domínio através da ponte e o resultado é o sujeito do Tecton, ou uma recusa (AD-7)
+**E** a ponte pode ser testada sozinha, sem o adaptador legado da Story 6.6
 
 **Dado** os adaptadores prontos entregues pelo framework
 **Quando** eu configuro a ponte por arquivo
@@ -2158,7 +2252,40 @@ para que o desvio funcione sem mudar os clientes e sem abrir mão do Zero Trust 
 **Quando** a ponte precisa verificar uma credencial fora do cache
 **Então** a requisição é rejeitada (fail-closed)
 
-### Story 6.9: `extract`, parte 2: fachada no Gateway e janela de manutenção
+**Dado** o `objectClass` `User` embutido no Directory
+**Quando** esta story é concluída
+**Então** ele ganha o atributo de identificador legado, marcado `readOnly` (mudança aditiva, AD-2)
+**E** o Directory ganha a action `setLegacyId`, a única forma de gravar esse atributo, permitida só a administrador ou à credencial de serviço usada pela importação do `extract` (Story 6.8)
+**E** a edição genérica de atributos nunca o altera (Story 4.1), para que ninguém troque o próprio identificador legado pelo de outra pessoa
+
+### Story 6.6: `extract`, parte 1: domínio novo e adaptador legado
+
+Como **dev migrando um domínio de um monólito maduro**,
+quero gerar o domínio novo e um adaptador que entenda a API antiga,
+para que os clientes do monólito continuem chamando os mesmos endereços enquanto o domínio novo assume (FR-16, decisão X1).
+
+**Critérios de Aceite:**
+
+**Dado** um manifest do domínio escrito pelo dev ou por agente de IA
+**Quando** eu rodo `tecton-admin extract <domínio> --manifest <arquivo>`
+**Então** o domínio é gerado como na Story 3.4, usando esse manifest
+**E** o comando não tenta descobrir limites de domínio sozinho (PRD §5)
+
+**Dado** um arquivo de rotas legadas (método, caminho e action de destino)
+**Quando** eu o passo com `--legacy-routes <arquivo>`
+**Então** é gerado um adaptador de entrada legado em `src/adapters/legacy`, com um tradutor por rota: requisição legada para `input` da action, `output` para resposta legada, e erro para o formato de erro legado
+**E** os tradutores nascem como stubs que o dev completa
+
+**Dado** uma requisição recebida pelo adaptador legado
+**Quando** ela é traduzida
+**Então** a credencial do monólito é verificada pela `LegacyAuthBridge` (Story 6.5) antes de qualquer outra coisa, e credencial ausente ou inválida resulta em 401 no formato de erro legado
+**E** a action é executada pelo mesmo caminho de qualquer chamada, com validação e ACL, nunca por atalho
+
+**Dado** a tradução entre os formatos
+**Quando** eu verifico onde ela acontece
+**Então** acontece só no adaptador do domínio, nunca no Gateway (FR-19, AD-8)
+
+### Story 6.7: `extract`, parte 2: fachada no Gateway e janela de manutenção
 
 Como **dev migrando um domínio**,
 quero desviar as rotas legadas para o domínio novo de forma gradual e controlada,
@@ -2192,7 +2319,7 @@ para validar o domínio novo antes de assumir 100% do tráfego (FR-16).
 **Quando** eu quero remover a fachada, o adaptador legado e a ponte
 **Então** é um passo manual, descrito na documentação, que o `extract` não automatiza (FR-16)
 
-### Story 6.10: `extract`, parte 3: exportação e importação única de dados
+### Story 6.8: `extract`, parte 3: exportação e importação única de dados
 
 Como **dev migrando um domínio**,
 quero mover os dados das tabelas do monólito para o banco do domínio novo uma única vez, durante a janela de manutenção,
@@ -2205,6 +2332,10 @@ para fazer o corte sem escrever script de migração do zero (FR-16).
 **Então** é gerado um script de exportação e importação via Prisma, lendo o banco do monólito por introspecção
 **E** as transformações de campo nascem como stubs que o dev completa
 
+**Dado** usuários do monólito entre os dados importados
+**Quando** o script roda
+**Então** ele associa o identificador legado de cada um chamando a action `setLegacyId` do Directory (Story 6.5) pelo `ServiceClient`, nunca gravando no banco do Directory (AD-9)
+
 **Dado** o script
 **Quando** ele roda
 **Então** ao final compara a contagem de registros de cada tabela de origem com o destino e falha se houver diferença
@@ -2213,15 +2344,15 @@ para fazer o corte sem escrever script de migração do zero (FR-16).
 **Quando** ela acontece
 **Então** a importação daquela tabela é desfeita e o script indica onde parou, para ser rodado de novo sem duplicar dados
 
-**Dado** o banco do monólito em qualquer um dos três bancos suportados
-**Quando** o script roda
+**Dado** o banco do monólito em qualquer um dos bancos suportados (PostgreSQL ou MySQL)
+**Quando** o script roda no job de matriz de bancos da Story 1.1
 **Então** funciona sem mudança
 
 **Dado** o fluxo do corte
 **Quando** eu leio a documentação
 **Então** ela deixa claro que o script roda uma única vez, dentro da janela de manutenção, sem sincronização contínua (FR-16)
 
-### Story 6.11: Ajuda completa do `tecton-admin`
+### Story 6.9: Ajuda completa do `tecton-admin`
 
 Como **dev ou agente de IA conhecendo o CLI**,
 quero que o `--help` mostre todos os comandos, inclusive os que ainda são roadmap,

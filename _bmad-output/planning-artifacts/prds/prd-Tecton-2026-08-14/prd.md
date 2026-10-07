@@ -111,10 +111,10 @@ Framework gera automaticamente documentação OpenAPI (via `@fastify/swagger`, d
 **Functional Requirements:**
 
 #### FR-6: Persistência agnóstica de banco via Closure Table
-Framework persiste a hierarquia de objetos via Closure Table, através do Prisma (PostgreSQL, MySQL, MS-SQL).
+Framework persiste a hierarquia de objetos via Closure Table, através do Prisma (PostgreSQL, MySQL). **Nota (2026-10-06):** MS-SQL saiu do MVP na elicitação das stories (custo alto de teste e falta do tipo `Json` no Prisma para SQL Server, com impacto pequeno no produto); ver §6.2.
 
 **Consequences (testable):**
-- Trocar o banco configurado (entre os três suportados) não exige mudança de schema ou código de domínio.
+- Trocar o banco configurado (entre os suportados) não exige mudança de schema ou código de domínio.
 - Mover um objeto na árvore é uma operação localizada (linhas do nó movido), nunca uma renumeração de árvore inteira.
 - Mover um objeto para dentro de um de seus próprios descendentes é rejeitado com erro de validação — a Closure Table detecta o ciclo antes de aplicar a operação.
 
@@ -395,7 +395,7 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **Evolução de contrato** (FR-29): postura aditiva por padrão no manifest.
 - **Developer Experience** (FR-30 a FR-31): Dev Services via `docker-compose.dev.yml`, Testcontainers para isolamento de `test:contracts`/CI.
 - **DI/IoC leve**: container de injeção de dependência tipo Awilix dentro de cada serviço de domínio — barato, sem framework de DI pesado.
-- **Persistência**: Prisma sobre PostgreSQL, MySQL ou MS-SQL.
+- **Persistência**: Prisma sobre PostgreSQL ou MySQL.
 - **Observabilidade distribuída** via OpenTelemetry (propagação de `traceparent` já é FR-19/FR-23).
 - **TypeScript full-stack** e Turborepo/Nx no scaffold gerado para apps construídas com o Tecton (não no repositório do próprio framework).
 
@@ -407,6 +407,8 @@ Mudança em `input`/`output` de uma action, ou em schema de um `event`, é aditi
 - **Implementação real do domínio Custodiante** — integração com OpenBAO/Vault/HSM, quórum criptograficamente forçado, log de auditoria encadeado/assinado. `[NOTE FOR PM]` esse é o item roadmap mais emocionalmente carregado do brief (motivou a entrada ad hoc do especialista de segurança na sessão de fundação) — revisitar assim que houver capacidade de engenharia dedicada.
 - **`WorkflowEngineProvider`** com implementação real (candidato Temporal) — MVP entrega só a interface prevista.
 - **MCP por domínio** — 100% roadmap; o manifest já contém tudo que a geração futura vai precisar, sem preparação extra necessária agora.
+- **Suporte a MS-SQL** — removido do MVP em 2026-10-06 (elicitação das stories): o Prisma não tem o tipo `Json` no SQL Server (a bag de atributos do Directory exigiria tratamento especial), a imagem é pesada e sem ARM, e o ganho para o produto é pequeno. A Closure Table e o Prisma não impedem a volta dele.
+- **Verificação de contrato pelo provedor em execução** (`test:contracts --verify-providers`, com Testcontainers) — removida do MVP em 2026-10-06; roadmap logo após o MVP. O `test:contracts` do MVP compara schemas.
 - **Circuit breaker e bulkhead** no `ServiceClient` (candidato: `opossum`) — MVP entrega só retry+timeout seguro.
 - **Sincronização contínua/CDC** para migração sem downtime (Caso 1) — MVP usa corte único com janela de manutenção.
 - **Detector automático de quebra de compatibilidade** comparando manifests, e versionamento explícito de API (`v2`) — MVP aplica só a regra de evolução aditiva (FR-29).
