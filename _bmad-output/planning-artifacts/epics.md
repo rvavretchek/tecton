@@ -1,5 +1,5 @@
 ---
-stepsCompleted: [1, 2, 3]
+stepsCompleted: [1, 2, 3, 4]
 inputDocuments:
   - '_bmad-output/planning-artifacts/prds/prd-Tecton-2026-08-14/prd.md'
   - '_bmad-output/planning-artifacts/architecture/architecture-Tecton-2026-08-28/ARCHITECTURE-SPINE.md'
@@ -129,6 +129,17 @@ FR-28: Epic 3 - Dockerfile por domínio
 FR-29: Epic 5 - Evolução aditiva de contrato por padrão
 FR-30: Epic 1 - Dev Services (Story 1.11)
 FR-31: Epic 6 - Testcontainers para isolamento de teste/CI
+
+### NFR Coverage Map
+
+NFR-1 (Zero Trust): Stories 2.4, 2.5, 2.6, 2.7, 3.6, 3.9, 3.12 (AD-7)
+NFR-2 (i18n): Stories 4.6, 4.11, 5.2, 5.3, 5.4 (AD-6, AD-10)
+NFR-3 (OpenTelemetry): Stories 3.3, 3.6, 3.9, 3.10, 3.12
+NFR-4 (Portabilidade de banco): Stories 1.1 (job de matriz), 3.10, 4.1, 6.1, 6.8
+NFR-5 (Retry seguro): Stories 3.8, 3.9
+NFR-6 (Fail-fast / fail-closed / fail-open): Stories 3.1 (fail-fast), 2.4, 2.5, 2.6, 4.4 (fail-closed), 3.7 (fail-open)
+NFR-7 (Evolução de contrato): Stories 5.7, 5.8
+NFR-8 (TypeScript full-stack, DI leve): Stories 1.1 (TypeScript), 3.4 (Awilix)
 
 ## Epic List
 
@@ -794,7 +805,7 @@ para não precisar esperar a expiração natural quando uma sessão é compromet
 
 Como **operador de um sistema construído com o Tecton**,
 quero que um login seja bloqueado temporariamente depois de várias senhas erradas, venham de onde vierem,
-para que um ataque distribuído contra uma única conta não escape do rate limit por origem do Gateway.
+para que um ataque distribuído contra uma única conta não escape do rate limit por origem do Gateway (FR-12, NFR-1).
 
 **Critérios de Aceite:**
 
@@ -1156,7 +1167,7 @@ para proteger os serviços de abuso sem derrubar todo o tráfego quando o Valkey
 
 Como **dev de um domínio que recebe mutações**,
 quero que o framework guarde a resposta de uma mutação feita com `Idempotency-Key` e a devolva numa repetição,
-para que o retry do `ServiceClient` (Story 3.9) nunca execute o mesmo efeito duas vezes.
+para que o retry do `ServiceClient` (Story 3.9) nunca execute o mesmo efeito duas vezes (FR-26, NFR-5).
 
 **Critérios de Aceite:**
 

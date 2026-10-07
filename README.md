@@ -25,7 +25,7 @@ Projeto open source e gratuito, sem prazo — desenvolvido publicamente como pr�
 - [`_bmad-output/planning-artifacts/prds/prd-Tecton-2026-08-14/prd.md`](_bmad-output/planning-artifacts/prds/prd-Tecton-2026-08-14/prd.md) — PRD (finalizado): 31 requisitos funcionais, escopo de MVP, métricas de sucesso.
 - [`_bmad-output/planning-artifacts/architecture/architecture-Tecton-2026-08-28/ARCHITECTURE-SPINE.md`](_bmad-output/planning-artifacts/architecture/architecture-Tecton-2026-08-28/ARCHITECTURE-SPINE.md) — Arquitetura (finalizada): paradigma, invariantes, stack, convenções. Companion com diagramas UML (Markdown+Mermaid) em [`UML.md`](_bmad-output/planning-artifacts/architecture/architecture-Tecton-2026-08-28/UML.md) na mesma pasta.
 - [`_bmad-output/planning-artifacts/ux-designs/ux-Tecton-2026-09-03/`](_bmad-output/planning-artifacts/ux-designs/ux-Tecton-2026-09-03/) — UX do admin do Directory Service (`DESIGN.md`, `EXPERIENCE.md`, mockup).
-- [`_bmad-output/planning-artifacts/epics.md`](_bmad-output/planning-artifacts/epics.md) — 6 épicos cobrindo os 31 requisitos funcionais; stories em elaboração.
+- [`_bmad-output/planning-artifacts/epics.md`](_bmad-output/planning-artifacts/epics.md) — 61 stories em 6 épicos cobrindo os 31 requisitos funcionais.
 - [`Tecton.md`](Tecton.md) — brainstorm inicial, **não vinculante**: material bruto já totalmente triado (ver Product Brief), mantido só como referência histórica.
 - [`docs/aether-tecton-compatibility.md`](docs/aether-tecton-compatibility.md) — notas de compatibilidade com um projeto irmão do autor (único lugar deste repositório que trata desse assunto).
 
