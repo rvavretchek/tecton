@@ -9,7 +9,7 @@
     "node": ">=24.7 <25"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && pnpm -r --if-present run emit",
     "typecheck": "tsc -p tsconfig.test.json",
     "test": "vitest run --passWithNoTests --exclude \"**/*.persistence.test.ts\" --exclude \"**/*.containers.test.ts\"",
     "test:containers": "vitest run --passWithNoTests .containers.test.ts",

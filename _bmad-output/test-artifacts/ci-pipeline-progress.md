@@ -32,3 +32,7 @@ lastSaved: '2026-10-09'
 - YAML dos dois workflows válido; `pnpm typecheck` e `pnpm test` verdes localmente.
 - Correção incluída: o helper de banco usava `executeQuery` do MySQL, que mistura o aviso de senha (stderr) na saída; falhou no CI (`persistence (mysql)`). Agora lê só stdout e passa a senha por `MYSQL_PWD`, sem expô-la na linha de comando (MariaDB e MySQL).
 - **Para o Boss:** marcar `build-test`, `containers` e `persistence (postgres|mariadb|mysql)` como required status checks; quando o Epic 3 tiver o workspace rodando, definir `PLAYWRIGHT_ENABLED=true`.
+
+## Nota (2026-10-09)
+
+O `nightly.yml` só passa a agendar e a aceitar `workflow_dispatch` quando estiver na branch padrão (`main`): o GitHub ignora workflows agendados ou disparados à mão que só existem em outras branches (`gh workflow run` devolveu 404). O burn-in começa depois do merge do fim do Epic 1.
