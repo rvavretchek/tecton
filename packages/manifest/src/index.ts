@@ -1,6 +1,7 @@
 // Public API of @tecton/manifest: parse and validate tecton.yaml, and its JSON Schema.
 export { cloudEventType } from './events.js';
-export { compileAttributes, TECTON_UNIQUE_KEYWORD } from './object-class.js';
+export { findManifests, lintWorkspace, type LintOptions, type LintProblem, type LintResult, type LintSeverity } from './lint/lint-workspace.js';
+export { BUILTIN_DIRECTORY_CLASSES, compileAttributes, TECTON_UNIQUE_KEYWORD } from './object-class.js';
 export { parseManifest } from './parse.js';
 export {
   compileFields,

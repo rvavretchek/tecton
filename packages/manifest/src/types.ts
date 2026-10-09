@@ -87,6 +87,8 @@ export interface TectonManifest {
   description: string;
   /** Domains this one calls synchronously. Defaults to an empty list. */
   dependencies: string[];
+  /** Explicit local paths declared as `{ domain, path }`, by domain (path relative to the manifest). */
+  dependencyPaths: Record<string, string>;
   /** Typed actions. Defaults to an empty list. */
   actions: ManifestAction[];
   /** Published and consumed events. Defaults to empty lists. */
@@ -116,7 +118,11 @@ export type ManifestErrorCode =
   | 'duplicate-name'
   | 'unknown-event'
   | 'invalid-attribute'
-  | 'invalid-default';
+  | 'invalid-default'
+  | 'unsupported-dependency'
+  | 'unresolved-reference'
+  | 'dependency-cycle'
+  | 'reserved-name';
 
 export interface ManifestError {
   /** Dotted path to the offending field, e.g. `domain` or `dependencies[2]`; empty for whole-file errors. */

@@ -208,10 +208,12 @@ export const manifestJsonSchema = {
       pattern: '\\S',
     },
     dependencies: {
-      description: 'Domains this domain calls synchronously through the generated ServiceClient.',
+      description:
+        'Domains this domain calls synchronously through the generated ServiceClient: a domain name ("billing") or { domain, path } with a local path to its tecton.yaml. Remote URLs are not supported.',
       type: 'array',
-      items: domainName,
-      uniqueItems: true,
+      // Item shape is checked in code (dependencies.ts) for clear messages; a oneOf here would
+      // report every failed branch.
+      items: { description: 'A domain name, or { domain, path }.' },
     },
     actions: {
       description: 'Typed actions exposed by the domain. Each one becomes POST /<domain>/<action-in-kebab-case>.',

@@ -205,7 +205,14 @@ importers:
 
   packages/auth: {}
 
-  packages/cli: {}
+  packages/cli:
+    dependencies:
+      '@tecton/manifest':
+        specifier: workspace:*
+        version: link:../manifest
+      commander:
+        specifier: ^15.0.0
+        version: 15.0.0
 
   packages/core: {}
 

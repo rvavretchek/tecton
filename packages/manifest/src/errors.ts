@@ -77,7 +77,6 @@ function formatMessage(path: string, segments: PathSegments, value: unknown): st
     if (last === 'description' || last === 'role' || last === 'scope') return `${path} must not be empty`;
   }
   if (typeof field === 'string' && segments.length === 1 && FORMAT_HINTS[field]) return `${path} ${FORMAT_HINTS[field]}`;
-  if (field === 'dependencies') return `${path} must be a domain name in kebab-case, e.g. "billing"; got ${JSON.stringify(value)}`;
   return `${path} has an invalid format`;
 }
 

@@ -1,6 +1,7 @@
 import { Ajv } from 'ajv';
 import { isMap, isNode, isPair, isScalar, LineCounter, parseDocument, type Document, type YAMLError } from 'yaml';
 import { buildActions, checkActions } from './actions.js';
+import { buildDependencies, checkDependencies } from './dependencies.js';
 import { buildEvents, checkEvents } from './events.js';
 import { buildObjectClass, checkObjectClass } from './object-class.js';
 import { translateAjvErrors, type PathSegments, type TranslatedError } from './errors.js';
@@ -10,7 +11,7 @@ import type { ManifestError, ParseOptions, ParseResult, TectonManifest } from '.
 // Compiled once per process; `allErrors` so every problem comes back in one pass.
 const validate = new Ajv({ strict: true, allErrors: true }).compile(manifestJsonSchema);
 
-type Position = { line: number; column: number };
+export type Position = { line: number; column: number };
 
 function positionAt(lineCounter: LineCounter, offset: number): Position {
   const { line, col } = lineCounter.linePos(offset);
@@ -43,7 +44,17 @@ function locate(doc: Document, lineCounter: LineCounter, segments: PathSegments,
   return undefined;
 }
 
-function compareErrors(a: ManifestError, b: ManifestError): number {
+/**
+ * Returns a function that finds the 1-based line/column of a path in `source`, for
+ * reporting problems found after parsing (e.g. cross-domain references in the lint).
+ */
+export function createLocator(source: string): (segments: PathSegments, key?: boolean) => Position | undefined {
+  const lineCounter = new LineCounter();
+  const doc = parseDocument(source, { lineCounter, prettyErrors: false, uniqueKeys: false });
+  return (segments, key = false) => locate(doc, lineCounter, segments, key);
+}
+
+export function compareErrors(a: ManifestError, b: ManifestError): number {
   const lineA = a.line ?? Number.MAX_SAFE_INTEGER;
   const lineB = b.line ?? Number.MAX_SAFE_INTEGER;
   if (lineA !== lineB) return lineA - lineB;
@@ -83,7 +94,12 @@ export function parseManifest(source: string, _options: ParseOptions = {}): Pars
 
   const data = doc.toJS() as Record<string, unknown>;
   const structural: TranslatedError[] = validate(data) ? [] : translateAjvErrors(validate.errors ?? [], data);
-  const semantic = [...checkActions(data['actions']), ...checkEvents(data['events'], data['actions']), ...checkObjectClass(data['objectClass'])];
+  const semantic = [
+    ...checkActions(data['actions']),
+    ...checkEvents(data['events'], data['actions']),
+    ...checkObjectClass(data['objectClass']),
+    ...checkDependencies(data['dependencies']),
+  ];
   // A structural error on a path already explains it; semantic checks never pile onto it.
   const structuralPaths = new Set(structural.map((t) => t.error.path));
   const all = [...structural, ...semantic.filter((t) => !structuralPaths.has(t.error.path))];
@@ -95,9 +111,11 @@ export function parseManifest(source: string, _options: ParseOptions = {}): Pars
 
   const { dependencies, actions, events, objectClass, ...identity } = data;
   const builtClass = buildObjectClass(objectClass);
+  const builtDependencies = buildDependencies(dependencies);
   const manifest = {
     ...identity,
-    dependencies: (dependencies as string[] | undefined) ?? [],
+    dependencies: builtDependencies.names,
+    dependencyPaths: builtDependencies.paths,
     actions: buildActions(actions),
     events: buildEvents(identity['domain'] as string, events),
     ...(builtClass ? { objectClass: builtClass } : {}),

@@ -30,6 +30,7 @@ jobs:
       - run: pnpm build
       - run: pnpm typecheck
       - run: pnpm check:deps
+      - run: pnpm lint:examples
       - run: pnpm test
       - name: Upload test report
         if: failure()

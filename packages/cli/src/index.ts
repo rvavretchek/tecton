@@ -1,2 +1,3 @@
-// Placeholder entry point; the real API arrives with the stories that implement this package.
-export const packageName = '@tecton/cli';
+// Programmatic entry point of tecton-admin (the binary is dist/bin.js).
+export { run } from './cli.js';
+export type { CliIo } from './io.js';

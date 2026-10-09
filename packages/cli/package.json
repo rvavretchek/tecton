@@ -7,6 +7,9 @@
   "engines": {
     "node": ">=24.7 <25"
   },
+  "bin": {
+    "tecton-admin": "./dist/bin.js"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -15,5 +18,9 @@
   },
   "files": [
     "dist"
-  ]
+  ],
+  "dependencies": {
+    "@tecton/manifest": "workspace:*",
+    "commander": "^15.0.0"
+  }
 }

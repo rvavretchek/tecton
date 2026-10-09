@@ -11,9 +11,11 @@ import { defineConfig } from 'vitest/config';
 //                           (postgres | mariadb | mysql; default postgres) -> pnpm test:persistence
 export default defineConfig({
   resolve: {
-    alias: {
-      '#test-support': fileURLToPath(new URL('./tests/support/index.ts', import.meta.url)),
-    },
+    alias: [
+      { find: '#test-support', replacement: fileURLToPath(new URL('./tests/support/index.ts', import.meta.url)) },
+      // Tests import sibling packages from source, so they never depend on a prior build.
+      { find: /^@tecton\/([a-z-]+)$/, replacement: fileURLToPath(new URL('./packages/$1/src/index.ts', import.meta.url)) },
+    ],
   },
   test: {
     include: ['packages/*/src/**/*.test.ts', 'tools/**/*.test.ts', 'tests/support/**/*.test.ts'],

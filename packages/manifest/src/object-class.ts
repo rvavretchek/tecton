@@ -10,6 +10,12 @@ import type { AttributeSchema, AttributesSchema, ManifestObjectClass, ObjectClas
  */
 export const TECTON_UNIQUE_KEYWORD = 'x-tecton-unique' as const;
 
+/**
+ * Classes the framework provides without a manifest. `Root` is the top of the Directory tree:
+ * it has no parent, so it cannot satisfy the `allowedParents` rule of a declared objectClass.
+ */
+export const BUILTIN_DIRECTORY_CLASSES = ['Root'] as const;
+
 const ATTRIBUTE_TYPES = [...PRIMITIVE_TYPES, 'enum'] as const;
 
 // Only used to check that a declared `default` matches its type; formats are not enforced here.
@@ -54,8 +60,20 @@ export function compileAttributes(attributes: readonly ObjectClassAttribute[]): 
 
 /** Rules beyond JSON Schema for objectClass attributes. Defensive, like the other checks. */
 export function checkObjectClass(objectClass: unknown): TranslatedError[] {
-  if (!isObject(objectClass) || !Array.isArray(objectClass['attributes'])) return [];
+  if (!isObject(objectClass)) return [];
   const errors: TranslatedError[] = [];
+  if (typeof objectClass['name'] === 'string' && (BUILTIN_DIRECTORY_CLASSES as readonly string[]).includes(objectClass['name'])) {
+    const segments = ['objectClass', 'name'];
+    errors.push({
+      error: {
+        path: 'objectClass.name',
+        code: 'reserved-name',
+        message: `objectClass.name ${JSON.stringify(objectClass['name'])} is a built-in Directory class and cannot be declared`,
+      },
+      locate: { segments },
+    });
+  }
+  if (!Array.isArray(objectClass['attributes'])) return errors;
   const firstIndexByName = new Map<string, number>();
   const add = (segments: Array<string | number>, code: TranslatedError['error']['code'], message: string) =>
     errors.push({ error: { path: formatPath(segments), code, message: `${formatPath(segments)} ${message}` }, locate: { segments } });
