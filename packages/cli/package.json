@@ -1,0 +1,19 @@
+{
+  "name": "@tecton/cli",
+  "version": "0.0.0",
+  "description": "The tecton-admin command-line tool",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.7 <25"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

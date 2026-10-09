@@ -1,0 +1,19 @@
+{
+  "name": "@tecton/providers",
+  "version": "0.0.0",
+  "description": "Provider interfaces and reference implementations",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.7 <25"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@tecton/auth",
+  "version": "0.0.0",
+  "description": "Ready-to-run Auth service: credentials, EdDSA JWT, JWKS, confined refresh",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.7 <25"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}

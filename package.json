@@ -1,0 +1,24 @@
+{
+  "name": "tecton",
+  "private": true,
+  "type": "module",
+  "description": "Tecton framework monorepo: domain-oriented microservices for React.js + Node.js",
+  "license": "Apache-2.0",
+  "packageManager": "pnpm@12.10.1",
+  "engines": {
+    "node": ">=24.7 <25"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "vitest run --passWithNoTests --exclude \"**/*.persistence.test.ts\"",
+    "test:persistence": "vitest run --passWithNoTests .persistence.test.ts",
+    "check:deps": "depcruise packages --config .dependency-cruiser.cjs --output-type err-long"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "dependency-cruiser": "^18.5.0",
+    "typescript": "6.0.3",
+    "vitest": "^5.0.3"
+  }
+}

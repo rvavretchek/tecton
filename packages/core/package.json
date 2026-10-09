@@ -1,0 +1,19 @@
+{
+  "name": "@tecton/core",
+  "version": "0.0.0",
+  "description": "Fastify route generation, CloudEvents connector and response format",
+  "license": "Apache-2.0",
+  "type": "module",
+  "engines": {
+    "node": ">=24.7 <25"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ]
+}
