@@ -1,4 +1,31 @@
+import type { ObjectSchema } from './field-types.js';
 import type { SupportedManifestVersion } from './schema.js';
+
+/** Authorization of an action: exactly one of the two forms. */
+export type ActionAuth = { public: true } | { requires: string[] };
+
+export interface ManifestAction {
+  /** camelCase, unique in the domain. */
+  name: string;
+  description: string;
+  /** Declared short types, as written in the manifest. */
+  input: Record<string, string>;
+  output: Record<string, string>;
+  auth: ActionAuth;
+  /** Default false. */
+  idempotent: boolean;
+  sensitive?: { quorum: boolean; description: string };
+  approval?: {
+    required: boolean;
+    approver?: { role: string; scope?: string };
+    onApprove?: { emit: string };
+    onReject?: { emit: string };
+  };
+  /** `input` compiled to JSON Schema draft-07 (closed object). */
+  inputSchema: ObjectSchema;
+  /** `output` compiled to JSON Schema draft-07 (closed object). */
+  outputSchema: ObjectSchema;
+}
 
 /** A parsed and validated `tecton.yaml`. */
 export interface TectonManifest {
@@ -10,8 +37,8 @@ export interface TectonManifest {
   description: string;
   /** Domains this one calls synchronously. Defaults to an empty list. */
   dependencies: string[];
-  /** Reserved; validated from Story 1.3 on. */
-  actions?: unknown;
+  /** Typed actions. Defaults to an empty list. */
+  actions: ManifestAction[];
   /** Reserved; validated from Story 1.4 on. */
   events?: unknown;
   /** Reserved; validated from Story 1.5 on. */
@@ -30,7 +57,11 @@ export type ManifestErrorCode =
   | 'invalid-format'
   | 'unsupported-manifest-version'
   | 'unknown-key'
-  | 'duplicate-item';
+  | 'duplicate-item'
+  | 'unknown-type'
+  | 'invalid-auth'
+  | 'mutually-exclusive'
+  | 'duplicate-name';
 
 export interface ManifestError {
   /** Dotted path to the offending field, e.g. `domain` or `dependencies[2]`; empty for whole-file errors. */

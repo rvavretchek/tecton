@@ -13,6 +13,84 @@ export const DOMAIN_NAME_MAX_LENGTH = 63;
 export const SEMVER_PATTERN =
   '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$';
 
+// Keep this module free of imports: scripts/emit-schema.mjs loads it directly with Node's
+// type stripping, which does not resolve `.js` specifiers to `.ts` files.
+
+/** camelCase field names in input/output maps. */
+export const FIELD_NAME_PATTERN = '^[a-z][a-zA-Z0-9]*$';
+/** camelCase action names (the route is derived from them in kebab-case). */
+export const ACTION_NAME_PATTERN = '^[a-z][a-zA-Z0-9]*$';
+/** PascalCase event names. */
+export const EVENT_NAME_PATTERN = '^[A-Z][a-zA-Z0-9]*$';
+/** Permissions: two or more lowercase segments separated by ":" (tenant:create, auth:service:register). */
+export const PERMISSION_PATTERN = '^[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)+$';
+
+const nonEmptyText = { type: 'string', pattern: '\\S' } as const;
+
+const fieldMap = {
+  type: 'object',
+  description:
+    'Map of field name (camelCase) to type: string, number, integer, boolean, uuid, date, datetime or enum[a,b]; append "?" for optional. Quote enum inside { }: "enum[a,b]".',
+  propertyNames: { pattern: FIELD_NAME_PATTERN },
+  additionalProperties: { type: 'string' },
+} as const;
+
+const emitRef = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['emit'],
+  properties: { emit: { type: 'string', pattern: EVENT_NAME_PATTERN, description: 'Event (PascalCase) declared in events.publishes.' } },
+} as const;
+
+const actionSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'description', 'input', 'output', 'auth'],
+  properties: {
+    name: { type: 'string', pattern: ACTION_NAME_PATTERN, description: 'Action name in camelCase, unique in the domain.' },
+    description: { ...nonEmptyText, description: 'What the action does; shown in the generated OpenAPI.' },
+    input: fieldMap,
+    output: fieldMap,
+    auth: {
+      type: 'object',
+      description: 'Explicit authorization: either "public: true" or a non-empty "requires" list of permissions.',
+      additionalProperties: false,
+      properties: {
+        public: { type: 'boolean' },
+        requires: { type: 'array', items: { type: 'string', pattern: PERMISSION_PATTERN }, uniqueItems: true },
+      },
+    },
+    idempotent: {
+      type: 'boolean',
+      description: 'True when the action is idempotent by nature; lets the ServiceClient retry it. Default false.',
+    },
+    sensitive: {
+      type: 'object',
+      description: 'Marks a sensitive action. quorum: true requires Custodian approval when a KeyCustodyProvider is configured.',
+      additionalProperties: false,
+      required: ['quorum', 'description'],
+      properties: { quorum: { type: 'boolean' }, description: nonEmptyText },
+    },
+    approval: {
+      type: 'object',
+      description: 'Simple business approval. Cannot be combined with sensitive.quorum.',
+      additionalProperties: false,
+      required: ['required'],
+      properties: {
+        required: { type: 'boolean' },
+        approver: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['role'],
+          properties: { role: nonEmptyText, scope: nonEmptyText },
+        },
+        onApprove: emitRef,
+        onReject: emitRef,
+      },
+    },
+  },
+} as const;
+
 const domainName = {
   type: 'string',
   pattern: DOMAIN_NAME_PATTERN,
@@ -56,7 +134,9 @@ export const manifestJsonSchema = {
       uniqueItems: true,
     },
     actions: {
-      description: 'Typed actions exposed by the domain.',
+      description: 'Typed actions exposed by the domain. Each one becomes POST /<domain>/<action-in-kebab-case>.',
+      type: 'array',
+      items: actionSchema,
     },
     events: {
       description: 'Events published and consumed by the domain.',

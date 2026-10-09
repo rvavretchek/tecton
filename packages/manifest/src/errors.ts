@@ -59,6 +59,13 @@ function typeMessage(path: string, field: string | number | undefined, expected:
 
 function formatMessage(path: string, segments: PathSegments, value: unknown): string {
   const field = segments[0];
+  const last = segments.at(-1);
+  if (field === 'actions') {
+    if (last === 'name' && segments.length === 3) return `${path} must be camelCase, e.g. "createTenant"`;
+    if (segments.at(-2) === 'requires') return `${path} must have the form <resource>:<action>, e.g. "tenant:create"; got ${JSON.stringify(value)}`;
+    if (last === 'emit') return `${path} must be an event name in PascalCase, e.g. "LeaveApproved"`;
+    if (last === 'description' || last === 'role' || last === 'scope') return `${path} must not be empty`;
+  }
   if (typeof field === 'string' && segments.length === 1 && FORMAT_HINTS[field]) return `${path} ${FORMAT_HINTS[field]}`;
   if (field === 'dependencies') return `${path} must be a domain name in kebab-case, e.g. "billing"; got ${JSON.stringify(value)}`;
   return `${path} has an invalid format`;
@@ -82,6 +89,9 @@ export function translateAjvErrors(ajvErrors: readonly ErrorObject[], data: unkn
   const translated: TranslatedError[] = [];
 
   for (const ajvError of ajvErrors) {
+    // Ajv reports a failed propertyNames twice: the inner keyword (with `propertyName`) and the
+    // propertyNames summary. Keep only the summary.
+    if (ajvError.propertyName !== undefined) continue;
     const segments = toSegments(ajvError.instancePath);
     const path = formatPath(segments);
     const push = (code: ManifestErrorCode, message: string, locate: TranslatedError['locate']) =>
@@ -91,9 +101,20 @@ export function translateAjvErrors(ajvErrors: readonly ErrorObject[], data: unkn
       case 'required': {
         const missing = String(ajvError.params['missingProperty']);
         const missingPath = formatPath([...segments, missing]);
+        const why = segments.at(-1) === 'sensitive' && missing === 'description' ? ': explain why this action is sensitive' : '';
         translated.push({
-          error: { path: missingPath, code: 'required', message: `${missingPath} is required` },
+          error: { path: missingPath, code: 'required', message: `${missingPath} is required${why}` },
           locate: { segments },
+        });
+        break;
+      }
+      case 'propertyNames': {
+        const name = String(ajvError.params['propertyName']);
+        const keySegments = [...segments, name];
+        const keyPath = formatPath(keySegments);
+        translated.push({
+          error: { path: keyPath, code: 'invalid-format', message: `${keyPath}: field names must be camelCase, e.g. "displayName"` },
+          locate: { segments: keySegments, key: true },
         });
         break;
       }

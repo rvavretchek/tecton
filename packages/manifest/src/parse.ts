@@ -1,6 +1,7 @@
 import { Ajv } from 'ajv';
 import { isMap, isNode, isPair, isScalar, LineCounter, parseDocument, type Document, type YAMLError } from 'yaml';
-import { translateAjvErrors, type PathSegments } from './errors.js';
+import { buildActions, checkActions } from './actions.js';
+import { translateAjvErrors, type PathSegments, type TranslatedError } from './errors.js';
 import { manifestJsonSchema } from './schema.js';
 import type { ManifestError, ParseOptions, ParseResult, TectonManifest } from './types.js';
 
@@ -78,14 +79,22 @@ export function parseManifest(source: string, _options: ParseOptions = {}): Pars
     };
   }
 
-  const data: unknown = doc.toJS();
-  if (!validate(data)) {
-    const errors = translateAjvErrors(validate.errors ?? [], data).map(({ error, locate: target }) =>
-      withPosition(error, locate(doc, lineCounter, target.segments, target.key)),
-    );
+  const data = doc.toJS() as Record<string, unknown>;
+  const structural: TranslatedError[] = validate(data) ? [] : translateAjvErrors(validate.errors ?? [], data);
+  const semantic = checkActions(data['actions']);
+  const seen = new Set(structural.map((t) => `${t.error.path}|${t.error.code}`));
+  const all = [...structural, ...semantic.filter((t) => !seen.has(`${t.error.path}|${t.error.code}`))];
+
+  if (all.length > 0) {
+    const errors = all.map(({ error, locate: target }) => withPosition(error, locate(doc, lineCounter, target.segments, target.key)));
     return { ok: false, errors: errors.sort(compareErrors) };
   }
 
-  const manifest = data as Omit<TectonManifest, 'dependencies'> & { dependencies?: string[] };
-  return { ok: true, manifest: { ...manifest, dependencies: manifest.dependencies ?? [] } };
+  const { dependencies, actions, ...identity } = data;
+  const manifest = {
+    ...identity,
+    dependencies: (dependencies as string[] | undefined) ?? [],
+    actions: buildActions(actions),
+  } as TectonManifest;
+  return { ok: true, manifest };
 }
