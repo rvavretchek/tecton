@@ -17,9 +17,11 @@
     "test:api": "playwright test --project=api",
     "test:e2e": "playwright test --project=e2e",
     "check:deps": "depcruise packages --config .dependency-cruiser.cjs --output-type err-long",
-    "lint:examples": "node packages/cli/dist/bin.js lint docs/examples/tenant-domain-manifest-v0.yaml docs/examples/leave-domain-manifest-v0.yaml docs/examples/directory-stubs"
+    "lint:examples": "node packages/cli/dist/bin.js lint docs/examples/tenant-domain-manifest-v0.yaml docs/examples/leave-domain-manifest-v0.yaml docs/examples/directory-stubs",
+    "validate:asyncapi": "node tools/asyncapi/validate-examples.mjs"
   },
   "devDependencies": {
+    "@asyncapi/parser": "^3.6.3",
     "@faker-js/faker": "^10.6.0",
     "@playwright/test": "^1.64.0",
     "@seontechnologies/playwright-utils": "^4.4.1",

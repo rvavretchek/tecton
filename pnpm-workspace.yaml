@@ -8,8 +8,10 @@ linkWorkspacePackages: true
 # Dependency build scripts stay disabled unless explicitly allowed here.
 # None of these is needed: playwright-utils' postinstall runs `git submodule update`
 # in the consumer repo, cpu-features/ssh2 are optional native SSH accelerators, and
-# protobufjs' postinstall is only a version check.
+# protobufjs' postinstall is only a version check, and @scarf/scarf (pulled by
+# @asyncapi/parser) only sends install telemetry.
 allowBuilds:
+  '@scarf/scarf': false
   '@seontechnologies/playwright-utils': false
   cpu-features: false
   protobufjs: false
