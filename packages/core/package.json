@@ -15,5 +15,10 @@
   },
   "files": [
     "dist"
-  ]
+  ],
+  "dependencies": {
+    "@fastify/swagger": "^9.9.1",
+    "@tecton/manifest": "workspace:*",
+    "fastify": "^5.12.5"
+  }
 }
