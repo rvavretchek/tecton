@@ -37,6 +37,7 @@ describe('parseManifest — valid identity (AC 1)', () => {
         description: 'Leave requests and approvals.',
         dependencies: [],
         actions: [],
+        events: { publishes: [], consumes: [] },
       },
     });
   });

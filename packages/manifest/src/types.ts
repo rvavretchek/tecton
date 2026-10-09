@@ -1,6 +1,24 @@
 import type { ObjectSchema } from './field-types.js';
 import type { SupportedManifestVersion } from './schema.js';
 
+export interface ManifestEvent {
+  /** PascalCase, unique in the domain. */
+  name: string;
+  description?: string;
+  /** Payload fields with their short types, as written in the manifest. */
+  schema: Record<string, string>;
+  /** CloudEvents `type`: com.tecton.<domain>.<event-name-in-kebab-case>. */
+  type: string;
+  /** `schema` compiled to JSON Schema draft-07 (closed object). */
+  payloadSchema: ObjectSchema;
+}
+
+export interface ManifestEvents {
+  publishes: ManifestEvent[];
+  /** References to other domains' events, as <domain>.<EventName>; resolved by the lint. */
+  consumes: string[];
+}
+
 /** Authorization of an action: exactly one of the two forms. */
 export type ActionAuth = { public: true } | { requires: string[] };
 
@@ -39,8 +57,8 @@ export interface TectonManifest {
   dependencies: string[];
   /** Typed actions. Defaults to an empty list. */
   actions: ManifestAction[];
-  /** Reserved; validated from Story 1.4 on. */
-  events?: unknown;
+  /** Published and consumed events. Defaults to empty lists. */
+  events: ManifestEvents;
   /** Reserved; validated from Story 1.5 on. */
   objectClass?: unknown;
 }
@@ -61,7 +79,8 @@ export type ManifestErrorCode =
   | 'unknown-type'
   | 'invalid-auth'
   | 'mutually-exclusive'
-  | 'duplicate-name';
+  | 'duplicate-name'
+  | 'unknown-event';
 
 export interface ManifestError {
   /** Dotted path to the offending field, e.g. `domain` or `dependencies[2]`; empty for whole-file errors. */

@@ -22,6 +22,8 @@ export const FIELD_NAME_PATTERN = '^[a-z][a-zA-Z0-9]*$';
 export const ACTION_NAME_PATTERN = '^[a-z][a-zA-Z0-9]*$';
 /** PascalCase event names. */
 export const EVENT_NAME_PATTERN = '^[A-Z][a-zA-Z0-9]*$';
+/** Consumed event reference: <domain in kebab-case>.<EventName in PascalCase>. */
+export const CONSUMED_EVENT_PATTERN = '^[a-z][a-z0-9]*(-[a-z0-9]+)*\\.[A-Z][a-zA-Z0-9]*$';
 /** Permissions: two or more lowercase segments separated by ":" (tenant:create, auth:service:register). */
 export const PERMISSION_PATTERN = '^[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)+$';
 
@@ -91,6 +93,34 @@ const actionSchema = {
   },
 } as const;
 
+const eventsSchema = {
+  type: 'object',
+  description:
+    'Events published and consumed by the domain. Each published event gets the CloudEvents type com.tecton.<domain>.<event-name-in-kebab-case>.',
+  additionalProperties: false,
+  properties: {
+    publishes: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'schema'],
+        properties: {
+          name: { type: 'string', pattern: EVENT_NAME_PATTERN, description: 'Event name in PascalCase, unique in the domain.' },
+          description: { ...nonEmptyText, description: 'What happened; shown in the generated AsyncAPI.' },
+          schema: { ...fieldMap, description: `Event payload. ${fieldMap.description}` },
+        },
+      },
+    },
+    consumes: {
+      type: 'array',
+      description: 'Events from other domains, as <domain>.<EventName>.',
+      items: { type: 'string', pattern: CONSUMED_EVENT_PATTERN },
+      uniqueItems: true,
+    },
+  },
+} as const;
+
 const domainName = {
   type: 'string',
   pattern: DOMAIN_NAME_PATTERN,
@@ -138,9 +168,7 @@ export const manifestJsonSchema = {
       type: 'array',
       items: actionSchema,
     },
-    events: {
-      description: 'Events published and consumed by the domain.',
-    },
+    events: eventsSchema,
     objectClass: {
       description: 'Directory object class; only for domains that live in the Directory tree.',
     },

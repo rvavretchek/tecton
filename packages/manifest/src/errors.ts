@@ -60,6 +60,11 @@ function typeMessage(path: string, field: string | number | undefined, expected:
 function formatMessage(path: string, segments: PathSegments, value: unknown): string {
   const field = segments[0];
   const last = segments.at(-1);
+  if (field === 'events') {
+    if (last === 'name') return `${path} must be an event name in PascalCase, e.g. "TenantCreated"`;
+    if (segments[1] === 'consumes') return `${path} must reference an event as <domain>.<Event>, e.g. "directory.UserCreated"; got ${JSON.stringify(value)}`;
+    if (last === 'description') return `${path} must not be empty`;
+  }
   if (field === 'actions') {
     if (last === 'name' && segments.length === 3) return `${path} must be camelCase, e.g. "createTenant"`;
     if (segments.at(-2) === 'requires') return `${path} must have the form <resource>:<action>, e.g. "tenant:create"; got ${JSON.stringify(value)}`;
