@@ -18,6 +18,7 @@ strategy behind it (risks, priorities, coverage) is in
 | `pnpm test` | `*.test.ts` (unit and integration without Docker) | nothing |
 | `pnpm test:containers` | `*.containers.test.ts` (Valkey, Toxiproxy...) | Docker |
 | `pnpm test:persistence` | `*.persistence.test.ts` on the engine in `TECTON_TEST_DB` | Docker |
+| `pnpm test:generation` | `*.generation.test.ts`: generate a workspace, install it and build it (slow, nightly) | network |
 | `pnpm test:api` | Playwright `tests/api/*.spec.ts` | a running workspace at `BASE_URL` |
 | `pnpm test:e2e` | Playwright `tests/e2e/*.spec.ts` (Chromium) | a running workspace + Chromium |
 | `pnpm typecheck` | type-checks all test code | nothing |

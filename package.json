@@ -11,9 +11,10 @@
   "scripts": {
     "build": "tsc -b && pnpm -r --if-present run emit",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "vitest run --passWithNoTests --exclude \"**/*.persistence.test.ts\" --exclude \"**/*.containers.test.ts\"",
+    "test": "vitest run --passWithNoTests --exclude \"**/*.persistence.test.ts\" --exclude \"**/*.containers.test.ts\" --exclude \"**/*.generation.test.ts\"",
     "test:containers": "vitest run --passWithNoTests .containers.test.ts",
     "test:persistence": "vitest run --passWithNoTests .persistence.test.ts",
+    "test:generation": "vitest run --passWithNoTests .generation.test.ts",
     "test:api": "playwright test --project=api",
     "test:e2e": "playwright test --project=e2e",
     "check:deps": "depcruise packages --config .dependency-cruiser.cjs --output-type err-long",

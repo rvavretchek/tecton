@@ -9,6 +9,7 @@ import { defineConfig } from 'vitest/config';
 //   *.containers.test.ts  - needs Docker (Valkey, Toxiproxy...)   -> pnpm test:containers
 //   *.persistence.test.ts - needs a database, engine from TECTON_TEST_DB
 //                           (postgres | mariadb | mysql; default postgres) -> pnpm test:persistence
+//   *.generation.test.ts  - generates and installs a workspace (network, slow) -> pnpm test:generation
 export default defineConfig({
   resolve: {
     alias: [
