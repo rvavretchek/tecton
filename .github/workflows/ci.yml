@@ -1,5 +1,7 @@
 name: CI
 
+# Runs on every push and pull request. Target: under 15 minutes (Test Design, execution strategy).
+# Job names are referenced by branch protection; keep them stable.
 on:
   push:
   pull_request:
@@ -12,9 +14,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Static gates + tests that need no infrastructure.
   build-test:
     name: build-test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -25,14 +29,45 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm typecheck
-      - run: pnpm test
       - run: pnpm check:deps
+      - run: pnpm test
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-build-test
+          path: test-results/
+          retention-days: 14
 
-  # Persistence tests (*.persistence.test.ts) run against every supported database.
+  # Tests that need Docker but no database (Valkey, Toxiproxy fault injection).
+  containers:
+    name: containers
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test:containers
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-containers
+          path: test-results/
+          retention-days: 14
+
+  # Persistence tests (*.persistence.test.ts) on every supported database (Test Design R-08).
   # They provision their database with Testcontainers; the runner already has Docker.
   persistence:
     name: persistence (${{ matrix.db }})
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -49,3 +84,10 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test:persistence
+      - name: Upload test report
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-persistence-${{ matrix.db }}
+          path: test-results/
+          retention-days: 14

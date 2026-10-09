@@ -57,12 +57,17 @@ async function withDockerCheck<T>(start: () => Promise<T>): Promise<T> {
   }
 }
 
-async function exec(container: StartedTestContainer, command: string[]): Promise<string> {
-  const result = await container.exec(command);
+/** Runs a command in the container and returns stdout only (CLI warnings go to stderr). */
+async function exec(
+  container: StartedTestContainer,
+  command: string[],
+  env: Record<string, string> = {},
+): Promise<string> {
+  const result = await container.exec(command, { env });
   if (result.exitCode !== 0) {
-    throw new Error(`Command failed in container (exit ${result.exitCode}): ${result.output}`);
+    throw new Error(`Command failed in container (exit ${result.exitCode}): ${result.stderr || result.output}`);
   }
-  return result.output.trim();
+  return result.stdout.trim();
 }
 
 export async function startDatabase(kind: TestDatabase = selectedDatabase()): Promise<StartedDatabase> {
@@ -87,16 +92,11 @@ export async function startDatabase(kind: TestDatabase = selectedDatabase()): Pr
           kind,
           url: container.getConnectionUri(),
           container,
+          // Password through MYSQL_PWD, never on the command line.
           query: (sql) =>
-            exec(container, [
-              'mariadb',
-              `-u${container.getUsername()}`,
-              `-p${container.getUserPassword()}`,
-              '-N',
-              '-e',
-              sql,
-              container.getDatabase(),
-            ]),
+            exec(container, ['mariadb', '-u', container.getUsername(), '-N', '-e', sql, container.getDatabase()], {
+              MYSQL_PWD: container.getUserPassword(),
+            }),
           stop: async () => {
             await container.stop();
           },
@@ -108,7 +108,10 @@ export async function startDatabase(kind: TestDatabase = selectedDatabase()): Pr
           kind,
           url: container.getConnectionUri(),
           container,
-          query: async (sql) => (await container.executeQuery(sql, ['-N'])).trim(),
+          query: (sql) =>
+            exec(container, ['mysql', '-u', container.getUsername(), '-N', '-e', sql, container.getDatabase()], {
+              MYSQL_PWD: container.getUserPassword(),
+            }),
           stop: async () => {
             await container.stop();
           },

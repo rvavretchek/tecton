@@ -85,13 +85,29 @@ Planned additions, delivered by the stories that need them:
 
 ## CI
 
-GitHub Actions (`.github/workflows/ci.yml`):
+GitHub Actions. Job names are referenced by branch protection; keep them stable.
 
-- `build-test`: install, build, typecheck, `pnpm test`, `check:deps`.
-- `persistence (postgres|mariadb|mysql)`: `pnpm test:persistence` with `TECTON_TEST_DB`
-  set per job; required before merge.
+`.github/workflows/ci.yml` (every push and pull request, target under 15 minutes):
 
-Container, API and E2E jobs are wired by the CI setup workflow as those suites gain tests.
+| Job | Runs |
+|---|---|
+| `build-test` | install, build, typecheck, `check:deps`, `pnpm test` |
+| `containers` | `pnpm test:containers` (Docker on the runner) |
+| `persistence (postgres\|mariadb\|mysql)` | `pnpm test:persistence` with `TECTON_TEST_DB` per job |
+
+`.github/workflows/nightly.yml` (daily at 06:00 UTC, or manually):
+
+| Job | Runs |
+|---|---|
+| `burn-in` | every Vitest suite repeated N times (default 5) in shuffled order, to surface flaky tests |
+| `playwright (api\|e2e)` | dormant until the repository variable `PLAYWRIGHT_ENABLED=true`; starting the workspace under test arrives with Story 3.13 |
+
+On failure, each job uploads `test-results/` (Vitest JUnit XML; Playwright HTML report,
+traces, screenshots and videos) as an artifact kept for 14 days.
+
+Quality gates: P0 100%, P1 at least 95%, every score-6 risk mitigated before its epic
+closes (Test Design). Required checks on the protected branches: `build-test`,
+`containers` and the three `persistence (...)` jobs.
 
 ## Troubleshooting
 

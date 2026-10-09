@@ -19,5 +19,9 @@ export default defineConfig({
     include: ['packages/*/src/**/*.test.ts', 'tools/**/*.test.ts', 'tests/support/**/*.test.ts'],
     exclude: ['**/node_modules/**', '**/dist/**', 'tools/**/fixtures/**'],
     hookTimeout: 180_000,
+    // In CI, also write JUnit XML so failed runs upload a machine-readable report.
+    reporters: process.env['CI']
+      ? ['default', ['junit', { outputFile: 'test-results/vitest-junit.xml' }]]
+      : ['default'],
   },
 });
