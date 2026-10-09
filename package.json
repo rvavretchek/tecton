@@ -11,13 +11,24 @@
   "scripts": {
     "build": "tsc -b",
     "typecheck": "tsc -p tsconfig.test.json",
-    "test": "vitest run --passWithNoTests --exclude \"**/*.persistence.test.ts\"",
+    "test": "vitest run --passWithNoTests --exclude \"**/*.persistence.test.ts\" --exclude \"**/*.containers.test.ts\"",
+    "test:containers": "vitest run --passWithNoTests .containers.test.ts",
     "test:persistence": "vitest run --passWithNoTests .persistence.test.ts",
+    "test:api": "playwright test --project=api",
+    "test:e2e": "playwright test --project=e2e",
     "check:deps": "depcruise packages --config .dependency-cruiser.cjs --output-type err-long"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.6.0",
+    "@playwright/test": "^1.64.0",
+    "@seontechnologies/playwright-utils": "^4.4.1",
+    "@testcontainers/mariadb": "^12.2.0",
+    "@testcontainers/mysql": "^12.2.0",
+    "@testcontainers/postgresql": "^12.2.0",
+    "@testcontainers/toxiproxy": "^12.2.0",
     "@types/node": "^24.19.1",
     "dependency-cruiser": "^18.5.0",
+    "testcontainers": "^12.2.0",
     "typescript": "6.0.3",
     "vitest": "^5.0.3"
   }

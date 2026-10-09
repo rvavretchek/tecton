@@ -4,3 +4,13 @@ packages:
 # Fail installs on a Node version outside "engines" (>=24.7 <25).
 engineStrict: true
 linkWorkspacePackages: true
+
+# Dependency build scripts stay disabled unless explicitly allowed here.
+# None of these is needed: playwright-utils' postinstall runs `git submodule update`
+# in the consumer repo, cpu-features/ssh2 are optional native SSH accelerators, and
+# protobufjs' postinstall is only a version check.
+allowBuilds:
+  '@seontechnologies/playwright-utils': false
+  cpu-features: false
+  protobufjs: false
+  ssh2: false

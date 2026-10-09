@@ -35,7 +35,9 @@ Monorepo com **pnpm workspaces** (sem Turborepo nem Nx; o Turborepo é usado só
 | `pnpm build` | Compila todos os pacotes com TypeScript 6.0.3 (`tsc -b`, build incremental por project references) |
 | `pnpm typecheck` | Checa os tipos dos testes, que não entram no build |
 | `pnpm test` | Roda os testes, exceto os de persistência |
+| `pnpm test:containers` | Roda os testes que precisam de Docker (Valkey, Toxiproxy) |
 | `pnpm test:persistence` | Roda só os testes de persistência, no banco indicado por `TECTON_TEST_DB` |
+| `pnpm test:api` / `pnpm test:e2e` | Testes Playwright multi-serviço e da SPA `/admin` (precisam de um workspace rodando em `BASE_URL`) |
 | `pnpm check:deps` | Verifica a direção de dependência entre os pacotes `@tecton/*` (AD-3 da Architecture Spine) com o dependency-cruiser |
 
 ### Test runner: Vitest
@@ -47,6 +49,8 @@ Escolhido porque roda TypeScript e ESM nativamente, sem etapa de build dos teste
 - Todo teste que toca banco de dados se chama `*.persistence.test.ts`.
 - O banco é escolhido por `TECTON_TEST_DB` (`postgres`, `mariadb` ou `mysql`; padrão `postgres`). No dia a dia, rode só em PostgreSQL.
 - No CI, o job `persistence` roda esses testes nos três bancos, e o job `build-test` roda build, typecheck, testes e `check:deps`.
+
+Organização dos testes, fixtures compartilhados (`#test-support`) e boas práticas: [`tests/README.md`](tests/README.md).
 
 ## Documentação
 

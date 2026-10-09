@@ -147,3 +147,7 @@ docs/Laboratório/
 
 # Configuração local do Obsidian (editor do autor)
 .obsidian/
+
+# Test results (Vitest/Playwright reports, traces, JUnit)
+test-results/
+playwright-report/
