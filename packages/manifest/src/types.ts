@@ -1,5 +1,37 @@
-import type { ObjectSchema } from './field-types.js';
+import type { FieldSchema, ObjectSchema } from './field-types.js';
 import type { SupportedManifestVersion } from './schema.js';
+
+/** One compiled attribute: the field schema plus Directory metadata. */
+export type AttributeSchema = FieldSchema & { default?: unknown; readOnly?: true; 'x-tecton-unique'?: true };
+
+export interface AttributesSchema {
+  type: 'object';
+  properties: Record<string, AttributeSchema>;
+  required?: string[];
+  additionalProperties: false;
+}
+
+export interface ObjectClassAttribute {
+  name: string;
+  type: string;
+  required?: boolean;
+  default?: unknown;
+  values?: string[];
+  unique?: boolean;
+  readOnly?: boolean;
+}
+
+export interface ManifestObjectClass {
+  name: string;
+  /** Default: DirectoryObject. */
+  extends: string;
+  attributes: ObjectClassAttribute[];
+  containment: { allowedParents: string[]; allowedChildren: string[] };
+  /** Default: inheritable true. */
+  acl: { inheritable: boolean };
+  /** `attributes` compiled to JSON Schema draft-07 (closed object, with x-tecton-unique). */
+  attributesSchema: AttributesSchema;
+}
 
 export interface ManifestEvent {
   /** PascalCase, unique in the domain. */
@@ -59,8 +91,10 @@ export interface TectonManifest {
   actions: ManifestAction[];
   /** Published and consumed events. Defaults to empty lists. */
   events: ManifestEvents;
-  /** Reserved; validated from Story 1.5 on. */
-  objectClass?: unknown;
+  /** Present only for domains that are classes in the Directory tree. */
+  objectClass?: ManifestObjectClass;
+  /** True when the domain declares an objectClass. */
+  participatesInDirectory: boolean;
 }
 
 /**
@@ -80,7 +114,9 @@ export type ManifestErrorCode =
   | 'invalid-auth'
   | 'mutually-exclusive'
   | 'duplicate-name'
-  | 'unknown-event';
+  | 'unknown-event'
+  | 'invalid-attribute'
+  | 'invalid-default';
 
 export interface ManifestError {
   /** Dotted path to the offending field, e.g. `domain` or `dependencies[2]`; empty for whole-file errors. */

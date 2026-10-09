@@ -38,6 +38,7 @@ describe('parseManifest — valid identity (AC 1)', () => {
         dependencies: [],
         actions: [],
         events: { publishes: [], consumes: [] },
+        participatesInDirectory: false,
       },
     });
   });
@@ -170,8 +171,8 @@ describe('parseManifest — top-level keys (AC 5)', () => {
     expect(error).toMatchObject({ path: 'owner', code: 'unknown-key', message: 'unknown top-level key "owner"' });
   });
 
-  it('Given the reserved keys actions, events and objectClass, When validated, Then they are accepted', () => {
-    const source = `${VALID}actions: []\nevents: { publishes: [], consumes: [] }\nobjectClass: { name: Thing }\n`;
+  it('Given the keys actions, events and objectClass, When validated, Then they are accepted', () => {
+    const source = `${VALID}actions: []\nevents: { publishes: [], consumes: [] }\nobjectClass: { name: Thing, containment: { allowedParents: [Root] } }\n`;
 
     expect(parseManifest(source).ok).toBe(true);
   });

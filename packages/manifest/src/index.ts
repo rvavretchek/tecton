@@ -1,5 +1,6 @@
 // Public API of @tecton/manifest: parse and validate tecton.yaml, and its JSON Schema.
 export { cloudEventType } from './events.js';
+export { compileAttributes, TECTON_UNIQUE_KEYWORD } from './object-class.js';
 export { parseManifest } from './parse.js';
 export {
   compileFields,
@@ -26,6 +27,10 @@ export {
 } from './schema.js';
 export type {
   ActionAuth,
+  AttributeSchema,
+  AttributesSchema,
+  ManifestObjectClass,
+  ObjectClassAttribute,
   ManifestAction,
   ManifestError,
   ManifestEvent,

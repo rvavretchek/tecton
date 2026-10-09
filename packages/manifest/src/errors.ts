@@ -60,6 +60,11 @@ function typeMessage(path: string, field: string | number | undefined, expected:
 function formatMessage(path: string, segments: PathSegments, value: unknown): string {
   const field = segments[0];
   const last = segments.at(-1);
+  if (field === 'objectClass') {
+    if (segments[1] === 'attributes' && last === 'name') return `${path} must be camelCase, e.g. "displayName"`;
+    if (typeof last === 'number' || last === 'name' || last === 'extends')
+      return `${path} must be a class name in PascalCase, e.g. "Tenant"; got ${JSON.stringify(value)}`;
+  }
   if (field === 'events') {
     if (last === 'name') return `${path} must be an event name in PascalCase, e.g. "TenantCreated"`;
     if (segments[1] === 'consumes') return `${path} must reference an event as <domain>.<Event>, e.g. "directory.UserCreated"; got ${JSON.stringify(value)}`;
@@ -146,6 +151,9 @@ export function translateAjvErrors(ajvErrors: readonly ErrorObject[], data: unkn
         } else {
           push('invalid-format', `${path} must be one of the allowed values`, { segments });
         }
+        break;
+      case 'minItems':
+        push('invalid-format', `${path} must list at least ${String(ajvError.params['limit'])} item(s)`, { segments });
         break;
       case 'pattern':
       case 'maxLength':

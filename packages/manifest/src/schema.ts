@@ -121,6 +121,56 @@ const eventsSchema = {
   },
 } as const;
 
+const className = { type: 'string', pattern: EVENT_NAME_PATTERN } as const;
+const classList = { type: 'array', items: className, uniqueItems: true } as const;
+
+const objectClassSchema = {
+  type: 'object',
+  description:
+    'Makes the domain a class in the Directory tree (containment + inheritable ACL). Only Directory classes declare it.',
+  additionalProperties: false,
+  required: ['name', 'containment'],
+  properties: {
+    name: { ...className, description: 'Class name in PascalCase, e.g. "Tenant".' },
+    extends: { ...className, description: 'Base class. Default: DirectoryObject.' },
+    attributes: {
+      type: 'array',
+      description: 'Attributes stored on each object and edited through the generated form.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'type'],
+        properties: {
+          name: { type: 'string', pattern: FIELD_NAME_PATTERN, description: 'Attribute name in camelCase.' },
+          type: {
+            type: 'string',
+            description: 'string, number, integer, boolean, uuid, date, datetime or enum (with values).',
+          },
+          required: { type: 'boolean', description: 'Default false.' },
+          default: { description: 'Default value; must match the type.' },
+          values: { type: 'array', items: { type: 'string' }, minItems: 1, uniqueItems: true, description: 'Allowed values of an enum.' },
+          unique: { type: 'boolean', description: 'Unique across objects of the class (checked by the Directory).' },
+          readOnly: { type: 'boolean', description: 'Shown but not editable through the generic attribute form.' },
+        },
+      },
+    },
+    containment: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['allowedParents'],
+      properties: {
+        allowedParents: { ...classList, minItems: 1, description: 'Classes that may contain objects of this class.' },
+        allowedChildren: { ...classList, description: 'Classes this class may contain. Default: none.' },
+      },
+    },
+    acl: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { inheritable: { type: 'boolean', description: 'Permissions flow to descendants. Default true.' } },
+    },
+  },
+} as const;
+
 const domainName = {
   type: 'string',
   pattern: DOMAIN_NAME_PATTERN,
@@ -169,8 +219,6 @@ export const manifestJsonSchema = {
       items: actionSchema,
     },
     events: eventsSchema,
-    objectClass: {
-      description: 'Directory object class; only for domains that live in the Directory tree.',
-    },
+    objectClass: objectClassSchema,
   },
 } as const;

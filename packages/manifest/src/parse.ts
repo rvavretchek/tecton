@@ -2,6 +2,7 @@ import { Ajv } from 'ajv';
 import { isMap, isNode, isPair, isScalar, LineCounter, parseDocument, type Document, type YAMLError } from 'yaml';
 import { buildActions, checkActions } from './actions.js';
 import { buildEvents, checkEvents } from './events.js';
+import { buildObjectClass, checkObjectClass } from './object-class.js';
 import { translateAjvErrors, type PathSegments, type TranslatedError } from './errors.js';
 import { manifestJsonSchema } from './schema.js';
 import type { ManifestError, ParseOptions, ParseResult, TectonManifest } from './types.js';
@@ -82,7 +83,7 @@ export function parseManifest(source: string, _options: ParseOptions = {}): Pars
 
   const data = doc.toJS() as Record<string, unknown>;
   const structural: TranslatedError[] = validate(data) ? [] : translateAjvErrors(validate.errors ?? [], data);
-  const semantic = [...checkActions(data['actions']), ...checkEvents(data['events'], data['actions'])];
+  const semantic = [...checkActions(data['actions']), ...checkEvents(data['events'], data['actions']), ...checkObjectClass(data['objectClass'])];
   // A structural error on a path already explains it; semantic checks never pile onto it.
   const structuralPaths = new Set(structural.map((t) => t.error.path));
   const all = [...structural, ...semantic.filter((t) => !structuralPaths.has(t.error.path))];
@@ -92,12 +93,15 @@ export function parseManifest(source: string, _options: ParseOptions = {}): Pars
     return { ok: false, errors: errors.sort(compareErrors) };
   }
 
-  const { dependencies, actions, events, ...identity } = data;
+  const { dependencies, actions, events, objectClass, ...identity } = data;
+  const builtClass = buildObjectClass(objectClass);
   const manifest = {
     ...identity,
     dependencies: (dependencies as string[] | undefined) ?? [],
     actions: buildActions(actions),
     events: buildEvents(identity['domain'] as string, events),
+    ...(builtClass ? { objectClass: builtClass } : {}),
+    participatesInDirectory: builtClass !== undefined,
   } as TectonManifest;
   return { ok: true, manifest };
 }
