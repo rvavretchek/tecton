@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { DOMAIN_NAME_MAX_LENGTH, DOMAIN_NAME_PATTERN, SUPPORTED_MANIFEST_VERSIONS } from '@tecton/manifest';
+import { writeDevServices } from '../dev-services.js';
 import type { CliIo } from '../io.js';
 import { renderTemplate } from '../templates.js';
 import { findWorkspace } from '../workspace.js';
@@ -64,6 +65,8 @@ export function generateDomainCommand(names: string[], options: GenerateDomainOp
       workspace.dependency,
     );
   }
+  // Each domain gets its own logical database in Dev Services (FR-30).
+  writeDevServices(workspace.root);
 
   const created = requested.map((domain) => `  ${relative(io.cwd, join(domainsDir, domain)).split(sep).join('/') || '.'}`);
   io.stdout.write(

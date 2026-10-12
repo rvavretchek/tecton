@@ -30,8 +30,9 @@ function buildProgram(io: CliIo, setExitCode: (code: number) => void): Command {
     .description('Create a Tecton workspace (pnpm + Turborepo) in a new directory.')
     .argument('<name>', 'workspace name in kebab-case; also the directory to create')
     .option('--framework <path>', 'link @tecton/* to a local checkout of the framework instead of the registry')
+    .option('--db <engine>', 'database of Dev Services: postgres, mariadb or mysql', 'postgres')
     .addHelpText('after', '\nExample:\n  $ tecton-admin new acme-platform\n')
-    .action((name: string, options: { framework?: string }) => {
+    .action((name: string, options: { framework?: string; db?: string }) => {
       setExitCode(newCommand(name, options, io));
     });
 

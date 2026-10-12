@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DOMAIN_NAME_MAX_LENGTH, DOMAIN_NAME_PATTERN } from '@tecton/manifest';
+import { DEV_DATABASES, isDevDatabase, setWorkspaceDatabase, writeDevServices } from '../dev-services.js';
 import type { CliIo } from '../io.js';
 import { linkSpec, renderTemplate, versionSpec, type DependencySpec } from '../templates.js';
 
@@ -9,6 +10,8 @@ const NAME = new RegExp(DOMAIN_NAME_PATTERN);
 export interface NewCommandOptions {
   /** Path to a local checkout of the Tecton framework; @tecton/* become pnpm `link:` dependencies. */
   framework?: string;
+  /** Database engine of Dev Services: postgres (default), mariadb or mysql. */
+  db?: string;
 }
 
 function isEmptyDirectory(path: string): boolean {
@@ -30,6 +33,12 @@ export function newCommand(name: string, options: NewCommandOptions, io: CliIo):
     return 1;
   }
 
+  const database = options.db ?? 'postgres';
+  if (!isDevDatabase(database)) {
+    io.stderr.write(`unsupported --db "${database}"; use one of: ${DEV_DATABASES.join(', ')}\n`);
+    return 1;
+  }
+
   const target = resolve(io.cwd, name);
   if (existsSync(target) && !isEmptyDirectory(target)) {
     io.stderr.write(`${target} already exists and is not empty; nothing was written\n`);
@@ -47,6 +56,8 @@ export function newCommand(name: string, options: NewCommandOptions, io: CliIo):
   }
 
   renderTemplate('workspace', target, { name }, dependency);
+  setWorkspaceDatabase(target, database);
+  writeDevServices(target);
 
   io.stdout.write(
     [
@@ -56,6 +67,7 @@ export function newCommand(name: string, options: NewCommandOptions, io: CliIo):
       `  cd ${name}`,
       '  pnpm install',
       '  pnpm exec tecton-admin generate domain <name>',
+      `  docker compose -f docker-compose.dev.yml up -d   (Valkey + ${database}, development only)`,
       '',
       'AGENTS.md and README.md are seeds: ask your AI agent to write them (see AGENTS.md).',
       '',

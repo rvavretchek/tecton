@@ -50,8 +50,11 @@ describe('tecton-admin new — workspace (AC 1, AC 2)', () => {
     expect(result.code).toBe(0);
     expect(filesUnder(root).sort()).toEqual(
       [
+        '.env.example',
         '.gitignore',
         '.node-version',
+        'dev-services/databases.sql',
+        'docker-compose.dev.yml',
         'AGENTS.md',
         'CLAUDE.md',
         'README.md',
