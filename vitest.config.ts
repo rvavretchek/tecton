@@ -1,0 +1,30 @@
+import { fileURLToPath } from 'node:url';
+import { defineConfig } from 'vitest/config';
+
+// Single root config for now. Per-package projects come in when a package needs a
+// different environment (e.g. jsdom for @tecton/ui).
+//
+// File-name conventions (see tests/README.md):
+//   *.test.ts             - unit/integration without Docker      -> pnpm test
+//   *.containers.test.ts  - needs Docker (Valkey, Toxiproxy...)   -> pnpm test:containers
+//   *.persistence.test.ts - needs a database, engine from TECTON_TEST_DB
+//                           (postgres | mariadb | mysql; default postgres) -> pnpm test:persistence
+//   *.generation.test.ts  - generates and installs a workspace (network, slow) -> pnpm test:generation
+export default defineConfig({
+  resolve: {
+    alias: [
+      { find: '#test-support', replacement: fileURLToPath(new URL('./tests/support/index.ts', import.meta.url)) },
+      // Tests import sibling packages from source, so they never depend on a prior build.
+      { find: /^@tecton\/([a-z-]+)$/, replacement: fileURLToPath(new URL('./packages/$1/src/index.ts', import.meta.url)) },
+    ],
+  },
+  test: {
+    include: ['packages/*/src/**/*.test.ts', 'tools/**/*.test.ts', 'tests/support/**/*.test.ts'],
+    exclude: ['**/node_modules/**', '**/dist/**', 'tools/**/fixtures/**'],
+    hookTimeout: 180_000,
+    // In CI, also write JUnit XML so failed runs upload a machine-readable report.
+    reporters: process.env['CI']
+      ? ['default', ['junit', { outputFile: 'test-results/vitest-junit.xml' }]]
+      : ['default'],
+  },
+});

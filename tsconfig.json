@@ -1,0 +1,13 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/manifest" },
+    { "path": "packages/providers" },
+    { "path": "packages/ui" },
+    { "path": "packages/core" },
+    { "path": "packages/service-client" },
+    { "path": "packages/auth" },
+    { "path": "packages/directory" },
+    { "path": "packages/cli" }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "noEmit": true,
+    "paths": {
+      "#test-support": [
+        "./tests/support/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "packages/*/src/**/*.test.ts",
+    "tools/**/*.ts",
+    "tests/**/*.ts",
+    "vitest.config.ts",
+    "playwright.config.ts"
+  ],
+  "exclude": [
+    "tools/**/fixtures/**"
+  ]
+}

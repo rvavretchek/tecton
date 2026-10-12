@@ -2,7 +2,7 @@
 title: UML — Tecton
 status: draft
 created: '2026-08-31'
-updated: '2026-09-02'
+updated: '2026-10-01'
 companion_of: 'ARCHITECTURE-SPINE.md'
 ---
 
@@ -22,15 +22,23 @@ graph TD
     directory["@tecton/directory<br/>Directory Service pronto<br/>(Tenant + Usuário/Grupo + Custodiante)<br/>+ SPA admin em /admin"]
     serviceClient["@tecton/service-client<br/>gerador do ServiceClient"]
     ui["@tecton/ui<br/>runtime de frontend: binding<br/>@rjsf/core, tema, i18nKey"]
+    auth["@tecton/auth<br/>serviço de Auth pronto: credenciais,<br/>JWT EdDSA, JWKS, refresh confinado"]
     cli["@tecton/cli<br/>binário tecton-admin"]
 
     core --> manifest
+    core --> providers
     providers --> manifest
     directory --> manifest
     directory --> providers
+    directory --> core
     ui --> manifest
     directory --> ui
     serviceClient --> manifest
+    serviceClient --> providers
+    auth --> manifest
+    auth --> providers
+    auth --> core
+    cli --> auth
     cli --> core
     cli --> providers
     cli --> directory
@@ -45,24 +53,41 @@ graph TD
 
 ```mermaid
 graph TB
-    Client["Cliente"] --> Gateway["Gateway<br/>(FR-19, fino — AD-8)"]
-    Gateway -.->|roteia /admin, sem importar<br/>@tecton/directory nem @tecton/ui — AD-10| Directory
-    Gateway -->|valida token (1ª linha,<br/>não a única — FR-13)| AuthSvc["Serviço de Auth<br/>(AuthProvider)"]
-    Gateway -->|credencial verificável,<br/>Directory verifica ele mesmo — AD-7| Directory["Directory Service<br/>@tecton/directory<br/>(Tenant + Usuário/Grupo + Custodiante)<br/>+ SPA admin (@tecton/ui) em /admin"]
-    Gateway -->|credencial verificável,<br/>A verifica ele mesmo — AD-7| DomainA["Domínio de negócio A<br/>(gerado, hexagonal)"]
-    Gateway -->|credencial verificável,<br/>B verifica ele mesmo — AD-7| DomainB["Domínio de negócio B<br/>(gerado, hexagonal)"]
+      Client["Cliente"] --> Gateway["Gateway<br/>(FR-19, fino — AD-8)"]
 
-    DomainA -->|ServiceClient, sync,<br/>exceção, credencial verificável — AD-7/AD-9| DomainB
-    DomainA -->|events.publishes| Valkey["Valkey Streams<br/>(CloudEvents, at-least-once)"]
-    DomainB -->|events.consumes,<br/>modelo de leitura local| Valkey
-    Directory -->|events.publishes| Valkey
+    Gateway -.->|roteia /admin, sem importar<br/>@tecton/directory nem @tecton/ui — AD-10| Directory
 
-    Directory --> DirDB[("Banco do Directory Service<br/>Closure Table + JSONB de atributos")]
-    DomainA --> DBA[("Banco de A<br/>Prisma")]
-    DomainB --> DBB[("Banco de B<br/>Prisma")]
+    Gateway -->|valida token, 1ª linha,<br/>não a única — FR-13| AuthSvc["Serviço de Auth<br/>(@tecton/auth, AuthProvider)"]
 
-    Gateway -.->|rate limit,<br/>fail-open| Valkey
-    AuthSvc -.->|revogação,<br/>fail-closed| Valkey
+    Gateway -->|credencial verificável,<br/>Directory verifica ele mesmo — AD-7| Directory["Directory Service<br/>@tecton/directory<br/>(Tenant + Usuário/Grupo + Custodiante)<br/>+ SPA admin (@tecton/ui) em /admin"]
+
+    Gateway -->|credencial verificável,<br/>A verifica ele mesmo — AD-7| DomainA["Domínio de negócio A<br/>(gerado, hexagonal)"]
+
+    Gateway -->|credencial verificável,<br/>B verifica ele mesmo — AD-7| DomainB["Domínio de negócio B<br/>(gerado, hexagonal)"]
+
+  
+
+    DomainA -->|ServiceClient, sync,<br/>exceção, credencial verificável — AD-7/AD-9| DomainB
+
+    DomainA -->|events.publishes| Valkey["Valkey Streams<br/>(CloudEvents, at-least-once)"]
+
+    DomainB -->|events.consumes,<br/>modelo de leitura local| Valkey
+
+    Directory -->|events.publishes| Valkey
+
+  
+
+    Directory --> DirDB[("Banco do Directory Service<br/>Closure Table + JSONB de atributos")]
+
+    DomainA --> DBA[("Banco de A<br/>Prisma")]
+
+    DomainB --> DBB[("Banco de B<br/>Prisma")]
+
+  
+
+    Gateway -.->|rate limit,<br/>fail-open| Valkey
+
+    AuthSvc -.->|revogação,<br/>fail-closed| Valkey
 ```
 
 *Cada serviço (Gateway, Directory, A, B) verifica a assinatura do token por conta própria — nenhum confia na verificação de outro (AD-7). Nenhum domínio lê o banco de outro domínio ou do Directory Service diretamente (AD-9); a única exceção de persistência-por-serviço é o próprio Directory Service hospedar três domínios embutidos juntos (AD-2).*

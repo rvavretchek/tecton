@@ -7,7 +7,7 @@ paradigm: 'DOMA (Domain-Oriented Microservice Architecture) + Hexagonal/Ports-an
 scope: 'Framework Tecton MVP completo — todas as 10 features do PRD (§4), FR-1 a FR-31'
 status: final
 created: '2026-08-28'
-updated: '2026-09-02'
+updated: '2026-10-01'
 binds: ['FR-1..FR-31']
 sources:
   - '_bmad-output/planning-artifacts/prds/prd-Tecton-2026-08-14/prd.md'
@@ -53,9 +53,10 @@ graph LR
 **Mecanismo de armazenamento dos atributos declarativos [ADOPTED]:** `objectClass.attributes` persiste como bag de atributos JSON/JSONB por objeto, validado contra o JSON Schema do `objectClass` em tempo de escrita pelo próprio Directory Service — nunca gera migração de schema relacional disparada por manifest de terceiros. Mesmo padrão do LDAP/Active Directory que inspirou o core. Trade-off aceito conscientemente: unicidade/FK/index reais não são garantidos pelo banco nesses atributos, só validação de aplicação — se um domínio precisar de constraint forte sobre um atributo customizado, isso é sinal de que o atributo pertence a um domínio de negócio próprio, não ao Directory Service.
 
 ### AD-3 — Direção de dependência entre pacotes do framework [ADOPTED]
-- **Binds:** `@tecton/*` (`manifest`, `core`, `providers`, `directory`, `service-client`, `ui`, `cli`)
+- **Binds:** `@tecton/*` (`manifest`, `core`, `providers`, `auth`, `directory`, `service-client`, `ui`, `cli`)
 - **Prevents:** dependência circular entre pacotes do próprio framework
-- **Rule:** `@tecton/manifest` não depende de nenhum outro pacote Tecton; `core`, `providers`, `service-client` e `ui` podem depender de `manifest`; `directory` pode depender de `manifest` e de `ui` (única dependência entre pacotes-irmãos da spine, pela SPA administrativa embutida — AD-10); `cli` pode depender de todos; nunca o inverso.
+- **Rule:** `@tecton/manifest` não depende de nenhum outro pacote Tecton; `providers` e `ui` podem depender de `manifest`; `core` e `service-client` podem depender de `manifest` e `providers` (consomem as portas, AD-1); `auth` pode depender de `manifest`, `providers` e `core`; `directory` pode depender de `manifest`, `providers`, `core` e `ui` (a SPA administrativa embutida, AD-10); `cli` pode depender de todos; nunca o inverso.
+- **Emenda 2026-10-01 (stories do Epic 2):** entrou o pacote `@tecton/auth` (serviço de Auth pronto, decisão D1). Na mesma emenda, `core`, `service-client` e `directory` passaram a poder depender de `providers` (e `directory` de `core`): a regra anterior impedia o Directory de usar a geração de rota do `core` e impedia qualquer serviço de consumir as portas de `providers` (ex.: `TokenRevocationStore` na verificação de token), o que contradizia AD-1 e AD-7. O grafo continua acíclico.
 
 ```mermaid
 graph TD
@@ -65,14 +66,23 @@ graph TD
     directory["@tecton/directory"]
     serviceClient["@tecton/service-client"]
     ui["@tecton/ui"]
+    auth["@tecton/auth"]
     cli["@tecton/cli"]
 
     core --> manifest
+    core --> providers
     providers --> manifest
     directory --> manifest
+    directory --> providers
+    directory --> core
     serviceClient --> manifest
+    serviceClient --> providers
     ui --> manifest
     directory --> ui
+    auth --> manifest
+    auth --> providers
+    auth --> core
+    cli --> auth
     cli --> core
     cli --> providers
     cli --> directory
@@ -100,11 +110,19 @@ graph TD
 - **Binds:** `all` (toda chamada serviço-a-serviço, síncrona ou assíncrona)
 - **Prevents:** um serviço confiando num header pré-decodificado ou numa credencial de evento sem verificação própria; ou verificando a assinatura mas ainda assim decidindo autorização com base num claim repassado por outro serviço, reabrindo o mesmo buraco por outra porta (confused deputy)
 - **Rule:** todo serviço (incluindo o Directory Service) verifica a assinatura do token/credencial ele mesmo, sempre, e toma toda decisão de autorização exclusivamente a partir das claims que ele mesmo extraiu dessa verificação — nunca de um claim/header repassado por outro serviço, mesmo que a chamada de origem já tenha sido autenticada (Constitution §9).
+- **Mecanismo (emenda 2026-10-01, stories do Epic 2):**
+  - **Assinatura assimétrica EdDSA (Ed25519)** (D2). Só o serviço de Auth tem a chave privada e publica as chaves públicas num endpoint JWKS; os serviços verificam com a chave pública em cache e, por construção, nunca conseguem emitir token. Segredo compartilhado (HS256) é proibido.
+  - **O Gateway repassa o token original** no header `Authorization`, nunca claims já decodificados. Isso substitui a redação "propaga claims via header" do FR-12.
+  - **Toda chamada serviço a serviço carrega um token de serviço** (*client credentials* emitido pelo Auth, `sub: service:<domínio>`) (D3). Quando a chamada é feita em nome de um usuário, o token do usuário segue junto, e quem recebe verifica os dois de forma independente. O Epic 2 entrega emissão e verificação; o Epic 3 (Interoperabilidade) conecta isso ao `ServiceClient` e aos eventos.
+  - **Eventos assinados pelo publicador** (decisão E1, 2026-10-02). Cada serviço tem um par de chaves Ed25519 próprio, registrado no Auth pelo `tecton-admin auth register-service`; o Auth publica a chave pública no mesmo JWKS. O publicador assina cada CloudEvent (envelope + dados) e o consumidor verifica a assinatura pelo JWKS. A assinatura não expira como o token de serviço (que não serve para eventos consumidos depois de minutos ou reprocessados da dead-letter) e amarra a credencial ao conteúdo: qualquer alteração no evento invalida a assinatura.
+  - **Endurecimento (auditoria de segurança de 2026-10-06):** o JWKS só é buscado por `https` fora do modo de desenvolvimento, sem seguir redirecionamento para outro host; registrar ou rotacionar credencial e chave de serviço exige administrador com `auth:service:register` e nunca sobrescreve registro existente sem rotação explícita; o `auth bootstrap` só existe localmente, com acesso direto ao banco do Auth; e o token de serviço só traz `call:<domínio>` para os domínios declarados em `dependencies`, exigido pelo serviço chamado além das permissões do usuário.
+  - **Refresh token opaco**, guardado com hash só no banco do Auth, trocado a cada uso, com detecção de reuso que revoga a família inteira. Trafega em cookie `HttpOnly`/`Secure`/`SameSite=Strict` restrito ao caminho do endpoint de refresh.
 
 ### AD-8 — Gateway fino, com allowlist executável
 - **Binds:** FR-19
 - **Prevents:** o gateway (código gerado, editável pelo dev — ao contrário dos pacotes `@tecton/*`) acumulando lógica de negócio, cache ou circuit breaker aos poucos, sem que ninguém decida isso explicitamente
 - **Rule:** o gateway nunca importa um pacote de circuit breaker, cache de resposta, ou qualquer pacote de domínio específico — `tecton-admin lint:gateway` verifica isso a cada build/CI, é a única AD desta spine com enforcement automatizado citado no próprio PRD (FR-19).
+- **Migração assistida (emenda 2026-10-05, stories do Epic 6):** no Strangler Fig do `tecton-admin extract`, o Gateway só desvia o caminho legado, sem tocar no conteúdo. A tradução entre a API legada e as actions fica num **adaptador de entrada legado dentro do domínio novo** (anti-corruption layer, AD-1), nunca no Gateway (decisão X1). A credencial do monólito é verificada pelo próprio domínio através da porta `LegacyAuthBridge` (decisão L1), que mantém o Zero Trust do AD-7. O framework entrega adaptadores prontos da ponte (endpoint de sessão do monólito, JWT do monólito, introspecção OAuth2 RFC 7662), configurados por arquivo; classe própria só para mecanismos fora desses três. Adaptador e ponte são removidos junto com a fachada quando a migração chega a 100%; migrar os clientes para a API nova é um passo opcional posterior.
 
 ### AD-9 — Isolamento de domínio: nunca DB nem código de outro domínio
 - **Binds:** `all` (todo domínio de negócio gerado, incluindo o Directory Service como publisher)
@@ -128,10 +146,13 @@ graph TD
 | --- | --- |
 | Naming (pacotes, arquivos) | Pacotes `@tecton/<nome>` kebab-case; pastas de domínio `domains/<nome>` kebab-case; classes TS `PascalCase`, funções/variáveis `camelCase`, arquivos `kebab-case` — convenção padrão do ecossistema Node/TS, sem invenção própria. Todo identificador em **inglês**, sem exceção (Constitution §8, eixo 2) — mesmo quando o `<nome>` do domínio em si vem de um conceito de negócio em português. |
 | Naming (eventos) | `type` do CloudEvents em reverse-DNS: `com.tecton.<domínio>.<evento>` (ex.: `com.tecton.tenant.exported`) |
+| Naming (rotas HTTP) | RPC uniforme: toda action vira `POST /<domínio>/<action-em-kebab-case>` (ex.: `POST /tenant/create-tenant`). Previsível para dev e agente de IA, sem inferência de verbo pelo nome. Decidido em 2026-10-01 (stories do Epic 1, Story 1.7). **Exceções**, todas endpoints de infraestrutura e nunca actions: `GET /auth/.well-known/jwks.json` (padrão JWKS), `GET /health`, `/ready` e `/live` (probes do Kubernetes) e `GET /<domínio>/pending/<requestId>` (consulta de pendência do FR-25, decidido em 2026-10-02). |
 | Data & formats (ids) | UUID v7 (AD-5) |
+| Data & formats (JSON Schema) | Todo schema compilado a partir do manifest (`input`, `output`, `events`, `objectClass.attributes`) usa o dialeto **JSON Schema draft-07**, aceito pelo Ajv8 do Fastify e do `@rjsf`, pelo AsyncAPI 3 e pelo OpenAPI 3.1. Decidido em 2026-10-06 (Assumption Audit). |
 | Data & formats (datas) | ISO 8601 em UTC, sem exceção |
-| Data & formats (erro) | RFC 9457 Problem Details (FR-24), multi-idioma (AD-6) |
+| Data & formats (erro) | RFC 9457 Problem Details (FR-24), multi-idioma (AD-6). O `type` é uma URN estável e neutra de idioma no formato `urn:tecton:problem:<slug>` (ex.: `urn:tecton:problem:tenant-suspended`); erros de domínio de terceiros usam `urn:tecton:problem:<domínio>.<slug>`. Decidido em 2026-10-02: URN em vez de URL, para não depender de domínio próprio nem de páginas publicadas. |
 | Data & formats (envelope de evento) | CloudEvents sobre Valkey Streams (FR-4/FR-21) |
+| Publicação de evento | Transactional Outbox: o evento é gravado, já assinado (AD-7), numa tabela de outbox do banco do próprio domínio, na mesma transação Prisma da mudança que o originou (Unit of Work); um relay por domínio, com lock no Valkey, envia ao stream em ordem. Nunca publicação direta no Valkey a partir da action. Decidido em 2026-10-02 (Stories 3.10 e 3.11). |
 | Data & formats (sucesso) | Payload puro do `output`, sem envelope (FR-23) |
 | State & mutação | Persistência por serviço (FR geral), exceto Directory Service (AD-2); nunca acesso direto a banco de outro domínio |
 | Cross-cutting (auth) | JWT verificado por serviço, sempre (FR-13, AD-7) |
@@ -147,13 +168,13 @@ graph TD
 | Node.js | 24.x (Active LTS, suportado até abr/2028) |
 | TypeScript | 6.0.3 (não 7.0 — sem API pública de compilador até a 7.1, ~out/2026; `ts-node`/`tsx` dependem dela. Revisitar na 7.1) |
 | Fastify | 5.12.x |
-| Prisma | 8.x (GA em 28/08/2026, TypeScript puro sem engine Rust — mesmo racional que já valia pro 7.x, agora na versão atual) |
+| Prisma | 7.x (TypeScript puro, sem engine Rust). **Corrigido em 2026-10-06** (Assumption Audit das stories): a spine fixava 8.x como GA em 28/08/2026, mas o Prisma 8 ainda é release candidate (GA prevista para outubro de 2026) e não suporta MySQL, além de não ter isolation level, códigos `P2002` e `$extends`. O 7.x cobre PostgreSQL, MariaDB e MySQL, transação interativa e `@prisma/instrumentation`, e recebe correções por 18 meses após a GA do 8. Migrar para o 8 quando ele suportar MariaDB e MySQL. |
 | Valkey | 9.1.x (fork Linux Foundation, compatível com clientes `ioredis`/`node-redis`) |
 | React | 19.x — **verificar patch exato no início da implementação** (ecossistema muda rápido, não travar agora) |
 | OpenTelemetry | SDK Node atual, instrumentação automática de Fastify/Prisma — observabilidade distribuída já é escopo do MVP (PRD §6.1) |
 | Awilix | container de DI/IoC leve por serviço (PRD §6.1) — resolve Providers como dependências injetadas, não singletons globais |
 | Testcontainers | isolamento de `test:contracts`/CI (FR-31) — containers efêmeros descartados por execução, contexto diferente do Dev Services (FR-30) |
-| PostgreSQL / MySQL / MS-SQL | conforme escolha do dev, via Prisma |
+| PostgreSQL / MariaDB / MySQL | conforme escolha do dev, via Prisma 7 (MariaDB 10.0+/11.0+ e MySQL pelo provider `mysql`; MariaDB com `@prisma/adapter-mariadb`). MariaDB entrou em 2026-10-07; MS-SQL saiu do MVP em 2026-10-06 (PRD §6.2) |
 
 ## Structural Seed
 
@@ -163,6 +184,7 @@ tecton/                          # repositório do próprio framework (pnpm work
     manifest/                    # @tecton/manifest — schema, parser, validador de tecton.yaml
     core/                        # @tecton/core — geração de rota Fastify, conector CloudEvents/Valkey Streams, formato de resposta
     providers/                   # @tecton/providers — interfaces de Provider + implementações de referência
+    auth/                        # @tecton/auth — serviço de Auth pronto: credenciais, emissão de JWT EdDSA, JWKS, refresh confinado (AD-7, emenda 2026-10-01)
     directory/                   # @tecton/directory — Directory Service pronto (Tenant + Usuário/Grupo + Custodiante) + SPA admin embutida (/admin, AD-10)
     service-client/              # @tecton/service-client — gerador do ServiceClient
     ui/                          # @tecton/ui — runtime de frontend: binding @rjsf/core, tema (tokens CSS + porta UiThemeProvider), i18nKey (AD-10)
@@ -173,6 +195,7 @@ tecton/                          # repositório do próprio framework (pnpm work
 {app-do-dev}/                    # scaffold gerado por `tecton-admin new` (Turborepo/Nx aqui, per PRD §6.1)
   apps/
     gateway/                     # gerado por new — roteamento fino (FR-19), nunca lógica de negócio
+    auth/                        # instância configurada do @tecton/auth (emenda 2026-10-01)
     directory/                   # instância configurada do @tecton/directory (AD-2)
     domains/
       <nome-do-domínio>/         # um por `generate domain` — dono do próprio banco (Prisma)
@@ -195,7 +218,7 @@ graph TB
     DomainA --> DBA[("Banco de A")]
     DomainB --> DBB[("Banco de B")]
     Gateway -.->|rate limit, fail-open| Valkey
-    Gateway -->|valida token,<br/>mas isso não dispensa cada<br/>serviço de verificar de novo — AD-7| AuthSvc["Serviço de Auth<br/>(AuthProvider)"]
+    Gateway -->|valida token,<br/>mas isso não dispensa cada<br/>serviço de verificar de novo — AD-7| AuthSvc["Serviço de Auth<br/>(@tecton/auth, AuthProvider)"]
 ```
 
 *Nenhuma seta acima é "confiar" — toda seta rotulada com AD-7 significa que o serviço de destino verifica a credencial por conta própria, mesmo que o Gateway já tenha validado antes. A validação do Gateway é a primeira linha, não a única (FR-13).*
@@ -207,7 +230,7 @@ graph TB
 | 4.1 Manifest Declarativo | `@tecton/manifest` | AD-3 |
 | 4.2 Core de Diretório | `@tecton/directory` (backend) + `@tecton/ui` (telas, FR-8) | AD-2, AD-10 |
 | 4.3 Domínios Embutidos | `@tecton/directory` | AD-2 |
-| 4.4 Autenticação e Zero Trust | `@tecton/providers` (AuthProvider, TokenRevocationStore) | AD-7 |
+| 4.4 Autenticação e Zero Trust | `@tecton/auth` (serviço de Auth: emissão, JWKS, refresh), `@tecton/providers` (AuthProvider, TokenRevocationStore, KeyCustodyProvider), `@tecton/core` (verificação local em cada serviço) | AD-7 |
 | 4.5 CLI | `@tecton/cli` | AD-3, AD-4 |
 | 4.6 Interoperabilidade | `@tecton/core` (gateway/discovery/mensageria), `@tecton/providers` (ConfigProvider) | AD-8 (gateway fino), AD-9 (isolamento de domínio), Consistency Conventions |
 | 4.7 Formato de Resposta de API | `@tecton/core` | AD-6, Consistency Conventions |
@@ -217,12 +240,14 @@ graph TB
 
 ## Deferred
 
+- **Override de rota HTTP por action** (campo opcional `http: { method, path }` no manifest, permitindo REST onde importar, ex.: `GET` cacheável para leitura): roadmap, decidido em 2026-10-01. O MVP usa só a convenção RPC uniforme da Consistency Conventions; o override entra como extensão aditiva do schema de `actions`, sem quebrar manifests existentes.
 - **Orquestração de deploy além do Dockerfile por domínio** (Kubernetes, pipeline de release independente) — PRD §6.2 já trata como roadmap explícito; esta spine não antecipa mecanismo.
 - **Topologia física do banco por serviço** (mesma instância de servidor com bancos lógicos separados vs. servidores físicos separados) — decisão operacional, revisitar no momento de deploy real (não muda o código).
+- **Keycloak e OpenBAO como adaptadores opcionais** (identidade via OIDC atrás do `AuthProvider`; segredos e custódia atrás do `ConfigProvider` e do `KeyCustodyProvider`) — opção, nunca padrão; o padrão é o `@tecton/auth`. PRD §6.2, registrado em 2026-10-07.
 - **Implementação real do `KeyCustodyProvider`** (integração OpenBAO) — PRD roadmap; a interface e a exigência de interceptação no nível de dado (FR-11) já estão fixadas.
 - **Implementação real do `WorkflowEngineProvider`** (candidato Temporal) — PRD roadmap.
 - **Hospedagem do MCP por domínio** — PRD roadmap (Open Question §9-3).
-- **Versão exata de patch do React** — verificar no início real da implementação, não travar numa spine que pode ficar desatualizada rápido. Verificado em 2026-09-02: `@rjsf/core` v6.1.2 declara peer dependency `react >=18` (sem teto), compatibilidade explícita com React 19 ainda não formalmente anunciada pelo mantenedor apesar de relatos de uso sem problemas — reconfirmar no início da implementação.
+- **Versão exata de patch do React** — verificar no início real da implementação, não travar numa spine que pode ficar desatualizada rápido. Verificado em 2026-09-02 e de novo em 2026-10-06: o `@rjsf/core` (6.11.0 em 2026-10-06; usar a 6.x mais recente) declara peer dependency `react >=18` (sem teto), compatibilidade explícita com React 19 ainda não formalmente anunciada pelo mantenedor apesar de relatos de uso sem problemas — reconfirmar no início da implementação.
 - **Circuit breaker/bulkhead no `ServiceClient`** (candidato `opossum`) — PRD roadmap; AD-1/hexagonal já garante que isso entra como adaptador plugável sem reforma.
 - **Ferramenta de build/bundling da SPA de `@tecton/ui`** (Vite vs. alternativas) — verificar no início real da implementação; AD-10 fixa a fronteira de pacote e o contrato da porta `UiThemeProvider`, não a ferramenta de bundling.
 - **Catálogo/temas visuais alternativos prontos** (além do default de `@tecton/ui`) — roadmap; MVP entrega só o tema default (Camada 0 da AD-10) e a porta de override (Camada 1), não uma biblioteca de temas alternativos.

@@ -1,0 +1,13 @@
+# Stand-in for a Directory class that @tecton/directory will declare (Story 4.1).
+# Exists only so that `tecton-admin lint --cwd docs/examples` resolves the classes the
+# Tenant example references. Remove when @tecton/directory exports its manifests.
+manifestVersion: "0.1"
+
+domain: group
+version: 0.0.0
+description: "Team or department of a tenant."
+
+objectClass:
+  name: Group
+  containment:
+    allowedParents: [Tenant, Group]
