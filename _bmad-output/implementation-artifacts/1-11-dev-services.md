@@ -4,7 +4,7 @@ baseline_commit: 7e5398e9ffb239e85191281a226330031b698545
 
 # Story 1.11: Dev Services
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -21,18 +21,18 @@ para subir banco e Valkey sem configurar nada à mão (FR-30).
 
 ## Tasks / Subtasks
 
-- [ ] **T1. Geração do Dev Services** (AC: 1, 2, 4)
-  - [ ] `packages/cli/src/dev-services.ts`: `writeDevServices(root)` lê o banco escolhido em `package.json` (`"tecton": { "devServices": { "database": "postgres" } }`) e a lista de domínios de `apps/domains/*/tecton.yaml`, e (re)gera três arquivos: `docker-compose.dev.yml`, `dev-services/databases.sql` e `.env.example`.
-  - [ ] `docker-compose.dev.yml` (comentário de topo em inglês: só desenvolvimento, credenciais fixas, sem TLS, gerado e regenerado pelo `tecton-admin`): `valkey` (`valkey/valkey:9.1-alpine`, porta 6379, healthcheck `valkey-cli ping`), `database` (`postgres:18-alpine`, `mariadb:11.8` ou `mysql:8.4`; usuário `tecton`/senha `tecton`; volume nomeado; healthcheck nativo) e `database-init` (mesma imagem, `depends_on: database: service_healthy`, roda `dev-services/databases.sql` e termina; `restart: "no"`).
-  - [ ] `databases.sql` idempotente, um banco lógico por domínio (nome com `-` trocado por `_`): PostgreSQL com `SELECT 'CREATE DATABASE x' WHERE NOT EXISTS (...)\gexec`; MariaDB/MySQL com `CREATE DATABASE IF NOT EXISTS` + `GRANT ALL` para `tecton`. Como roda a cada `up`, banco de domínio gerado depois também é criado (os scripts de init das imagens só rodam com volume vazio).
-  - [ ] `.env.example` gerado: `TECTON_VALKEY_URL=redis://localhost:6379` e, por domínio, `TECTON_<DOMÍNIO>_DATABASE_URL` (`postgresql://...:5432/<db>` ou `mysql://...:3306/<db>`), com comentário dizendo que é gerado e que valores locais vão no `.env` (ignorado pelo Git).
-- [ ] **T2. Integração** (AC: 1, 2)
-  - [ ] `tecton-admin new --db <engine>` (padrão `postgres`; valor inválido recusado listando os três) grava o campo `tecton.devServices.database` no `package.json` gerado e chama `writeDevServices`.
-  - [ ] `tecton-admin generate domain` chama `writeDevServices` depois de criar os domínios.
-- [ ] **T3. Testes**
-  - [ ] Rápidos (`dev-services.test.ts`): conteúdo para cada banco (imagens, portas, healthchecks, credenciais, comentário de topo), SQL idempotente correto por banco, `.env.example` com as URLs, nomes com hífen, workspace sem domínios (compose válido sem bancos de domínio), `--db` inválido, `generate domain` acrescentando o banco.
-  - [ ] Com Docker (`dev-services.persistence.test.ts`, matriz de bancos): gera workspace com `--db $TECTON_TEST_DB` e um domínio, `docker compose up -d`, espera o banco lógico existir e o Valkey responder; gera outro domínio, `up -d` de novo e espera o segundo banco; `down -v` no final.
-- [ ] **T4. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`, `pnpm lint:examples`, `pnpm validate:asyncapi`, `pnpm test:generation`; o teste com Docker roda no CI (job `persistence`).
+- [x] **T1. Geração do Dev Services** (AC: 1, 2, 4)
+  - [x] `packages/cli/src/dev-services.ts`: `writeDevServices(root)` lê o banco escolhido em `package.json` (`"tecton": { "devServices": { "database": "postgres" } }`) e a lista de domínios de `apps/domains/*/tecton.yaml`, e (re)gera três arquivos: `docker-compose.dev.yml`, `dev-services/databases.sql` e `.env.example`.
+  - [x] `docker-compose.dev.yml` (comentário de topo em inglês: só desenvolvimento, credenciais fixas, sem TLS, gerado e regenerado pelo `tecton-admin`): `valkey` (`valkey/valkey:9.1-alpine`, porta 6379, healthcheck `valkey-cli ping`), `database` (`postgres:18-alpine`, `mariadb:11.8` ou `mysql:8.4`; usuário `tecton`/senha `tecton`; volume nomeado; healthcheck nativo) e `database-init` (mesma imagem, `depends_on: database: service_healthy`, roda `dev-services/databases.sql` e termina; `restart: "no"`).
+  - [x] `databases.sql` idempotente, um banco lógico por domínio (nome com `-` trocado por `_`): PostgreSQL com `SELECT 'CREATE DATABASE x' WHERE NOT EXISTS (...)\gexec`; MariaDB/MySQL com `CREATE DATABASE IF NOT EXISTS` + `GRANT ALL` para `tecton`. Como roda a cada `up`, banco de domínio gerado depois também é criado (os scripts de init das imagens só rodam com volume vazio).
+  - [x] `.env.example` gerado: `TECTON_VALKEY_URL=redis://localhost:6379` e, por domínio, `TECTON_<DOMÍNIO>_DATABASE_URL` (`postgresql://...:5432/<db>` ou `mysql://...:3306/<db>`), com comentário dizendo que é gerado e que valores locais vão no `.env` (ignorado pelo Git).
+- [x] **T2. Integração** (AC: 1, 2)
+  - [x] `tecton-admin new --db <engine>` (padrão `postgres`; valor inválido recusado listando os três) grava o campo `tecton.devServices.database` no `package.json` gerado e chama `writeDevServices`.
+  - [x] `tecton-admin generate domain` chama `writeDevServices` depois de criar os domínios.
+- [x] **T3. Testes**
+  - [x] Rápidos (`dev-services.test.ts`): conteúdo para cada banco (imagens, portas, healthchecks, credenciais, comentário de topo), SQL idempotente correto por banco, `.env.example` com as URLs, nomes com hífen, workspace sem domínios (compose válido sem bancos de domínio), `--db` inválido, `generate domain` acrescentando o banco.
+  - [x] Com Docker (`dev-services.persistence.test.ts`, matriz de bancos): gera workspace com `--db $TECTON_TEST_DB` e um domínio, `docker compose up -d`, espera o banco lógico existir e o Valkey responder; gera outro domínio, `up -d` de novo e espera o segundo banco; `down -v` no final.
+- [x] **T4. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`, `pnpm lint:examples`, `pnpm validate:asyncapi`, `pnpm test:generation`; o teste com Docker roda no CI (job `persistence`).
 
 ## Dev Notes
 
@@ -46,10 +46,30 @@ para subir banco e Valkey sem configurar nada à mão (FR-30).
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5)
+
 ### Debug Log References
+
+- O teste rápido da 1.9 que lista os arquivos do workspace ganhou os três arquivos do Dev Services; o teste novo precisou do `yaml` como dependência de desenvolvimento do `@tecton/cli`.
+- Primeiro CI: os três jobs `persistence` falharam com "needs Docker". Causa: a checagem `docker version` rodava com `cwd` no diretório do workspace, que ainda não existia (o `spawnSync` falha com diretório inexistente). Passou a rodar a partir do diretório pai; segundo CI verde nos três bancos, com o teste executado (2 cenários por banco).
+- O cliente do MySQL deprecou `MYSQL_PWD`: o `database-init` do MySQL usa `-p` explícito (só desenvolvimento); o do MariaDB mantém `MYSQL_PWD`, que o cliente `mariadb` aceita.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- `writeDevServices(root)` gera `docker-compose.dev.yml`, `dev-services/databases.sql` e `.env.example` a partir do banco escolhido (`package.json` → `tecton.devServices.database`) e dos domínios de `apps/domains`.
+- Compose: `valkey/valkey:9.1-alpine` (healthcheck `valkey-cli ping`), `database` (`postgres:18-alpine`, `mariadb:11.8` ou `mysql:8.4`, usuário `tecton`, volume nomeado, healthcheck nativo; PostgreSQL 18 montado em `/var/lib/postgresql`) e `database-init` (mesma imagem, depois do banco saudável, roda o SQL e termina). Comentário de topo em inglês: só desenvolvimento, nunca produção, gerado.
+- SQL idempotente a cada `up` (PostgreSQL com `\gexec`; MariaDB/MySQL com `CREATE DATABASE IF NOT EXISTS` + `GRANT`), um banco por domínio com `-` → `_`. Resolve o limite dos scripts de init das imagens, que só rodam com volume vazio.
+- `.env.example`: `TECTON_VALKEY_URL` e `TECTON_<DOMÍNIO>_DATABASE_URL` (`postgresql://` ou `mysql://`, também para MariaDB, que usa o provider `mysql` do Prisma).
+- `tecton-admin new --db postgres|mariadb|mysql` (padrão `postgres`; inválido recusado) e `generate domain` regeneram o Dev Services; o `new` mostra o comando `docker compose ... up -d` nos próximos passos.
+- Testes: 11 rápidos (`dev-services.test.ts`) e 2 com Docker por banco (`dev-services.persistence.test.ts`, matriz do CI: compose sobe, Valkey responde, banco do domínio existe; domínio gerado depois ganha o banco no `up` seguinte). Suíte rápida 275 verde; build, typecheck, `check:deps`, `lint:examples`, `validate:asyncapi` e `test:generation` verdes; CI verde nos 5 jobs.
 
 ### File List
+
+- `packages/cli/src/dev-services.ts`, `dev-services.test.ts`, `dev-services.persistence.test.ts` (novos)
+- `packages/cli/src/cli.ts`, `commands/new.ts`, `commands/generate-domain.ts`, `commands/new.test.ts` (modificados)
+- `packages/cli/package.json`, `pnpm-lock.yaml` (modificados: `yaml` como dev dependency do CLI)
+
+## Change Log
+
+- 2026-10-12: Story 1.11 implementada: Dev Services com Valkey e o banco escolhido, um banco lógico por domínio criado de forma idempotente, `.env.example` gerado.
