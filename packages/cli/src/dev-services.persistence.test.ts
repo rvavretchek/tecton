@@ -17,8 +17,8 @@ const root = join(parent, name);
 const io = { cwd: parent, stdout: { write: () => undefined }, stderr: { write: () => undefined } };
 
 /** Runs a fixed docker command (no user input) and returns status and output. */
-function docker(command: string) {
-  const result = spawnSync(`docker ${command}`, { cwd: root, encoding: 'utf8', shell: true, timeout: 300_000 });
+function docker(command: string, cwd = root) {
+  const result = spawnSync(`docker ${command}`, { cwd, encoding: 'utf8', shell: true, timeout: 300_000 });
   return { status: result.status, output: `${result.stdout ?? ''}${result.stderr ?? ''}`.trim() };
 }
 
@@ -42,7 +42,8 @@ async function waitForDatabase(db: string): Promise<boolean> {
 
 describe(`Dev Services with ${engine} (Story 1.11, AC 3)`, () => {
   beforeAll(async () => {
-    if (docker('version --format "{{.Server.Version}}"').status !== 0) {
+    // The workspace directory does not exist yet: check Docker from its parent.
+    if (docker('version --format "{{.Server.Version}}"', parent).status !== 0) {
       throw new Error('This test needs Docker with the compose plugin. Start Docker, or point DOCKER_HOST to a reachable engine.');
     }
     expect(await run(['new', name, '--db', engine], io)).toBe(0);
