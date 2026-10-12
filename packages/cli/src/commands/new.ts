@@ -1,36 +1,24 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join, relative, resolve, sep } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { DOMAIN_NAME_MAX_LENGTH, DOMAIN_NAME_PATTERN } from '@tecton/manifest';
 import type { CliIo } from '../io.js';
+import { linkSpec, renderTemplate, versionSpec, type DependencySpec } from '../templates.js';
 
-/** Root of the installed @tecton/cli package (works from src/ in tests and from dist/). */
-const packageRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const TEMPLATE_DIR = join(packageRoot, 'templates', 'workspace');
 const NAME = new RegExp(DOMAIN_NAME_PATTERN);
-
-/** Templates are shipped without leading dots (npm drops .gitignore on publish). */
-const RENAMED: Record<string, string> = { _gitignore: '.gitignore', '_node-version': '.node-version', _gitkeep: '.gitkeep' };
 
 export interface NewCommandOptions {
   /** Path to a local checkout of the Tecton framework; @tecton/* become pnpm `link:` dependencies. */
   framework?: string;
 }
 
-function cliVersion(): string {
-  const pkg = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8')) as { version: string };
-  return pkg.version;
-}
-
-function templateFiles(dir: string): string[] {
-  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
-    const path = join(dir, entry.name);
-    return entry.isDirectory() ? templateFiles(path) : [path];
-  });
-}
-
 function isEmptyDirectory(path: string): boolean {
   return statSync(path).isDirectory() && readdirSync(path).length === 0;
+}
+
+/** True when `path` is a checkout of the Tecton framework repository. */
+export function isFrameworkCheckout(path: string): boolean {
+  const cliManifest = join(path, 'packages', 'cli', 'package.json');
+  return existsSync(cliManifest) && (JSON.parse(readFileSync(cliManifest, 'utf8')) as { name?: string }).name === '@tecton/cli';
 }
 
 /** Runs `tecton-admin new <name>`; returns the process exit code. */
@@ -48,31 +36,17 @@ export function newCommand(name: string, options: NewCommandOptions, io: CliIo):
     return 1;
   }
 
-  let dependency: (pkg: string) => string;
+  let dependency: DependencySpec = versionSpec();
   if (options.framework !== undefined) {
     const framework = resolve(io.cwd, options.framework);
-    const cliManifest = join(framework, 'packages', 'cli', 'package.json');
-    const isFramework = existsSync(cliManifest) && (JSON.parse(readFileSync(cliManifest, 'utf8')) as { name?: string }).name === '@tecton/cli';
-    if (!isFramework) {
+    if (!isFrameworkCheckout(framework)) {
       io.stderr.write(`--framework ${options.framework} is not a Tecton framework checkout (packages/cli/package.json not found)\n`);
       return 1;
     }
-    // AD-4: link to the checkout, never copy framework code into the workspace.
-    dependency = (pkg) => `link:${relative(target, join(framework, 'packages', pkg)).split(sep).join('/')}`;
-  } else {
-    const version = `^${cliVersion()}`;
-    dependency = () => version;
+    dependency = linkSpec(framework);
   }
 
-  for (const source of templateFiles(TEMPLATE_DIR)) {
-    const parts = relative(TEMPLATE_DIR, source).split(sep).map((part) => RENAMED[part] ?? part);
-    const destination = join(target, ...parts);
-    const content = readFileSync(source, 'utf8')
-      .replaceAll('{{name}}', name)
-      .replace(/\{\{tecton:([a-z-]+)\}\}/g, (_match, pkg: string) => dependency(pkg));
-    mkdirSync(dirname(destination), { recursive: true });
-    writeFileSync(destination, content);
-  }
+  renderTemplate('workspace', target, { name }, dependency);
 
   io.stdout.write(
     [

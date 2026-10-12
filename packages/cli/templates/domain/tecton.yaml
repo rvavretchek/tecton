@@ -1,0 +1,13 @@
+manifestVersion: "{{manifestVersion}}"
+
+domain: {{domain}}
+version: 0.1.0
+description: "Describe what the {{domain}} domain does, in one or two sentences."
+
+actions: []
+
+events:
+  publishes: []
+  consumes: []
+
+dependencies: []

@@ -17,7 +17,9 @@ function runCheckDeps(fixture: string) {
   return { status: result.status, output: `${result.stdout}${result.stderr}` };
 }
 
-describe('check:deps (AD-3 dependency direction)', () => {
+// Each case spawns dependency-cruiser in a child process: ~2 s alone, slower when the suite runs
+// in parallel, so these tests get their own timeout instead of Vitest's 5 s default.
+describe('check:deps (AD-3 dependency direction)', { timeout: 30_000 }, () => {
   it('fails and reports file, import and AD-3 rule when @tecton/manifest imports @tecton/core', () => {
     const { status, output } = runCheckDeps('violation');
 

@@ -2,6 +2,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { formatPath } from '../errors.js';
 import { BUILTIN_DIRECTORY_CLASSES } from '../object-class.js';
+import { AGENTS_FILE, checkAgentsDocument } from './agents-document.js';
 import { createLocator, parseManifest, type Position } from '../parse.js';
 import type { ManifestError, ManifestErrorCode, TectonManifest } from '../types.js';
 
@@ -214,6 +215,19 @@ export function lintWorkspace({ cwd, paths }: LintOptions): LintResult {
       if (manifest.dependencyPaths[domain] !== undefined) return; // checked in (3)
       if (!domains.has(domain))
         report(file, source, ['dependencies', position], 'unresolved-reference', `dependencies[${position}] references domain "${domain}", which was not found (${SEARCHED})`);
+    });
+  }
+
+  // The verifiable domains section of AGENTS.md, maintained by agents (Story 1.10).
+  for (const divergence of checkAgentsDocument(root, workspace.map((loaded) => loaded.manifest))) {
+    problems.push({
+      file: AGENTS_FILE,
+      severity: 'warning',
+      path: '',
+      code: 'agents-md-divergence',
+      message: divergence.message,
+      line: divergence.line,
+      column: 1,
     });
   }
 

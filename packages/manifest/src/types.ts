@@ -122,7 +122,8 @@ export type ManifestErrorCode =
   | 'unsupported-dependency'
   | 'unresolved-reference'
   | 'dependency-cycle'
-  | 'reserved-name';
+  | 'reserved-name'
+  | 'agents-md-divergence';
 
 export interface ManifestError {
   /** Dotted path to the offending field, e.g. `domain` or `dependencies[2]`; empty for whole-file errors. */

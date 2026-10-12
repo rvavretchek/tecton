@@ -1,0 +1,21 @@
+{
+  "name": "@{{workspace}}/{{domain}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.7 <25"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/main.js"
+  },
+  "dependencies": {
+    "@tecton/core": "{{tecton:core}}",
+    "@tecton/manifest": "{{tecton:manifest}}"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "typescript": "6.0.3"
+  }
+}

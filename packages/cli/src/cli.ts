@@ -1,4 +1,5 @@
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
+import { generateDomainCommand } from './commands/generate-domain.js';
 import { lintCommand, type OutputFormat } from './commands/lint.js';
 import { newCommand } from './commands/new.js';
 import type { CliIo } from './io.js';
@@ -32,6 +33,17 @@ function buildProgram(io: CliIo, setExitCode: (code: number) => void): Command {
     .addHelpText('after', '\nExample:\n  $ tecton-admin new acme-platform\n')
     .action((name: string, options: { framework?: string }) => {
       setExitCode(newCommand(name, options, io));
+    });
+
+  const generate = program.command('generate').description('Generate code in the current Tecton workspace.');
+  generate
+    .command('domain')
+    .description('Generate one or more domains in apps/domains, each with a valid tecton.yaml and a runnable service.')
+    .argument('[names...]', 'domain names in kebab-case')
+    .option('--from <file>', 'read domain names from a file, one per line (blank lines and # comments are ignored)')
+    .addHelpText('after', '\nExamples:\n  $ tecton-admin generate domain finance inventory sales\n  $ tecton-admin generate domain --from domains.txt\n')
+    .action((names: string[], options: { from?: string }) => {
+      setExitCode(generateDomainCommand(names, options, io));
     });
 
   return program;
