@@ -130,7 +130,7 @@ action_items:
   - epic: 1
     action: "A2: CI falha com BOM, NUL ou caractere de controle literal em arquivo de código (higiene de fonte), antes da Story 2.1"
     owner: "Amelia (Desenvolvedora)"
-    status: open
+    status: done
   - epic: 1
     action: "A3: Todo teste negativo (falha, timeout, recusa, violação) com fase vermelha registrada no Dev Agent Record"
     owner: "Murat (Test Architect) e Amelia (Desenvolvedora)"
