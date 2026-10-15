@@ -23,7 +23,8 @@ export const IMAGES = {
 } as const;
 
 export function selectedDatabase(env: NodeJS.ProcessEnv = process.env): TestDatabase {
-  const value = env['TECTON_TEST_DB'] ?? 'postgres';
+  // Empty counts as unset, so `TECTON_TEST_DB= pnpm test:persistence` still means postgres.
+  const value = env['TECTON_TEST_DB'] || 'postgres';
   if (!(TEST_DATABASES as readonly string[]).includes(value)) {
     throw new Error(`TECTON_TEST_DB must be one of ${TEST_DATABASES.join(', ')}; got "${value}"`);
   }
@@ -46,7 +47,8 @@ async function withDockerCheck<T>(start: () => Promise<T>): Promise<T> {
     return await start();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    if (/container runtime|docker/i.test(message)) {
+    // Only Testcontainers' runtime-discovery failure; other Docker errors (pull, port) pass through.
+    if (/could not find a working container runtime/i.test(message)) {
       throw new Error(
         'This test needs Docker (Testcontainers found no container runtime). ' +
           'Start Docker locally, or point DOCKER_HOST to a reachable Docker engine.',

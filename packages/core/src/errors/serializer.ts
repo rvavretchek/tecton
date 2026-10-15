@@ -15,8 +15,35 @@ export function toErrorBody(error: TectonError): Record<string, unknown> {
   };
 }
 
+/** JSON Schema of `toErrorBody()`, declared on every route so the OpenAPI lists the error responses. */
+export const ERROR_BODY_SCHEMA = {
+  type: 'object',
+  required: ['status', 'slug', 'i18nKey', 'message'],
+  properties: {
+    status: { type: 'integer' },
+    slug: { type: 'string' },
+    i18nKey: { type: 'string' },
+    message: { type: 'string' },
+    details: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['name', 'reason'],
+        properties: { name: { type: 'string' }, reason: { type: 'string' } },
+      },
+    },
+  },
+} as const;
+
 function isValidationError(error: unknown): error is FastifyError & { validation: Array<{ instancePath: string; message?: string; params?: Record<string, unknown> }> } {
   return typeof error === 'object' && error !== null && Array.isArray((error as { validation?: unknown }).validation);
+}
+
+/** Client error Fastify raised itself (body parsing, size, media type): its statusCode is 4xx. */
+function clientErrorStatus(error: unknown): number | undefined {
+  if (typeof error !== 'object' || error === null) return undefined;
+  const status = (error as { statusCode?: unknown }).statusCode;
+  return typeof status === 'number' && status >= 400 && status < 500 ? status : undefined;
 }
 
 /** Maps any thrown value to a TectonError; unknown errors become a 500 without detail. */
@@ -31,6 +58,8 @@ export function toTectonError(error: unknown): TectonError {
     });
     return frameworkErrors.validationFailed(details);
   }
+  const clientStatus = clientErrorStatus(error);
+  if (clientStatus !== undefined) return frameworkErrors.requestRejected(clientStatus);
   return frameworkErrors.internal();
 }
 
@@ -38,7 +67,8 @@ export function toTectonError(error: unknown): TectonError {
 export function installErrorSerializer(app: FastifyInstance): void {
   app.setErrorHandler((error, request, reply) => {
     const tectonError = toTectonError(error);
-    if (tectonError.status >= 500) request.log.error({ err: error }, 'unhandled error');
+    // Only unexpected failures are logged with their stack; a TectonError (e.g. 501) is deliberate.
+    if (!(error instanceof TectonError) && tectonError.status >= 500) request.log.error({ err: error }, 'unhandled error');
     return reply.code(tectonError.status).type('application/json').send(toErrorBody(tectonError));
   });
   app.setNotFoundHandler((_request, reply) => {

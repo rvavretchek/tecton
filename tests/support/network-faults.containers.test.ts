@@ -4,7 +4,10 @@ import type { CreatedProxy } from '@testcontainers/toxiproxy';
 import { startValkey, type StartedValkey } from './containers.js';
 import { startFaultLab, withDependencyDown, type FaultLab } from './network-faults.js';
 
-/** Sends a raw RESP PING; resolves with the reply or rejects on connection failure/timeout. */
+/**
+ * Sends a raw RESP PING; resolves with the reply, rejects with the socket error, with
+ * "closed" when the connection ends without a reply, or with "timeout".
+ */
 function ping(host: string, port: number, timeoutMs = 2_000): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = createConnection({ host, port });
@@ -15,6 +18,10 @@ function ping(host: string, port: number, timeoutMs = 2_000): Promise<string> {
     socket.once('error', (error) => {
       clearTimeout(timer);
       reject(error);
+    });
+    socket.once('close', () => {
+      clearTimeout(timer);
+      reject(new Error('closed'));
     });
     socket.once('connect', () => socket.write('PING\r\n'));
     socket.once('data', (data) => {
@@ -47,7 +54,8 @@ describe('withDependencyDown (Valkey behind Toxiproxy)', () => {
 
   it('makes Valkey unreachable inside the callback and restores it afterwards', async () => {
     await withDependencyDown(proxy, async () => {
-      await expect(ping(proxy.host, proxy.port)).rejects.toThrow();
+      // A prompt refusal or close, not a hang: the proxy really cut the dependency.
+      await expect(ping(proxy.host, proxy.port)).rejects.toThrow(/closed|ECONNREFUSED|ECONNRESET/);
     });
 
     expect(await ping(proxy.host, proxy.port)).toBe('+PONG');

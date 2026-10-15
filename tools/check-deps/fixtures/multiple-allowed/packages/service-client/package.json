@@ -1,0 +1,8 @@
+{
+  "name": "@tecton/service-client",
+  "private": true,
+  "dependencies": {
+    "@tecton/providers": "workspace:*",
+    "@tecton/core": "workspace:*"
+  }
+}

@@ -4,8 +4,7 @@ baseline_commit: 8812f83667409c0e0fe185fc0b1896e56aeca0be
 
 # Story 1.5: `objectClass` opcional
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev de um domínio que participa do Core de Diretório**,
@@ -39,6 +38,13 @@ para que o domínio seja reconhecido como objeto de diretório e os atributos vi
   - [x] Exportar `compileAttributes`, `TECTON_UNIQUE_KEYWORD`, `ManifestObjectClass`, `ObjectClassAttribute`.
 - [x] **T5. Testes:** `src/object-class.test.ts` (ACs, casos de borda, schema compilado validado por Ajv estrito com a palavra registrada, `docs/examples/tenant-domain-manifest-v0.yaml`).
 - [x] **T6. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] P9 (média) Checagem de `default` compila um schema novo por chamada e o Ajv o guarda em cache para sempre (vazamento em processo longo) [packages/manifest/src/object-class.ts:101]
+- [x] [Review][Patch] P17 (baixa) `values` de atributo aceita vazio e espaços, ao contrário de `enum[...]` [packages/manifest/src/schema.ts]
+- [x] [Review][Patch] P18 (baixa) `default` com formato inválido (`uuid`, `date`) passa; `.inf`/`.nan` em número vira `null` no JSON [packages/manifest/src/object-class.ts:22]
+- [x] [Review][Patch] P24b (baixa) `required` de atributo não recebe o padrão `false` no resultado tipado [packages/manifest/src/object-class.ts]
 
 ## Dev Notes
 
@@ -86,3 +92,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.5 implementada: `objectClass` opcional com containment, atributos compilados para JSON Schema (com `x-tecton-unique` e `readOnly`) e padrões.
+- 2026-10-15: Code review do Epic 1 — 4 correção(ões) aplicada(s) (ver Review Findings); status → done.

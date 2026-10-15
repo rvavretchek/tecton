@@ -4,8 +4,7 @@ baseline_commit: bf4d9c3d951f560dab5da6b200dc0b2e970dfc46
 
 # Story 1.9: `tecton-admin new <projeto>`
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev começando a migrar um sistema para o Tecton**,
@@ -44,6 +43,11 @@ para ter a estrutura pronta e as dependências do framework declaradas, sem copi
   - [x] `src/commands/new.test.ts` (rápidos, sem rede): estrutura gerada, bf4d9c3d951f560dab5da6b200dc0b2e970dfc46s substituídos, nenhum arquivo de código do framework copiado (nenhum `.ts` fora de templates conhecidos; nenhuma pasta `packages/`), versões `^x.y.z`, `--framework` com `link:` relativo, destino não vazio sem efeito, destino vazio existente aceito, nome inválido, `.gitignore` renomeado, `--help` em inglês, sementes e `CLAUDE.md`.
   - [x] `src/commands/new.generation.test.ts` (lento, precisa de rede): gera com `--framework` apontando para este repositório, roda `pnpm install` e `pnpm exec turbo run build` no workspace e espera sucesso. Convenção nova `*.generation.test.ts` → `pnpm test:generation`, excluída do `pnpm test` e rodada no nightly (Test Design, execução).
 - [x] **T5. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`, `pnpm lint:examples`, `pnpm validate:asyncapi`, `pnpm test:generation`.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] P29 (baixa) `package.json` malformado em qualquer ancestral derruba o CLI com stack trace cru [packages/cli/src/workspace.ts, cli.ts]
+- [x] [Review][Patch] P47 (baixa) Workspace recém-criado sem domínios: `pnpm lint` falha (lint sem manifest é erro fatal) [packages/cli/templates/workspace/package.json]
 
 ## Dev Notes
 
@@ -89,3 +93,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.9 implementada: `tecton-admin new` gera workspace pnpm + Turborepo com dependências versionadas (ou link local), sementes de documentação e guia para agentes.
+- 2026-10-15: Code review do Epic 1 — 2 correção(ões) aplicada(s) (ver Review Findings); status → done.

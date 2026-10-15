@@ -14,7 +14,8 @@ export interface AttributesSchema {
 export interface ObjectClassAttribute {
   name: string;
   type: string;
-  required?: boolean;
+  /** Default false. */
+  required: boolean;
   default?: unknown;
   values?: string[];
   unique?: boolean;
@@ -123,7 +124,9 @@ export type ManifestErrorCode =
   | 'unresolved-reference'
   | 'dependency-cycle'
   | 'reserved-name'
-  | 'agents-md-divergence';
+  | 'agents-md-divergence'
+  | 'path-not-found'
+  | 'unreadable-file';
 
 export interface ManifestError {
   /** Dotted path to the offending field, e.g. `domain` or `dependencies[2]`; empty for whole-file errors. */
@@ -138,8 +141,3 @@ export interface ManifestError {
 }
 
 export type ParseResult = { ok: true; manifest: TectonManifest } | { ok: false; errors: ManifestError[] };
-
-export interface ParseOptions {
-  /** Used only to label errors; the parser never reads files. */
-  fileName?: string;
-}

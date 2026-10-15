@@ -3,6 +3,7 @@ export { buildAsyncApiDocument, type AsyncApiOptions } from './asyncapi.js';
 export { cloudEventType } from './events.js';
 export { findManifests, lintWorkspace, type LintOptions, type LintProblem, type LintResult, type LintSeverity } from './lint/lint-workspace.js';
 export { BUILTIN_DIRECTORY_CLASSES, compileAttributes, TECTON_UNIQUE_KEYWORD } from './object-class.js';
+export { toKebabCase } from './naming.js';
 export { parseManifest } from './parse.js';
 export {
   compileFields,
@@ -38,7 +39,6 @@ export type {
   ManifestEvent,
   ManifestEvents,
   ManifestErrorCode,
-  ParseOptions,
   ParseResult,
   TectonManifest,
 } from './types.js';

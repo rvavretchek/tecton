@@ -161,3 +161,85 @@ describe('tecton-admin generate domain — walking skeleton and reminder (AC 5, 
     expect(result.stdout).toMatch(/^[\x09\x0A\x0D\x20-\x7E]+$/);
   });
 });
+
+describe('tecton-admin generate domain — code review fixes', () => {
+  it('pins @tecton/* to the version range the workspace uses for @tecton/cli, not the running CLI', async () => {
+    const root = await workspace();
+    const pkgFile = join(root, 'package.json');
+    const pkg = readJson(pkgFile);
+    pkg['devDependencies']['@tecton/cli'] = '~7.3.0';
+    writeFileSync(pkgFile, JSON.stringify(pkg));
+
+    expect((await cli(['generate', 'domain', 'finance'], root)).code).toBe(0);
+    expect(readJson(join(root, 'apps', 'domains', 'finance', 'package.json'))['dependencies']['@tecton/core']).toBe('~7.3.0');
+  });
+
+  it('uses a scoped workspace name as a valid package scope and Compose project name', async () => {
+    const root = await workspace();
+    const pkgFile = join(root, 'package.json');
+    writeFileSync(pkgFile, JSON.stringify({ ...readJson(pkgFile), name: '@Acme/Platform' }));
+
+    expect((await cli(['generate', 'domain', 'finance'], root)).code).toBe(0);
+    expect(readJson(join(root, 'apps', 'domains', 'finance', 'package.json'))['name']).toBe('@acme-platform/finance');
+    expect(readFileSync(join(root, 'docker-compose.dev.yml'), 'utf8')).toContain('name: acme-platform-dev');
+  });
+
+  it.each(['postgres', 'mysql', 'sys', 'information-schema', 'tecton'])('refuses "%s", a reserved database name', async (name) => {
+    const root = await workspace();
+    const result = await cli(['generate', 'domain', 'finance', name], root);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('reserved database name');
+    expect(domains(root)).toEqual([]);
+  });
+
+  it('reads a --from file saved with a UTF-8 byte order mark', async () => {
+    const root = await workspace();
+    writeFileSync(join(root, 'domains.txt'), `${String.fromCodePoint(0xfeff)}finance\nsales\n`);
+
+    expect((await cli(['generate', 'domain', '--from', 'domains.txt'], root)).code).toBe(0);
+    expect(domains(root)).toEqual(['finance', 'sales']);
+  });
+
+  it('fails cleanly when --from points to a directory', async () => {
+    const root = await workspace();
+    mkdirSync(join(root, 'names'));
+    const result = await cli(['generate', 'domain', '--from', 'names'], root);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('is not a file');
+  });
+
+  it('reports a malformed package.json in one line, without a stack trace', async () => {
+    const root = await workspace();
+    writeFileSync(join(root, 'package.json'), '{ "name": "acme", ');
+    const result = await cli(['generate', 'domain', 'finance'], root);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toMatch(/^error: cannot read .*package\.json/);
+    expect(result.stderr).not.toContain('    at ');
+  });
+
+  it('rejects an unknown Dev Services engine in package.json instead of falling back to postgres', async () => {
+    const root = await workspace();
+    const pkgFile = join(root, 'package.json');
+    writeFileSync(pkgFile, JSON.stringify({ ...readJson(pkgFile), tecton: { devServices: { database: 'oracle' } } }));
+    const result = await cli(['generate', 'domain', 'finance'], root);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('"oracle"');
+    expect(domains(root)).toEqual([]);
+  });
+
+  it('rejects a domain folder whose manifest declares another domain', async () => {
+    const root = await workspace();
+    expect((await cli(['generate', 'domain', 'finance'], root)).code).toBe(0);
+    const manifest = join(root, 'apps', 'domains', 'finance', 'tecton.yaml');
+    writeFileSync(manifest, readFileSync(manifest, 'utf8').replace('domain: finance', 'domain: billing'));
+    const result = await cli(['generate', 'domain', 'sales'], root);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('declares domain "billing"');
+    expect(domains(root)).toEqual(['finance']);
+  });
+});

@@ -188,6 +188,6 @@ describe('tecton-admin new — documentation seeds (AC 7, AC 8, AC 9)', () => {
   it('ships the templates and docs with the package', () => {
     const files = (readJson(join(frameworkRoot, 'packages', 'cli', 'package.json'))['files'] as string[]).sort();
 
-    expect(files).toEqual(['dist', 'docs', 'templates']);
+    expect(files).toEqual(['!dist/**/*.map', '!dist/.tsbuildinfo', 'dist', 'docs', 'templates']);
   });
 });

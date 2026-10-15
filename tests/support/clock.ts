@@ -19,6 +19,7 @@ export const DEFAULT_TEST_EPOCH = new Date('2026-01-01T00:00:00.000Z');
 
 export function createTestClock(start: Date = DEFAULT_TEST_EPOCH): TestClock {
   let current = start.getTime();
+  if (Number.isNaN(current)) throw new RangeError('createTestClock() expects a valid Date');
   return {
     now: () => new Date(current),
     advance: (ms) => {
@@ -28,7 +29,9 @@ export function createTestClock(start: Date = DEFAULT_TEST_EPOCH): TestClock {
       current += ms;
     },
     set: (instant) => {
-      current = instant.getTime();
+      const time = instant.getTime();
+      if (Number.isNaN(time)) throw new RangeError('set() expects a valid Date');
+      current = time;
     },
   };
 }

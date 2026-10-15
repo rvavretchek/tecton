@@ -1,4 +1,3 @@
-import { Ajv } from 'ajv';
 import { formatPath, type TranslatedError } from './errors.js';
 import { parseFieldType, PRIMITIVE_TYPES, type FieldSchema } from './field-types.js';
 import type { AttributeSchema, AttributesSchema, ManifestObjectClass, ObjectClassAttribute } from './types.js';
@@ -16,10 +15,46 @@ export const TECTON_UNIQUE_KEYWORD = 'x-tecton-unique' as const;
  */
 export const BUILTIN_DIRECTORY_CLASSES = ['Root'] as const;
 
+/** Base class of every Directory class (the default of `extends`); cannot be declared either. */
+export const BASE_DIRECTORY_CLASS = 'DirectoryObject' as const;
+
+/** Class names a manifest cannot declare. */
+const RESERVED_CLASS_NAMES: readonly string[] = [...BUILTIN_DIRECTORY_CLASSES, BASE_DIRECTORY_CLASS];
+
 const ATTRIBUTE_TYPES = [...PRIMITIVE_TYPES, 'enum'] as const;
 
-// Only used to check that a declared `default` matches its type; formats are not enforced here.
-const defaultChecker = new Ajv({ validateFormats: false, strict: false });
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
+const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/i;
+
+/** A real calendar date: 2026-02-30 matches the pattern but not the calendar. */
+function isCalendarDate(text: string): boolean {
+  const date = new Date(`${text.slice(0, 10)}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text.slice(0, 10);
+}
+
+/**
+ * Whether a declared `default` fits its field schema, formats included. Checked by hand rather
+ * than with Ajv: compiling one schema per attribute would grow Ajv's cache for the life of the
+ * process, and YAML numbers like .inf/.nan must be rejected (JSON cannot carry them).
+ */
+function defaultFits(field: FieldSchema, value: unknown): boolean {
+  if ('enum' in field) return typeof value === 'string' && field.enum.includes(value);
+  switch (field.type) {
+    case 'number':
+      return typeof value === 'number' && Number.isFinite(value);
+    case 'integer':
+      return typeof value === 'number' && Number.isInteger(value);
+    case 'boolean':
+      return typeof value === 'boolean';
+    case 'string':
+      if (typeof value !== 'string') return false;
+      if (!('format' in field)) return true;
+      if (field.format === 'uuid') return UUID.test(value);
+      if (field.format === 'date') return DATE.test(value) && isCalendarDate(value);
+      return DATE_TIME.test(value) && isCalendarDate(value) && !Number.isNaN(Date.parse(value));
+  }
+}
 
 type RawObject = Record<string, unknown>;
 
@@ -62,7 +97,7 @@ export function compileAttributes(attributes: readonly ObjectClassAttribute[]): 
 export function checkObjectClass(objectClass: unknown): TranslatedError[] {
   if (!isObject(objectClass)) return [];
   const errors: TranslatedError[] = [];
-  if (typeof objectClass['name'] === 'string' && (BUILTIN_DIRECTORY_CLASSES as readonly string[]).includes(objectClass['name'])) {
+  if (typeof objectClass['name'] === 'string' && RESERVED_CLASS_NAMES.includes(objectClass['name'])) {
     const segments = ['objectClass', 'name'];
     errors.push({
       error: {
@@ -98,8 +133,8 @@ export function checkObjectClass(objectClass: unknown): TranslatedError[] {
     if (type !== 'enum' && 'values' in attribute) add([...base, 'values'], 'invalid-attribute', 'is only allowed with type: enum');
 
     const field = attributeFieldSchema(attribute);
-    if (field && 'default' in attribute && !defaultChecker.validate(field, attribute['default'])) {
-      const expected = 'enum' in field ? `one of ${field.enum.map((value) => JSON.stringify(value)).join(', ')}` : `a ${type}`;
+    if (field && 'default' in attribute && !defaultFits(field, attribute['default'])) {
+      const expected = 'enum' in field ? `one of ${field.enum.map((value) => JSON.stringify(value)).join(', ')}` : `a valid ${type}`;
       add([...base, 'default'], 'invalid-default', `must be ${expected}; got ${JSON.stringify(attribute['default'])}`);
     }
   });
@@ -110,12 +145,16 @@ export function checkObjectClass(objectClass: unknown): TranslatedError[] {
 /** Builds the typed objectClass (with defaults) of a manifest already known to be valid. */
 export function buildObjectClass(objectClass: unknown): ManifestObjectClass | undefined {
   if (!isObject(objectClass)) return undefined;
-  const attributes = (objectClass['attributes'] as ObjectClassAttribute[] | undefined) ?? [];
+  // `required` defaults to false, as documented in the schema.
+  const attributes = ((objectClass['attributes'] as ObjectClassAttribute[] | undefined) ?? []).map((attribute) => ({
+    ...attribute,
+    required: attribute.required === true,
+  }));
   const containment = objectClass['containment'] as { allowedParents: string[]; allowedChildren?: string[] };
   const acl = objectClass['acl'] as { inheritable?: boolean } | undefined;
   return {
     name: objectClass['name'] as string,
-    extends: (objectClass['extends'] as string | undefined) ?? 'DirectoryObject',
+    extends: (objectClass['extends'] as string | undefined) ?? BASE_DIRECTORY_CLASS,
     attributes,
     containment: { allowedParents: containment.allowedParents, allowedChildren: containment.allowedChildren ?? [] },
     acl: { inheritable: acl?.inheritable ?? true },

@@ -4,8 +4,7 @@ baseline_commit: aa1ac1e2343fdcf0f539eb5ae26406e66ac92f07
 
 # Story 1.7: Rotas Fastify e OpenAPI a partir das actions
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev que declarou actions no manifest**,
@@ -41,6 +40,17 @@ para que contrato HTTP e documentação nunca sejam escritos à mão nem fiquem 
   - [x] Teste de AC 5: mudar o `input` de uma action no manifest e regenerar muda o schema no documento.
 - [x] **T5. Testes** (`app.inject`, sem rede): rota e método por action; 400 com corpo provisório e handler não chamado (spy); campo extra no corpo → 400; tipo errado → 400; `uuid` inválido → 400; 501 sem handler; handler implementado → 200 com só os campos do `output`; exceção comum no handler → 500 sem a mensagem da exceção; OpenAPI com todas as actions, `description`, `operationId`, schemas.
 - [x] **T6. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`, `pnpm lint:examples`.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] D2 (média) Actions com `auth.requires` executam o handler sem token até o Epic 2 (Story 2.4), e `startDomainServer` escuta em `0.0.0.0`. Opções: escutar só em `127.0.0.1` por padrão até a 2.4 / recusar handler em action não pública até a 2.4 / aceitar até a 2.4 — decidido (2026-10-15): `startDomainServer` escuta em 127.0.0.1 por padrão (HOST configurável) até a Story 2.4
+- [x] [Review][Patch] P2 (média) Erros de cliente do Fastify (JSON malformado, corpo vazio, 413, 415) viram 500 e são logados como erro interno; preservar o `statusCode` 4xx [packages/core/src/errors/serializer.ts:22]
+- [x] [Review][Patch] P3 (média) Busca de handler acha membros de `Object.prototype`: action `constructor` sem handler devolve 200 ecoando a entrada (confirmado); usar `Object.hasOwn` [packages/core/src/routes.ts:46]
+- [x] [Review][Patch] P26 (baixa) Todo 501 é logado como 'unhandled error' com stack [packages/core/src/errors/serializer.ts:41]
+- [x] [Review][Patch] P32 (baixa) Chave de handler que não corresponde a nenhuma action é ignorada em silêncio [packages/core/src/routes.ts:44]
+- [x] [Review][Patch] P33 (baixa) OpenAPI só declara 200; faltam 400/500/501 [packages/core/src/routes.ts:30]
+- [x] [Review][Patch] P34 (baixa) Teste do serializador único é fraco (só código literal) e quebra se um pacote não tiver `src` [packages/core/src/errors/single-serializer.test.ts]
+- [x] [Review][Defer] W7 `createTectonServer` usa `logger: false` por padrão, então a exceção de um 500 se perde fora do `main.ts` gerado [packages/core/src/server.ts] — configuração de log vem com o ConfigProvider/OTel (Stories 3.1/3.3) — adiado
 
 ## Dev Notes
 
@@ -84,3 +94,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.7 implementada: rotas Fastify por action, validação de entrada antes do handler, 501, abstração única de erro com serializador provisório e OpenAPI gerado do manifest.
+- 2026-10-15: Code review do Epic 1 — 7 correção(ões) aplicada(s) (ver Review Findings); status → done.

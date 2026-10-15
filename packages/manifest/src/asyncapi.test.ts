@@ -63,12 +63,12 @@ describe('buildAsyncApiDocument (AC 1)', () => {
   });
 
   it('turns each consumed event into a receive operation', () => {
-    expect(doc['operations']['receiveDirectoryUserCreated']).toEqual({
+    expect(doc['operations']['receive_directory_UserCreated']).toEqual({
       action: 'receive',
       channel: { $ref: '#/channels/directory' },
       messages: [{ $ref: '#/channels/directory/messages/UserCreated' }],
     });
-    expect(doc['operations']['receiveLeaveLeaveApproved']['channel']).toEqual({ $ref: '#/channels/leave' });
+    expect(doc['operations']['receive_leave_LeaveApproved']['channel']).toEqual({ $ref: '#/channels/leave' });
   });
 
   it('uses the compiled JSON Schema as payload and carries the CloudEvents type', () => {

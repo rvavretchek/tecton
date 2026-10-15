@@ -109,6 +109,21 @@ describe('tecton-admin lint', () => {
     expect(result.stderr).toContain('no tecton.yaml found under');
   });
 
+  it('Given a fresh workspace without domains, When linted, Then it exits 0 saying there is nothing yet', async () => {
+    const cwd = workspace({ 'apps/domains/.gitkeep': '' });
+    const result = await cli(['lint'], cwd);
+
+    expect(result.code).toBe(0);
+    expect(result.stdout).toContain('no domains yet');
+  });
+
+  it('Given --format json and a fatal failure, When linted, Then stdout is still JSON', async () => {
+    const result = await cli(['lint', '--format', 'json', 'missing'], workspace({ 'leave/tecton.yaml': manifest('leave') }));
+
+    expect(result.code).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({ errors: 1, fatal: 'path not found: missing' });
+  });
+
   it('Given an unsupported --format, When run, Then it fails without linting', async () => {
     const result = await cli(['lint', '--format', 'xml'], workspace({ 'leave/tecton.yaml': manifest('leave') }));
 

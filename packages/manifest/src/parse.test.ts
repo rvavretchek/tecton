@@ -65,7 +65,7 @@ describe('parseManifest — valid identity (AC 1)', () => {
     (file) => {
       const source = readFileSync(join(repoRoot, 'docs', 'examples', file), 'utf8');
 
-      expect(parseManifest(source, { fileName: file })).toMatchObject({ ok: true });
+      expect(parseManifest(source)).toMatchObject({ ok: true });
     },
   );
 });

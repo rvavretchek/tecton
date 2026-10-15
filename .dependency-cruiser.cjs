@@ -9,7 +9,9 @@
 //   directory      -> manifest, providers, core, ui
 //   cli            -> any
 // Paths are relative to the working directory, so the same config checks the repository
-// root and the test fixtures under tools/check-deps/fixtures.
+// root and the test fixtures under tools/check-deps/fixtures. Run it through
+// tools/check-deps/check-deps.mjs (pnpm check:deps), which also reports the import
+// specifier and undeclared workspace dependencies.
 
 /** Builds a rule that forbids `pkg` from importing any @tecton package outside `allowed`. */
 function allowOnly(pkg, allowed) {
@@ -27,6 +29,8 @@ function allowOnly(pkg, allowed) {
   };
 }
 
+const KNOWN_PACKAGES = ['manifest', 'providers', 'ui', 'core', 'service-client', 'auth', 'directory', 'cli'];
+
 /** @type {import('dependency-cruiser').IConfiguration} */
 module.exports = {
   forbidden: [
@@ -37,6 +41,21 @@ module.exports = {
     allowOnly('service-client', ['manifest', 'providers']),
     allowOnly('auth', ['manifest', 'providers', 'core']),
     allowOnly('directory', ['manifest', 'providers', 'core', 'ui']),
+    {
+      // A new package must get its own allowOnly() line before it may import other packages.
+      name: 'ad-3-unknown-package',
+      comment: 'AD-3: this package has no dependency rule yet; add one to .dependency-cruiser.cjs',
+      severity: 'error',
+      from: { path: `^packages/(?!(?:${KNOWN_PACKAGES.join('|')})/)([^/]+)/` },
+      to: { path: '^packages/', pathNot: '^packages/$1/' },
+    },
+    {
+      name: 'no-test-support-in-production',
+      comment: 'Shared test support (#test-support) may only be imported from *.test.ts files',
+      severity: 'error',
+      from: { path: '^packages/[^/]+/src/', pathNot: '[.]test[.]ts$' },
+      to: { path: '^tests/support/' },
+    },
     {
       name: 'no-circular',
       comment: 'AD-3: the @tecton/* dependency graph must stay acyclic',

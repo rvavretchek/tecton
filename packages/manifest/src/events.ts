@@ -1,5 +1,6 @@
 import { formatPath, type TranslatedError } from './errors.js';
 import { compileFields } from './field-types.js';
+import { toKebabCase } from './naming.js';
 import type { ManifestEvent, ManifestEvents } from './types.js';
 
 type RawObject = Record<string, unknown>;
@@ -12,18 +13,11 @@ function isStringMap(value: unknown): value is Record<string, string> {
   return isObject(value) && Object.values(value).every((item) => typeof item === 'string');
 }
 
-/** PascalCase -> kebab-case; runs of capitals count as one word (`ExportCSVReady` -> `export-csv-ready`). */
-function toKebabCase(name: string): string {
-  return name
-    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1-$2')
-    .toLowerCase();
-}
-
 /**
  * CloudEvents `type` of a published event: `com.tecton.<domain>.<event-name-in-kebab-case>`.
- * The event name is kept whole (no domain prefix is stripped), so two different events of a
- * domain can never map to the same type: ('tenant', 'TenantCreated') -> 'com.tecton.tenant.tenant-created'.
+ * The event name is kept whole (no domain prefix is stripped): ('tenant', 'TenantCreated') ->
+ * 'com.tecton.tenant.tenant-created'. Names that only differ in capital runs (ExportCSVReady,
+ * ExportCsvReady) share a type, so checkEvents rejects them.
  */
 export function cloudEventType(domain: string, eventName: string): string {
   return `com.tecton.${domain}.${toKebabCase(eventName)}`;
@@ -46,23 +40,23 @@ export function checkEvents(events: unknown, actions: unknown): TranslatedError[
   const errors: TranslatedError[] = [];
 
   if (isObject(events) && Array.isArray(events['publishes'])) {
-    const firstIndexByName = new Map<string, number>();
+    // Keyed by kebab-case form: that is what the CloudEvents type is built from.
+    const firstIndexByType = new Map<string, number>();
     events['publishes'].forEach((event, index) => {
       if (!isObject(event)) return;
       const base = ['events', 'publishes', index] as const;
       if (typeof event['name'] === 'string') {
-        const first = firstIndexByName.get(event['name']);
-        if (first === undefined) firstIndexByName.set(event['name'], index);
+        const typeKey = toKebabCase(event['name']);
+        const first = firstIndexByType.get(typeKey);
+        if (first === undefined) firstIndexByType.set(typeKey, index);
         else {
           const segments = [...base, 'name'];
-          errors.push({
-            error: {
-              path: formatPath(segments),
-              code: 'duplicate-name',
-              message: `${formatPath(segments)} ${JSON.stringify(event['name'])} is already used by events.publishes[${first}]`,
-            },
-            locate: { segments },
-          });
+          const firstName = (events['publishes'] as RawObject[])[first]?.['name'];
+          const message =
+            firstName === event['name']
+              ? `${formatPath(segments)} ${JSON.stringify(event['name'])} is already used by events.publishes[${first}]`
+              : `${formatPath(segments)} ${JSON.stringify(event['name'])} has the same CloudEvents type as ${JSON.stringify(firstName)} (events.publishes[${first}]); rename one of them`;
+          errors.push({ error: { path: formatPath(segments), code: 'duplicate-name', message }, locate: { segments } });
         }
       }
       if (isStringMap(event['schema'])) {

@@ -15,7 +15,9 @@
     "./schema.json": "./dist/tecton-manifest.schema.json"
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/.tsbuildinfo",
+    "!dist/**/*.map"
   ],
   "scripts": {
     "emit": "node scripts/emit-schema.mjs"

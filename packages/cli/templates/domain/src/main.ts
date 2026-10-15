@@ -4,7 +4,34 @@ import { fileURLToPath } from 'node:url';
 import { startDomainServer } from '@tecton/core';
 
 const manifestPath = fileURLToPath(new URL('../tecton.yaml', import.meta.url));
-const port = Number(process.env['PORT'] ?? 3000);
 
-const app = await startDomainServer({ manifestPath, port, logger: true });
-app.log.info({ domain: '{{domain}}', port }, 'domain service started');
+/** PORT from the environment (default 3000); anything but an integer in 0-65535 stops the service. */
+function portFromEnv(value: string | undefined): number {
+  if (value === undefined || value.trim() === '') return 3000;
+  const port = Number(value);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`PORT must be an integer between 0 and 65535, got "${value}"`);
+  }
+  return port;
+}
+
+const port = portFromEnv(process.env['PORT']);
+// Loopback by default; set HOST=0.0.0.0 to accept connections from other machines or containers.
+const host = process.env['HOST'] || '127.0.0.1';
+
+const app = await startDomainServer({ manifestPath, port, host, logger: true });
+app.log.info({ domain: '{{domain}}', host, port }, 'domain service started');
+
+// Graceful shutdown: finish in-flight requests before exiting (docker stop, Ctrl+C).
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    app.log.info({ signal }, 'shutting down');
+    app.close().then(
+      () => process.exit(0),
+      (error: unknown) => {
+        app.log.error({ err: error }, 'shutdown failed');
+        process.exit(1);
+      },
+    );
+  });
+}

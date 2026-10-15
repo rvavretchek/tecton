@@ -4,8 +4,7 @@ baseline_commit: 6bff6a89f5bccc484b7b5e3415def2f1101b049e
 
 # Story 1.4: Events publicados e consumidos
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev declarando o que meu domínio publica e consome**,
@@ -39,6 +38,10 @@ para que os contratos assíncronos sejam validados e fiquem prontos para o Async
   - [x] Exportar `cloudEventType`, `ManifestEvent`, `ManifestEvents`.
 - [x] **T5. Testes:** `src/events.test.ts` cobrindo os ACs, a tabela da regra do `type` e os casos de borda; o exemplo `leave` continua passando e tem os `type`s esperados.
 - [x] **T6. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] P4b (média) Eventos `ExportCSVReady` e `ExportCsvReady` geram o mesmo `type` CloudEvents (confirmado), contrariando o JSDoc; checar unicidade pelo `type` [packages/manifest/src/events.ts:16]
 
 ## Dev Notes
 
@@ -84,3 +87,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.4 implementada: events publicados e consumidos, `type` CloudEvents determinístico e checagem dos `emit` de aprovação.
+- 2026-10-15: Code review do Epic 1 — 1 correção(ões) aplicada(s) (ver Review Findings); status → done.

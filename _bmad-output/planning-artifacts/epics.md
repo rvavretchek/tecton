@@ -379,7 +379,7 @@ para que uma referência quebrada falhe explicitamente em vez de passar como vá
 
 **Dado** uma referência a outro domínio (`allowedParents`, `allowedChildren` ou `consumes`)
 **Quando** o lint tenta resolvê-la
-**Então** a resolução segue esta ordem: (1) manifest no workspace local; (2) manifest exportado por um pacote npm instalado; (3) caminho explícito declarado em `dependencies`
+**Então** a resolução segue esta ordem: (1) manifest no workspace local; (2) caminho explícito declarado em `dependencies`; (3) manifest exportado por um pacote npm instalado (ordem alterada no code review de 2026-10-15: o caminho escrito à mão vence um pacote que declare o mesmo domínio)
 **E** a resolução por pacote npm é testada com um pacote de fixture; o `@tecton/directory` (Story 4.1) e o `@tecton/auth` (Story 2.2) passam a usar esse mesmo caminho quando existirem
 
 **Dado** um `objectClass` em `allowedParents` ou `allowedChildren` que não é encontrado por nenhum dos três caminhos

@@ -1,5 +1,5 @@
 import type { ErrorObject } from 'ajv';
-import { SUPPORTED_MANIFEST_VERSIONS, manifestJsonSchema } from './schema.js';
+import { FIELD_TYPE_PATTERN, SUPPORTED_MANIFEST_VERSIONS, manifestJsonSchema } from './schema.js';
 import type { ManifestError, ManifestErrorCode } from './types.js';
 
 /** Path segments as used by the YAML document (`['dependencies', 2]`). */
@@ -53,8 +53,8 @@ const FORMAT_HINTS: Record<string, string> = {
 function typeMessage(path: string, field: string | number | undefined, expected: string): string {
   if (path === 'manifestVersion') return `manifestVersion must be a quoted string, e.g. "${SUPPORTED_MANIFEST_VERSIONS[0]}"`;
   if (path === 'version') return 'version must be a quoted semantic version string, e.g. "1.0.0"';
-  if (typeof field === 'number') return `${path} must be a ${expected}`;
-  return `${path} must be ${expected === 'array' ? 'a list' : `a ${expected}`}`;
+  if (expected === 'array') return `${path} must be a list`;
+  return `${path} must be ${/^[aeiou]/.test(expected) ? 'an' : 'a'} ${expected}`;
 }
 
 function formatMessage(path: string, segments: PathSegments, value: unknown): string {
@@ -62,6 +62,8 @@ function formatMessage(path: string, segments: PathSegments, value: unknown): st
   const last = segments.at(-1);
   if (field === 'objectClass') {
     if (segments[1] === 'attributes' && last === 'name') return `${path} must be camelCase, e.g. "displayName"`;
+    if (segments[1] === 'attributes' && segments.at(-2) === 'values')
+      return `${path} must use letters, digits, "-" and "_" only; got ${JSON.stringify(value)}`;
     if (typeof last === 'number' || last === 'name' || last === 'extends')
       return `${path} must be a class name in PascalCase, e.g. "Tenant"; got ${JSON.stringify(value)}`;
   }
@@ -101,6 +103,9 @@ export function translateAjvErrors(ajvErrors: readonly ErrorObject[], data: unkn
     // Ajv reports a failed propertyNames twice: the inner keyword (with `propertyName`) and the
     // propertyNames summary. Keep only the summary.
     if (ajvError.propertyName !== undefined) continue;
+    // A field type that misses FIELD_TYPE_PATTERN is reported by the semantic check, which says
+    // exactly what is wrong (unknown type, repeated enum value...).
+    if (ajvError.keyword === 'pattern' && ajvError.params['pattern'] === FIELD_TYPE_PATTERN) continue;
     const segments = toSegments(ajvError.instancePath);
     const path = formatPath(segments);
     const push = (code: ManifestErrorCode, message: string, locate: TranslatedError['locate']) =>
@@ -177,6 +182,14 @@ export function translateAjvErrors(ajvErrors: readonly ErrorObject[], data: unkn
   }
 
   // A wrong type already explains the field; drop other errors reported for the same path.
+  // Identical errors (e.g. pattern and maxLength on a long, malformed domain) are reported once.
   const typed = new Set(translated.filter((t) => t.error.code === 'invalid-type').map((t) => t.error.path));
-  return translated.filter((t) => t.error.code === 'invalid-type' || !typed.has(t.error.path));
+  const seen = new Set<string>();
+  return translated.filter((t) => {
+    if (t.error.code !== 'invalid-type' && typed.has(t.error.path)) return false;
+    const key = JSON.stringify([t.error.path, t.error.code, t.error.message]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }

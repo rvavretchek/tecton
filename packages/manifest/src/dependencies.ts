@@ -15,6 +15,14 @@ function isDomainName(value: unknown): value is string {
   return typeof value === 'string' && value.length <= DOMAIN_NAME_MAX_LENGTH && DOMAIN_NAME.test(value);
 }
 
+/**
+ * POSIX (`/x`), Windows drive (`C:\x`, `C:/x`) or UNC (`\\host\x`) path. A manifest is shared
+ * through Git, so a path only works for everyone when it is relative to the manifest.
+ */
+function isAbsolutePath(value: string): boolean {
+  return /^([/\\]|[a-zA-Z]:[/\\])/.test(value);
+}
+
 function looksRemote(value: unknown): boolean {
   return typeof value === 'string' && value.includes('://');
 }
@@ -30,7 +38,7 @@ function domainOf(entry: unknown): string | undefined {
  * Checks each `dependencies` entry: a kebab-case domain name, or `{ domain, path }` with a
  * local path. Remote URLs are rejected with an explicit message.
  */
-export function checkDependencies(dependencies: unknown): TranslatedError[] {
+export function checkDependencies(dependencies: unknown, ownDomain?: unknown): TranslatedError[] {
   if (!Array.isArray(dependencies)) return [];
   const errors: TranslatedError[] = [];
   const seen = new Set<string>();
@@ -54,7 +62,7 @@ export function checkDependencies(dependencies: unknown): TranslatedError[] {
       else if (!isDomainName(entry['domain']))
         add([...segments, 'domain'], 'invalid-format', `${path}.domain must be a domain name in kebab-case, e.g. "billing"`);
       if (!('path' in entry)) add(segments, 'required', `${path}.path is required`);
-      else if (typeof entry['path'] !== 'string' || entry['path'].trim() === '')
+      else if (typeof entry['path'] !== 'string' || entry['path'].trim() === '' || isAbsolutePath(entry['path']))
         add([...segments, 'path'], 'invalid-format', `${path}.path must be a relative path to a tecton.yaml or its directory`);
     } else {
       return add(segments, 'invalid-type', `${path} must be a domain name or { domain, path }`);
@@ -62,6 +70,10 @@ export function checkDependencies(dependencies: unknown): TranslatedError[] {
 
     const domain = domainOf(entry);
     if (domain === undefined) return;
+    if (domain === ownDomain) {
+      add(segments, 'invalid-format', `${path}: a domain cannot depend on itself (${JSON.stringify(domain)})`);
+      return;
+    }
     if (seen.has(domain)) add(segments, 'duplicate-item', `${path} ${JSON.stringify(domain)} is listed more than once`);
     seen.add(domain);
   });

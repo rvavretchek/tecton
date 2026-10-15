@@ -1,0 +1,7 @@
+{
+  "name": "@tecton/billing",
+  "private": true,
+  "dependencies": {
+    "@tecton/core": "workspace:*"
+  }
+}

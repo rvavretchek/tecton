@@ -18,6 +18,8 @@
   },
   "files": [
     "dist",
+    "!dist/.tsbuildinfo",
+    "!dist/**/*.map",
     "templates",
     "docs"
   ],

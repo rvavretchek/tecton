@@ -3,6 +3,12 @@ import { generateDomainCommand } from './commands/generate-domain.js';
 import { lintCommand, type OutputFormat } from './commands/lint.js';
 import { newCommand } from './commands/new.js';
 import type { CliIo } from './io.js';
+import { CliError } from './workspace.js';
+
+/** Node file-system errors (EACCES, EISDIR, ENOSPC...) carry a code and a readable message. */
+function isFileSystemError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && typeof (error as NodeJS.ErrnoException).code === 'string' && 'syscall' in error;
+}
 
 function parseFormat(value: string): OutputFormat {
   if (value === 'text' || value === 'json') return value;
@@ -61,6 +67,11 @@ export async function run(args: string[], io: CliIo): Promise<number> {
     return exitCode;
   } catch (error) {
     if (error instanceof CommanderError) return error.exitCode;
+    // Expected failures (unreadable files, invalid package.json) print one line, no stack trace.
+    if (error instanceof CliError || isFileSystemError(error)) {
+      io.stderr.write(`error: ${error.message}\n`);
+      return 1;
+    }
     throw error;
   }
 }

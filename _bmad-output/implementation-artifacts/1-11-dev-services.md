@@ -4,8 +4,7 @@ baseline_commit: 7e5398e9ffb239e85191281a226330031b698545
 
 # Story 1.11: Dev Services
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev começando num workspace Tecton**,
@@ -33,6 +32,13 @@ para subir banco e Valkey sem configurar nada à mão (FR-30).
   - [x] Rápidos (`dev-services.test.ts`): conteúdo para cada banco (imagens, portas, healthchecks, credenciais, comentário de topo), SQL idempotente correto por banco, `.env.example` com as URLs, nomes com hífen, workspace sem domínios (compose válido sem bancos de domínio), `--db` inválido, `generate domain` acrescentando o banco.
   - [x] Com Docker (`dev-services.persistence.test.ts`, matriz de bancos): gera workspace com `--db $TECTON_TEST_DB` e um domínio, `docker compose up -d`, espera o banco lógico existir e o Valkey responder; gera outro domínio, `up -d` de novo e espera o segundo banco; `down -v` no final.
 - [x] **T4. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`, `pnpm lint:examples`, `pnpm validate:asyncapi`, `pnpm test:generation`; o teste com Docker roda no CI (job `persistence`).
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] D4 (média, segurança) Dev Services publica Valkey sem senha e o banco com `tecton/tecton` em todas as interfaces (`6379:6379`, `5432:5432`), expondo à rede local. Opções: publicar só em `127.0.0.1` (padrão seguro; quebra acesso de outra máquina, ex. Docker remoto do laboratório) / manter `0.0.0.0` / opção `--expose` no `new` — decidido (2026-10-15): portas do Dev Services publicadas só em 127.0.0.1
+- [x] [Review][Patch] P1 (média) PostgreSQL: `CREATE DATABASE user` (ou `group`, `order`, `table`) é erro de sintaxe; com `ON_ERROR_STOP=1`, nenhum banco seguinte é criado. Os stand-ins do próprio repo se chamam `user` e `group`. Citar o identificador [packages/cli/src/dev-services.ts:39]
+- [x] [Review][Patch] P25 (baixa) Dev Services: lista de domínios sai do nome da pasta sem validação; nomes de banco de sistema (`postgres`, `template1`, `tecton`, `mysql`, `sys`) não são recusados (MySQL daria GRANT no schema `mysql`); motor inválido no package.json vira postgres em silêncio [packages/cli/src/dev-services.ts]
+- [x] [Review][Patch] P31 (baixa) Nome do projeto Compose e escopo dos pacotes vêm do `name` da raiz sem sanitizar (`@acme/Platform` quebra o compose) [packages/cli/src/dev-services.ts, workspace.ts]
 
 ## Dev Notes
 
@@ -73,3 +79,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-12: Story 1.11 implementada: Dev Services com Valkey e o banco escolhido, um banco lógico por domínio criado de forma idempotente, `.env.example` gerado.
+- 2026-10-15: Code review do Epic 1 — 4 correção(ões) aplicada(s) (ver Review Findings); status → done.
