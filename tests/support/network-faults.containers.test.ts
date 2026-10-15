@@ -54,8 +54,9 @@ describe('withDependencyDown (Valkey behind Toxiproxy)', () => {
 
   it('makes Valkey unreachable inside the callback and restores it afterwards', async () => {
     await withDependencyDown(proxy, async () => {
-      // A prompt refusal or close, not a hang: the proxy really cut the dependency.
-      await expect(ping(proxy.host, proxy.port)).rejects.toThrow(/closed|ECONNREFUSED|ECONNRESET/);
+      // No PONG while disabled. How the cut shows depends on the Docker networking in between:
+      // a close/refusal on a local engine, a silent drop (timeout) through a remote one.
+      await expect(ping(proxy.host, proxy.port)).rejects.toThrow(/closed|timeout|ECONNREFUSED|ECONNRESET/);
     });
 
     expect(await ping(proxy.host, proxy.port)).toBe('+PONG');

@@ -8,7 +8,9 @@ strategy behind it (risks, priorities, coverage) is in
 
 1. Node.js 24.7+ (24.x line) and pnpm 12 via Corepack: `corepack enable`, then `pnpm install`.
 2. Docker, for container and persistence tests. Without a local Docker, point Testcontainers
-   to a remote engine with `DOCKER_HOST` (see `.env.example`).
+   to a remote engine through an SSH socket tunnel, with `DOCKER_HOST` and
+   `TESTCONTAINERS_HOST_OVERRIDE` (recipe in `.env.example`). The Dev Services test
+   (`dev-services.persistence.test.ts`) also needs the `docker compose` CLI.
 3. For browser E2E tests (Epic 4 onwards): `pnpm exec playwright install chromium`.
 
 ## Running tests

@@ -60,7 +60,7 @@ development_status:
   1-9-tecton-admin-new-projeto: done
   1-10-tecton-admin-generate-domain-nomes: done
   1-11-dev-services: done
-  epic-1-retrospective: optional
+  epic-1-retrospective: done
   epic-2: backlog
   2-1-authprovider-com-argon2id-e-pepper: backlog
   2-2-servico-tecton-auth-login-access-token-eddsa-e-jwks: backlog
@@ -121,3 +121,25 @@ development_status:
   6-8-extract-parte-3-exportacao-e-importacao-unica-de-dados: backlog
   6-9-ajuda-completa-do-tecton-admin: backlog
   epic-6-retrospective: optional
+
+action_items:
+  - epic: 1
+    action: "A1: Code review por story no Epic 2 (CS -> VS -> DS -> CR antes da próxima), mais review leve de integração no fim do épico"
+    owner: "Amelia (Desenvolvedora)"
+    status: open
+  - epic: 1
+    action: "A2: CI falha com BOM, NUL ou caractere de controle literal em arquivo de código (higiene de fonte), antes da Story 2.1"
+    owner: "Amelia (Desenvolvedora)"
+    status: open
+  - epic: 1
+    action: "A3: Todo teste negativo (falha, timeout, recusa, violação) com fase vermelha registrada no Dev Agent Record"
+    owner: "Murat (Test Architect) e Amelia (Desenvolvedora)"
+    status: open
+  - epic: 1
+    action: "A4: Modo escuro no MVP: emendar DESIGN.md, UX-DR1, UX-DR11 e ACs das Stories 4.6 e 4.12 antes do Create Story da 4.6"
+    owner: "Sally (UX) e John (PM)"
+    status: open
+  - epic: 1
+    action: "A5: Ciclo local com Docker remoto (túnel SSH + TESTCONTAINERS_HOST_OVERRIDE), receita em .env.example e tests/README.md"
+    owner: "Amelia (Desenvolvedora)"
+    status: done
