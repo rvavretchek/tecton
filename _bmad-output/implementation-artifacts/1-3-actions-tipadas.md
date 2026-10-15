@@ -4,8 +4,7 @@ baseline_commit: cf530d3d39a58fc0e27f77abbb4bf8a4c5a15e05
 
 # Story 1.3: Actions tipadas
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev declarando o que meu domínio faz**,
@@ -50,6 +49,12 @@ para que contratos inconsistentes ou rotas abertas por esquecimento falhem antes
   - [x] Os manifests de `docs/examples/` continuam passando (teste da 1.2) e o schema compilado de `createTenant` é verificado.
   - [x] Os schemas compilados são draft-07 válidos (meta-schema do Ajv).
 - [x] **T6. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] P4a (média) Nomes de action que colidem em kebab-case (`exportCsv`/`exportCSV`) passam no lint e derrubam o serviço na subida (rota duplicada); checar unicidade pela rota [packages/manifest/src/actions.ts]
+- [x] [Review][Patch] P12 (baixa) `FIELD_TYPE_PATTERN` pedido no T1 não foi criado: o JSON Schema exportado aceita `slug: strng` no editor [packages/manifest/src/schema.ts]
+- [x] [Review][Patch] P24a (baixa) `auth: { public: false, requires: [...] }` mantém `public: false` no tipo, contrariando `ActionAuth` [packages/manifest/src/actions.ts]
 
 ## Dev Notes
 
@@ -154,3 +159,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.3 implementada: actions tipadas com sistema de tipos curto (opcional por `?`), autorização explícita, `sensitive`/`approval` exclusivos e schemas de input/output compilados.
+- 2026-10-15: Code review do Epic 1 — 3 correção(ões) aplicada(s) (ver Review Findings); status → done.

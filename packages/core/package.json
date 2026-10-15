@@ -14,7 +14,9 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/.tsbuildinfo",
+    "!dist/**/*.map"
   ],
   "dependencies": {
     "@fastify/swagger": "^9.9.1",

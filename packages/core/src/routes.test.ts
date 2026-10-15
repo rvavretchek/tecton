@@ -137,3 +137,65 @@ describe('unexpected errors (AC 6)', () => {
     expect(response.body).not.toContain('db-internal');
   });
 });
+
+describe('requests Fastify rejects before validation (review P2)', () => {
+  it.each([
+    ['malformed JSON', { payload: '{"displayName":', headers: { 'content-type': 'application/json' } }, 400, 'malformed-request'],
+    ['an empty JSON body', { payload: '', headers: { 'content-type': 'application/json' } }, 400, 'malformed-request'],
+    ['an unsupported content type', { payload: 'x', headers: { 'content-type': 'application/x-tecton' } }, 415, 'unsupported-media-type'],
+  ] as const)('Given %s, When called, Then it is %i, not 500', async (_label, request, status, slug) => {
+    const handler = vi.fn();
+    const app = await serve({ createTenant: handler });
+    const response = await app.inject({ method: 'POST', url: '/tenant/create-tenant', ...request });
+
+    expect(response.statusCode).toBe(status);
+    expect(response.json()).toMatchObject({ status, slug });
+    expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('Given a body over the size limit, When called, Then it is 413', async () => {
+    const app = createTectonServer();
+    servers.push(app);
+    registerActionRoutes(app, TENANT, {});
+    await app.ready();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/tenant/create-tenant',
+      payload: { ...VALID_INPUT, displayName: 'x'.repeat(1_100_000) },
+    });
+
+    expect(response.statusCode).toBe(413);
+    expect(response.json()).toMatchObject({ status: 413, slug: 'payload-too-large' });
+  });
+});
+
+describe('handler lookup (review P3, P32)', () => {
+  const PROTO = manifestOf(`manifestVersion: "0.1"
+domain: proto
+version: 0.1.0
+description: "Action names that exist on Object.prototype."
+actions:
+  - name: constructor
+    description: "Named like an inherited member."
+    input: { value: string }
+    output: { value: string }
+    auth: { public: true }
+`);
+
+  it('Given an action named like an Object.prototype member and no handler, When called, Then it is 501', async () => {
+    const app = createTectonServer();
+    servers.push(app);
+    registerActionRoutes(app, PROTO, {});
+    await app.ready();
+    const response = await app.inject({ method: 'POST', url: '/proto/constructor', payload: { value: 'echo' } });
+
+    expect(response.statusCode).toBe(501);
+  });
+
+  it('Given a handler key that matches no action, When registering, Then it throws naming the key', () => {
+    const app = createTectonServer();
+    servers.push(app);
+
+    expect(() => registerActionRoutes(app, TENANT, { createTenat: () => ({}) })).toThrow(/createTenat/);
+  });
+});

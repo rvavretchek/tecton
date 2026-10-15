@@ -28,6 +28,11 @@ export function versionSpec(): DependencySpec {
   return () => version;
 }
 
+/** Spec that pins every @tecton/* package to `spec` (the one the workspace uses for @tecton/cli). */
+export function fixedSpec(spec: string): DependencySpec {
+  return () => spec;
+}
+
 /** Spec that links @tecton/* to a local framework checkout (AD-4: link, never copy). */
 export function linkSpec(frameworkRoot: string): DependencySpec {
   return (pkg, targetDir) => `link:${relative(targetDir, join(frameworkRoot, 'packages', pkg)).split(sep).join('/')}`;

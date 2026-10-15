@@ -48,7 +48,7 @@ Escolhido porque roda TypeScript e ESM nativamente, sem etapa de build dos teste
 
 - Todo teste que toca banco de dados se chama `*.persistence.test.ts`.
 - O banco é escolhido por `TECTON_TEST_DB` (`postgres`, `mariadb` ou `mysql`; padrão `postgres`). No dia a dia, rode só em PostgreSQL.
-- No CI, o job `persistence` roda esses testes nos três bancos, e o job `build-test` roda build, typecheck, testes e `check:deps`.
+- No CI, o job `build-test` roda build, typecheck, `check:deps`, o lint dos exemplos, a validação do AsyncAPI e os testes rápidos; o job `containers` roda os testes com Docker (Valkey, Toxiproxy); e o job `persistence` roda os testes de persistência nos três bancos. O teste de geração de workspace (`pnpm test:generation`) e o burn-in rodam no workflow noturno.
 
 Organização dos testes, fixtures compartilhados (`#test-support`) e boas práticas: [`tests/README.md`](tests/README.md).
 

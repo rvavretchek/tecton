@@ -57,6 +57,16 @@ describe('startDomainServer (walking skeleton)', () => {
   });
 });
 
+describe('startDomainServer bind address (review D2)', () => {
+  it('Given no host, When started, Then it listens on loopback only', async () => {
+    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0 });
+    servers.push(app);
+    const address = app.server.address();
+
+    expect(typeof address === 'object' && address?.address).toBe('127.0.0.1');
+  });
+});
+
 describe('loadDomainManifest', () => {
   it('Given an invalid manifest, When loaded, Then it throws listing every problem with its line', () => {
     const file = manifestFile('manifestVersion: "0.1"\ndomain: Finance\nversion: "1.0"\ndescription: "x"\n');

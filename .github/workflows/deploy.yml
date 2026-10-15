@@ -1,14 +1,41 @@
-name: Deploy (Salt - ambiente espelhado)
+name: Deploy (Salt - mirrored environment)
 
+# Deploys main to every lab host through Salt, on the self-hosted runner.
+# Runs only after CI succeeded on a push to main, or by hand from main.
 on:
-  push:
-    branches: [ main ]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
   workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
+    if: >-
+      (github.event_name == 'workflow_run'
+        && github.event.workflow_run.conclusion == 'success'
+        && github.event.workflow_run.event == 'push')
+      || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: [self-hosted]
+    timeout-minutes: 30
     steps:
-      - name: Aplicar state Salt em todos os hosts
+      - name: Apply the Salt deploy state on every host
+        # Context values go through env and are validated, never interpolated into the script.
+        env:
+          PROJECT_NAME: ${{ github.event.repository.name }}
+          GIT_URL: ${{ github.server_url }}/${{ github.repository }}.git
         run: |
-          sudo salt '*' state.apply deploy pillar="{\"project_name\": \"${{ github.event.repository.name }}\", \"git_url\": \"${{ github.server_url }}/${{ github.repository }}.git\", \"git_branch\": \"${{ github.ref_name }}\"}"
+          for value in "$PROJECT_NAME" "$GIT_URL"; do
+            case "$value" in
+              *[!A-Za-z0-9._:/-]*) echo "Refusing unexpected characters in: $value"; exit 1 ;;
+            esac
+          done
+          pillar=$(printf '{"project_name": "%s", "git_url": "%s", "git_branch": "main"}' "$PROJECT_NAME" "$GIT_URL")
+          sudo salt '*' state.apply deploy pillar="$pillar"

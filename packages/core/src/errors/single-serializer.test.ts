@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -19,11 +19,16 @@ describe('single error serializer', () => {
   it('only errors/serializer.ts installs an error handler or sets error status codes', () => {
     const offenders: string[] = [];
     for (const pkg of readdirSync(packagesDir)) {
-      for (const file of sourceFiles(join(packagesDir, pkg, 'src'))) {
+      const srcDir = join(packagesDir, pkg, 'src');
+      if (!existsSync(srcDir)) continue;
+      for (const file of sourceFiles(srcDir)) {
         const path = relative(packagesDir, file).split(sep).join('/');
         if (path === SERIALIZER) continue;
         const text = readFileSync(file, 'utf8');
-        if (/setErrorHandler\(|setNotFoundHandler\(|reply\.(code|status)\(\s*[45]\d\d/.test(text)) offenders.push(path);
+        // Any status other than a literal 1xx-3xx counts: a variable may hold an error status.
+        if (/setErrorHandler\(|setNotFoundHandler\(|\.(code|status)\(\s*(?![123]\d\d\s*\))|statusCode\s*=(?!=)/.test(text)) {
+          offenders.push(path);
+        }
       }
     }
 

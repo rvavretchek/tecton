@@ -1,6 +1,7 @@
 import { formatPath, type TranslatedError } from './errors.js';
 import { compileFields, type ObjectSchema } from './field-types.js';
-import type { ManifestAction } from './types.js';
+import { toKebabCase } from './naming.js';
+import type { ActionAuth, ManifestAction } from './types.js';
 
 type RawObject = Record<string, unknown>;
 
@@ -20,31 +21,37 @@ function isStringMap(value: unknown): value is Record<string, string> {
 export function checkActions(actions: unknown): TranslatedError[] {
   if (!Array.isArray(actions)) return [];
   const errors: TranslatedError[] = [];
-  const firstIndexByName = new Map<string, number>();
+  // Keyed by kebab-case form: that is what the route is built from (exportCsv and exportCSV
+  // would both become /<domain>/export-csv).
+  const firstIndexByRoute = new Map<string, number>();
 
   actions.forEach((action, index) => {
     if (!isObject(action)) return;
     const base = ['actions', index] as const;
 
     if (typeof action['name'] === 'string') {
-      const first = firstIndexByName.get(action['name']);
+      const routeKey = toKebabCase(action['name']);
+      const first = firstIndexByRoute.get(routeKey);
       if (first === undefined) {
-        firstIndexByName.set(action['name'], index);
+        firstIndexByRoute.set(routeKey, index);
       } else {
         const segments = [...base, 'name'];
-        errors.push({
-          error: {
-            path: formatPath(segments),
-            code: 'duplicate-name',
-            message: `${formatPath(segments)} ${JSON.stringify(action['name'])} is already used by actions[${first}]`,
-          },
-          locate: { segments },
-        });
+        const firstName = (actions[first] as RawObject)['name'];
+        const message =
+          firstName === action['name']
+            ? `${formatPath(segments)} ${JSON.stringify(action['name'])} is already used by actions[${first}]`
+            : `${formatPath(segments)} ${JSON.stringify(action['name'])} has the same route as ${JSON.stringify(firstName)} (actions[${first}]): both map to "${routeKey}"; rename one of them`;
+        errors.push({ error: { path: formatPath(segments), code: 'duplicate-name', message }, locate: { segments } });
       }
     }
 
     const auth = action['auth'];
-    if (isObject(auth)) {
+    // A mistyped `public` or `requires` is already reported by the schema; do not add a second error.
+    const authShapeValid =
+      isObject(auth) &&
+      (!('public' in auth) || typeof auth['public'] === 'boolean') &&
+      (!('requires' in auth) || Array.isArray(auth['requires']));
+    if (isObject(auth) && authShapeValid) {
       const authPath = formatPath([...base, 'auth']);
       const isPublic = auth['public'] === true;
       const hasRequires = 'requires' in auth;
@@ -94,9 +101,13 @@ export function buildActions(actions: unknown): ManifestAction[] {
     const input = compileFields(raw['input'] as Record<string, string>);
     const output = compileFields(raw['output'] as Record<string, string>);
     if (!input.ok || !output.ok) throw new Error('buildActions called on an invalid action');
-    const { idempotent, ...rest } = raw;
+    const { idempotent, auth, ...rest } = raw;
+    // Normalized to exactly one ActionAuth form: `{ public: false, requires }` becomes `{ requires }`.
+    const rawAuth = auth as { public?: boolean; requires?: string[] };
+    const normalizedAuth: ActionAuth = rawAuth.public === true ? { public: true } : { requires: rawAuth.requires ?? [] };
     return {
-      ...(rest as Omit<ManifestAction, 'idempotent' | 'inputSchema' | 'outputSchema'>),
+      ...(rest as Omit<ManifestAction, 'idempotent' | 'auth' | 'inputSchema' | 'outputSchema'>),
+      auth: normalizedAuth,
       idempotent: idempotent === true,
       inputSchema: input.schema satisfies ObjectSchema,
       outputSchema: output.schema satisfies ObjectSchema,

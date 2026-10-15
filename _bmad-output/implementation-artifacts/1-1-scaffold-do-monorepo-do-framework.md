@@ -4,8 +4,7 @@ baseline_commit: ca1f3e56cb401b6c6e3e9b9d6ff2a139ae2d2b5f
 
 # Story 1.1: Scaffold do monorepo do framework
 
-Status: review
-
+Status: done
 <!-- Validação opcional: rodar a validação do create-story (checklist.md) antes do dev-story. -->
 
 ## Story
@@ -70,6 +69,25 @@ para que cada story seguinte tenha onde nascer sem violar o AD-3.
   - [x] Em Node 24.7+: `pnpm install` limpo, `pnpm build`, `pnpm test`, `pnpm check:deps` verdes.
   - [x] Provar o AC 3 de ponta a ponta além do teste: criar temporariamente em `packages/manifest/src` um import de `@tecton/core`, ver `pnpm check:deps` falhar com arquivo, import e regra, e desfazer.
   - [x] Commitar o `pnpm-lock.yaml`.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] D1 (alta, segurança) `deploy.yml` em repositório público: injeção de comando via nome de branch — `${{ github.ref_name }}` e `github.repository` entram direto no script que roda `sudo salt '*'` no runner self-hosted; `workflow_dispatch` permite qualquer branch; deploy não espera o CI; sem `permissions:` nem `concurrency`; runner self-hosted com sudo ligado a repo público (PR de fork pode usar `runs-on: self-hosted`). Commit 29a2dbd do autor, anterior ao Epic 1. Opções: corrigir o workflow agora / o autor trata / adiar — decidido (2026-10-15): corrigir agora — env vars no lugar de interpolação, dispatch só em main, deploy só após CI verde (workflow_run), permissions/concurrency, nomes em inglês
+- [x] [Review][Patch] P10 (média) Burn-in do nightly não embaralha: `pnpm test -- --sequence.shuffle` repassa o `--` e o Vitest ignora o flag (confirmado); `iterations=0` passa sem rodar nada; só PostgreSQL [.github/workflows/nightly.yml:42]
+- [x] [Review][Patch] P35 (baixa) `check:deps`: saída não mostra o especificador `@tecton/core` (AC 3/T5); sem teste das regras com várias entradas e hífen; pacote novo fica sem regra [.dependency-cruiser.cjs, tools/check-deps]
+- [x] [Review][Patch] P36 (baixa) Teste do `check:deps` depende do caminho interno do binário do dependency-cruiser [tools/check-deps/check-deps.test.ts:13]
+- [x] [Review][Patch] P37 (baixa) Suporte de teste: `withDockerCheck` reescreve qualquer erro com 'docker' (ex. falha de pull); `TECTON_TEST_DB` vazio não cai em postgres; `clock.set` aceita data inválida; erro de limpeza mascara o erro do teste; rede vaza se o Toxiproxy falhar; teste de Valkey fora só passa por timeout [tests/support]
+- [x] [Review][Patch] P38 (baixa) Detector de segredo só acha a forma literal (não JSON-escapada, base64, URL) e ignora em silêncio segredo com menos de 6 caracteres [tests/support/secrets.ts]
+- [x] [Review][Patch] P39 (baixa) CI: `cancel-in-progress` cancela execuções em `main` (que dispara deploy); push + pull_request rodam a matriz duas vezes por PR [.github/workflows/ci.yml]
+- [x] [Review][Patch] P41 (baixa) README raiz omite o job `containers` e o `test:generation` na descrição do CI [README.md]
+- [x] [Review][Patch] P42 (baixa) `.env.example`: nada carrega o `.env` nos testes; `DOCKER_HOST=tcp://...:2375` sem aviso de API Docker sem autenticação [.env.example]
+- [x] [Review][Patch] P43 (baixa) Apêndice do Test Design usa `-t "@persistence"`, mas a convenção é por nome de arquivo [_bmad-output/test-artifacts/test-design-qa.md]
+- [x] [Review][Patch] P44 (baixa) `.tsbuildinfo` dentro de `dist` iria para o pacote publicado [packages/*/tsconfig.json]
+- [x] [Review][Defer] W1 Fixture global `capturedOutput` (captura de logs/spans com varredura de segredos ao fim de cada teste, P0-003) não entregue no Test Framework [tests/support] — sem logs/spans estruturados ainda; entra com a Story 3.3 (OpenTelemetry) — adiado
+- [x] [Review][Defer] W2 Fixture `jwksTls` adiada do Test Framework [tests/support] — depende do JWKS; entra na Story 2.4 — adiado
+- [x] [Review][Defer] W3 `withDependencyDown` sem a API por nome (`valkey`/`jwks`/`directory`/`legacy`) do Test Design [tests/support/network-faults.ts] — completa conforme cada dependência existir (Epics 2–6) — adiado
+- [x] [Review][Defer] W5 Jobs Playwright dormentes: `e2e` falha sem testes e `api` passa vazio sem `BASE_URL` [.github/workflows/nightly.yml:77] — corrigir ao ativar (Story 3.13 / Epic 4) — adiado
+- [x] [Review][Defer] W6 `docs/aether-tecton-compatibility.md` (commit ca1f3e5 do autor) reordena um log declarado append-only [docs/aether-tecton-compatibility.md] — fora do escopo do Epic 1 — adiado
 
 ## Dev Notes
 
@@ -258,3 +276,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.1 implementada: monorepo pnpm com 8 pacotes em TypeScript 6.0.3, `check:deps` do AD-3, Vitest, CI com matriz de bancos para persistência e seção de desenvolvimento no README.
+- 2026-10-15: Code review do Epic 1 — 11 correção(ões) aplicada(s) (ver Review Findings); status → done.

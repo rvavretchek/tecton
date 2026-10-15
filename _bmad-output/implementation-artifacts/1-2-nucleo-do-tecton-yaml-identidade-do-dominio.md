@@ -4,8 +4,7 @@ baseline_commit: 91eca00a558a56c9157c69973433e7e778c5d32a
 
 # Story 1.2: Núcleo do `tecton.yaml` (identidade do domínio)
 
-Status: review
-
+Status: done
 <!-- Validação opcional: rodar a validação do create-story (checklist.md) antes do dev-story. -->
 
 ## Story
@@ -65,6 +64,13 @@ para que um manifest inválido seja rejeitado com erro claro antes de qualquer g
 - [x] **T8. Verificação final**
   - [x] `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps` verdes.
   - [x] `node -e` importando `@tecton/manifest` do `dist` e parseando `docs/examples/tenant-domain-manifest-v0.yaml` com sucesso.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] P5 (média) Manifest com aliases YAML aninhados faz `parseManifest` lançar `ReferenceError` (confirmado), quebrando o contrato de nunca lançar e derrubando o lint; capturar e devolver `yaml-syntax` [packages/manifest/src/parse.ts:95]
+- [x] [Review][Patch] P14 (baixa) Erros duplicados: `domain` longo e fora do padrão dá o mesmo erro duas vezes; `auth.requires` não-lista dá também `invalid-auth` no pai [packages/manifest/src/parse.ts, actions.ts]
+- [x] [Review][Patch] P22 (baixa) `ParseOptions.fileName` documentada e nunca usada [packages/manifest/src/parse.ts, types.ts]
+- [x] [Review][Patch] P23 (baixa) Mensagem 'must be a object' (artigo errado) [packages/manifest/src/errors.ts:180]
 
 ## Dev Notes
 
@@ -214,3 +220,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.2 implementada: parser e validador da identidade do `tecton.yaml`, erros estruturados com posição, JSON Schema draft-07 exportado.
+- 2026-10-15: Code review do Epic 1 — 4 correção(ões) aplicada(s) (ver Review Findings); status → done.

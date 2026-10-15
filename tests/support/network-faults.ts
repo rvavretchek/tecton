@@ -22,7 +22,13 @@ export interface FaultLab {
 export async function startFaultLab(): Promise<FaultLab> {
   return withDockerCheck(async () => {
     const network = await new Network().start();
-    const toxiproxy = await new ToxiProxyContainer(IMAGES.toxiproxy).withNetwork(network).start();
+    let toxiproxy: StartedToxiProxyContainer;
+    try {
+      toxiproxy = await new ToxiProxyContainer(IMAGES.toxiproxy).withNetwork(network).start();
+    } catch (error) {
+      await network.stop().catch(() => undefined);
+      throw error;
+    }
     return {
       network,
       toxiproxy,
@@ -37,13 +43,17 @@ export async function startFaultLab(): Promise<FaultLab> {
 
 /**
  * Runs `action` with the dependency behind `proxy` unreachable, then restores it,
- * even when `action` throws.
+ * even when `action` throws. A failure to restore never hides the action's own error.
  */
 export async function withDependencyDown<T>(proxy: CreatedProxy, action: () => Promise<T>): Promise<T> {
   await proxy.setEnabled(false);
+  let result: T;
   try {
-    return await action();
-  } finally {
-    await proxy.setEnabled(true);
+    result = await action();
+  } catch (error) {
+    await proxy.setEnabled(true).catch(() => undefined);
+    throw error;
   }
+  await proxy.setEnabled(true);
+  return result;
 }

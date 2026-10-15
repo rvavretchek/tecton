@@ -6,7 +6,7 @@ import { buildEvents, checkEvents } from './events.js';
 import { buildObjectClass, checkObjectClass } from './object-class.js';
 import { translateAjvErrors, type PathSegments, type TranslatedError } from './errors.js';
 import { manifestJsonSchema } from './schema.js';
-import type { ManifestError, ParseOptions, ParseResult, TectonManifest } from './types.js';
+import type { ManifestError, ParseResult, TectonManifest } from './types.js';
 
 // Compiled once per process; `allErrors` so every problem comes back in one pass.
 const validate = new Ajv({ strict: true, allErrors: true }).compile(manifestJsonSchema);
@@ -70,9 +70,10 @@ export function compareErrors(a: ManifestError, b: ManifestError): number {
  * Parses and validates the identity of a `tecton.yaml`. Never throws for invalid input:
  * every problem is returned at once, with a stable code and, when known, line/column.
  */
-export function parseManifest(source: string, _options: ParseOptions = {}): ParseResult {
+export function parseManifest(source: string): ParseResult {
   const lineCounter = new LineCounter();
-  const doc = parseDocument(source, { lineCounter, prettyErrors: false, uniqueKeys: true });
+  // logLevel 'error': problems come back as data; the yaml library must not print process warnings.
+  const doc = parseDocument(source, { lineCounter, prettyErrors: false, uniqueKeys: true, logLevel: 'error' });
 
   const problems = [...doc.errors, ...doc.warnings];
   if (problems.length > 0) {
@@ -92,13 +93,21 @@ export function parseManifest(source: string, _options: ParseOptions = {}): Pars
     };
   }
 
-  const data = doc.toJS() as Record<string, unknown>;
+  // Aliases are expanded here; a document built to explode (nested aliases, a "billion laughs")
+  // makes the yaml library throw, which must become an error like any other, never an exception.
+  let data: Record<string, unknown>;
+  try {
+    data = doc.toJS({ maxAliasCount: 100 }) as Record<string, unknown>;
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    return { ok: false, errors: [{ path: '', code: 'yaml-syntax', message: `the manifest cannot be expanded: ${reason}` }] };
+  }
   const structural: TranslatedError[] = validate(data) ? [] : translateAjvErrors(validate.errors ?? [], data);
   const semantic = [
     ...checkActions(data['actions']),
     ...checkEvents(data['events'], data['actions']),
     ...checkObjectClass(data['objectClass']),
-    ...checkDependencies(data['dependencies']),
+    ...checkDependencies(data['dependencies'], data['domain']),
   ];
   // A structural error on a path already explains it; semantic checks never pile onto it.
   const structuralPaths = new Set(structural.map((t) => t.error.path));

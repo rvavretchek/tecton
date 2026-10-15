@@ -4,8 +4,7 @@ baseline_commit: 48a29939825c31011dcb3b0e748313741df63ef7
 
 # Story 1.6: `tecton-admin lint` (base)
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev ou agente de IA trabalhando num workspace Tecton**,
@@ -17,7 +16,7 @@ para que uma referência quebrada falhe explicitamente em vez de passar como vá
 1. **Validação de todos os manifests.** Dado um workspace com um ou mais `tecton.yaml`, quando eu rodo `tecton-admin lint`, então todos os manifests são validados com as regras das Stories 1.2 a 1.5. E o comando sai com código 0 se não houver erro e com código diferente de 0 se houver.
 2. **Formato do erro.** Dado um erro encontrado, quando o lint o reporta, então a saída mostra arquivo, linha, `path`, `code` e `message`, em inglês.
 3. **`--format json`.** Dada a opção `--format json`, quando eu rodo o lint, então a saída é JSON estruturado.
-4. **Ordem de resolução.** Dada uma referência a outro domínio (`allowedParents`, `allowedChildren` ou `consumes`), quando o lint tenta resolvê-la, então a resolução segue esta ordem: (1) manifest no workspace local; (2) manifest exportado por um pacote npm instalado; (3) caminho explícito declarado em `dependencies`. E a resolução por pacote npm é testada com um pacote de fixture.
+4. **Ordem de resolução.** Dada uma referência a outro domínio (`allowedParents`, `allowedChildren` ou `consumes`), quando o lint tenta resolvê-la, então a resolução segue esta ordem: (1) manifest no workspace local; (2) caminho explícito declarado em `dependencies`; (3) manifest exportado por um pacote npm instalado (ordem alterada no code review de 2026-10-15: o caminho escrito à mão vence um pacote que declare o mesmo domínio). E a resolução por pacote npm é testada com um pacote de fixture.
 5. **Classe não resolvida.** Dado um `objectClass` em `allowedParents` ou `allowedChildren` que não é encontrado por nenhum dos três caminhos, quando o lint roda, então ele falha e nomeia a referência não resolvida (FR-2).
 6. **Evento consumido inexistente.** Dada uma entrada `consumes` que aponta para um evento que não está em `publishes` do domínio de origem, quando o lint roda, então ele falha e nomeia o domínio e o evento.
 7. **URL remota.** Dada uma dependência declarada por URL remota, quando o lint roda, então ele falha com mensagem clara de que esse modo de resolução não existe no MVP.
@@ -49,6 +48,20 @@ para que uma referência quebrada falhe explicitamente em vez de passar como vá
   - [x] `packages/cli/src/cli.test.ts`: `run(['lint'])` com saída texto e JSON e os códigos de saída.
   - [x] Teste de `dependencies` com caminho e URL em `parse.test.ts` / novo arquivo.
 - [x] **T5. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`; rodar `node packages/cli/dist/bin.js lint --cwd docs/examples` e conferir que os dois exemplos passam (`Root` é embutida; `User`, `Group` e `Custodian` resolvem pelos stand-ins — ver Dev Notes).
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] D3 (baixa) Precedência: um `{ domain, path }` explícito perde para um pacote npm instalado que declare o mesmo domínio (o AC 4 manda workspace → pacote → caminho, primeiro vence). Opções: manter a ordem do AC / caminho explícito vence o pacote — decidido (2026-10-15): caminho explícito vence o pacote; AC 4 da 1.6 atualizado
+- [x] [Review][Patch] P6 (média) Ciclo de dependência some quando o menor domínio do ciclo vem de pacote ou caminho (reproduzido por dois revisores); reportar no primeiro membro do workspace [packages/manifest/src/lint/lint-workspace.ts:235]
+- [x] [Review][Patch] P7 (média) Lint aborta com EISDIR/EACCES quando `tecton.manifests` aponta para diretório ou arquivo ilegível; usar `manifestFileOf` e virar problema [packages/manifest/src/lint/lint-workspace.ts:166]
+- [x] [Review][Patch] P8 (média) Lint de um subconjunto (`paths`) dá `unresolved-reference` falso para domínios irmãos e aviso falso do AGENTS.md; indexar o workspace inteiro, lintar só os alvos e checar o AGENTS.md só sem `paths` [packages/manifest/src/lint/lint-workspace.ts:130]
+- [x] [Review][Patch] P13 (baixa) `lintWorkspace` ignora em silêncio caminho inexistente em `paths` (o CLI protege, a biblioteca não) [packages/manifest/src/lint/lint-workspace.ts:134]
+- [x] [Review][Patch] P15 (baixa) Manifest inválido referenciado por vários caminhos tem os erros repetidos (sem cache de carga) [packages/manifest/src/lint/lint-workspace.ts:174]
+- [x] [Review][Patch] P16 (baixa) Manifest inválido no workspace faz os outros receberem 'not found' para o domínio dele; dizer que está num manifest inválido [packages/manifest/src/lint/lint-workspace.ts]
+- [x] [Review][Patch] P19 (baixa) Domínio dependendo de si mesmo e `path` absoluto são aceitos [packages/manifest/src/dependencies.ts]
+- [x] [Review][Patch] P20 (baixa) `objectClass.extends` não é resolvido; `DirectoryObject` não é nome reservado; mesmo `objectClass.name` em dois domínios passa [packages/manifest/src/lint/lint-workspace.ts, object-class.ts]
+- [x] [Review][Patch] P27 (baixa) `lint --format json` imprime texto puro nas falhas fatais (sem manifest, caminho inexistente) [packages/cli/src/commands/lint.ts]
+- [x] [Review][Defer] W4 `lintWorkspace` sem ponto de extensão para checagens extras; busca de pacote feita a mão em vez de `createRequire` [packages/manifest/src/lint/lint-workspace.ts] — o Epic 6 (lint:gateway, aviso de quórum) define o hook; a busca manual funciona com pacotes cujo `exports` não expõe o package.json — adiado
 
 ## Dev Notes
 
@@ -109,3 +122,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.6 implementada: `tecton-admin lint` com resolução entre domínios (workspace, pacotes npm, caminhos), dependências por caminho, `Root` embutida, saída texto/JSON.
+- 2026-10-15: Code review do Epic 1 — 10 correção(ões) aplicada(s) (ver Review Findings); status → done.

@@ -1,0 +1,14 @@
+{
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "paths": {
+      "@tecton/*": [
+        "./packages/*/src/index.ts"
+      ],
+      "#test-support": [
+        "./tests/support/index.ts"
+      ]
+    }
+  }
+}

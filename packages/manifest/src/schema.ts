@@ -27,6 +27,15 @@ export const CONSUMED_EVENT_PATTERN = '^[a-z][a-z0-9]*(-[a-z0-9]+)*\\.[A-Z][a-zA
 /** Permissions: two or more lowercase segments separated by ":" (tenant:create, auth:service:register). */
 export const PERMISSION_PATTERN = '^[a-z][a-z0-9-]*(:[a-z][a-z0-9-]*)+$';
 
+/** One enum value: letters, digits, "-" and "_" (shared by enum[a,b] and objectClass values). */
+export const ENUM_VALUE_PATTERN = '^[a-zA-Z0-9_-]+$';
+/**
+ * Short field type, for editors and agents: a primitive or enum[a,b], optionally followed by "?".
+ * The parser reports a mismatch with its own, more specific message (field-types.ts).
+ */
+export const FIELD_TYPE_PATTERN =
+  '^(string|number|integer|boolean|uuid|date|datetime|enum\\[\\s*[a-zA-Z0-9_-]+(\\s*,\\s*[a-zA-Z0-9_-]+)*\\s*\\])\\??$';
+
 const nonEmptyText = { type: 'string', pattern: '\\S' } as const;
 
 const fieldMap = {
@@ -34,7 +43,7 @@ const fieldMap = {
   description:
     'Map of field name (camelCase) to type: string, number, integer, boolean, uuid, date, datetime or enum[a,b]; append "?" for optional. Quote enum inside { }: "enum[a,b]".',
   propertyNames: { pattern: FIELD_NAME_PATTERN },
-  additionalProperties: { type: 'string' },
+  additionalProperties: { type: 'string', pattern: FIELD_TYPE_PATTERN },
 } as const;
 
 const emitRef = {
@@ -148,7 +157,7 @@ const objectClassSchema = {
           },
           required: { type: 'boolean', description: 'Default false.' },
           default: { description: 'Default value; must match the type.' },
-          values: { type: 'array', items: { type: 'string' }, minItems: 1, uniqueItems: true, description: 'Allowed values of an enum.' },
+          values: { type: 'array', items: { type: 'string', pattern: ENUM_VALUE_PATTERN }, minItems: 1, uniqueItems: true, description: 'Allowed values of an enum.' },
           unique: { type: 'boolean', description: 'Unique across objects of the class (checked by the Directory).' },
           readOnly: { type: 'boolean', description: 'Shown but not editable through the generic attribute form.' },
         },

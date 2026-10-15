@@ -66,7 +66,14 @@ export function checkAgentsDocument(root: string, manifests: readonly TectonMani
   }
 
   const divergences: AgentsDivergence[] = [];
-  const byName = new Map(listed.map((domain) => [domain.name, domain]));
+  const byName = new Map<string, ListedDomain>();
+  for (const domain of listed) {
+    if (byName.has(domain.name)) {
+      divergences.push({ line: section.line, message: `domain "${domain.name}" is listed more than once in the AGENTS.md domains section` });
+    } else {
+      byName.set(domain.name, domain);
+    }
+  }
   const actual = new Map(manifests.map((manifest) => [manifest.domain, manifest]));
 
   for (const manifest of [...actual.values()].sort((a, b) => a.domain.localeCompare(b.domain))) {

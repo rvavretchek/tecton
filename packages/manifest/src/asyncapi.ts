@@ -11,12 +11,12 @@ export interface AsyncApiOptions {
 
 type Message = Record<string, unknown>;
 
-/** PascalCase of a kebab-case domain (`leave-requests` -> `LeaveRequests`), for operation ids. */
-function pascal(domain: string): string {
-  return domain
-    .split('-')
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join('');
+/**
+ * Operation id of a consumed event: `receive_<domain>_<Event>`. "_" appears in neither part,
+ * so `leave-request.Created` and `leave.RequestCreated` never share an id.
+ */
+function receiveOperationId(domain: string, event: string): string {
+  return `receive_${domain}_${event}`;
 }
 
 /**
@@ -65,7 +65,7 @@ export function buildAsyncApiDocument(manifest: TectonManifest, options: AsyncAp
       };
     }
     channel(domain).messages[event] = { $ref: `#/components/messages/${messageId}` };
-    operations[`receive${pascal(domain)}${event}`] = {
+    operations[receiveOperationId(domain, event)] = {
       action: 'receive',
       channel: { $ref: `#/channels/${domain}` },
       messages: [{ $ref: `#/channels/${domain}/messages/${event}` }],

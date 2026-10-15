@@ -46,6 +46,20 @@ export const frameworkErrors = {
       i18nKey: 'tecton.error.notImplemented',
       message: `action "${action}" of domain "${domain}" is not implemented yet`,
     }),
+  /**
+   * A request Fastify refused before any handler ran (malformed or empty JSON, body too large,
+   * unsupported media type). Generic messages: the parser's own text is never echoed.
+   */
+  requestRejected: (status: number) => {
+    const known: Record<number, { slug: string; message: string }> = {
+      400: { slug: 'malformed-request', message: 'request body could not be read' },
+      413: { slug: 'payload-too-large', message: 'request body is too large' },
+      415: { slug: 'unsupported-media-type', message: 'request content type is not supported' },
+    };
+    const { slug, message } = known[status] ?? { slug: 'request-rejected', message: 'request was rejected' };
+    const key = slug.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase());
+    return new TectonError({ status, slug, i18nKey: `tecton.error.${key}`, message });
+  },
   /** Never carries the original exception: its message may leak internals. */
   internal: () => new TectonError({ status: 500, slug: 'internal-error', i18nKey: 'tecton.error.internal', message: 'internal error' }),
 };

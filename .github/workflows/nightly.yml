@@ -36,12 +36,15 @@ jobs:
       - run: pnpm build
       - name: Repeat suites in shuffled order
         run: |
-          case "$ITERATIONS" in ''|*[!0-9]*) echo "iterations must be a number"; exit 1;; esac
+          case "$ITERATIONS" in ''|*[!0-9]*|0*) echo "iterations must be a positive number"; exit 1;; esac
+          # No "--" before the flag: pnpm would forward it and Vitest would ignore the option.
           for i in $(seq 1 "$ITERATIONS"); do
             echo "::group::Burn-in iteration $i/$ITERATIONS"
-            pnpm test -- --sequence.shuffle || exit 1
-            pnpm test:containers -- --sequence.shuffle || exit 1
-            pnpm test:persistence -- --sequence.shuffle || exit 1
+            pnpm test --sequence.shuffle || exit 1
+            pnpm test:containers --sequence.shuffle || exit 1
+            for db in postgres mariadb mysql; do
+              TECTON_TEST_DB="$db" pnpm test:persistence --sequence.shuffle || exit 1
+            done
             echo "::endgroup::"
           done
       - name: Generated workspace installs and builds

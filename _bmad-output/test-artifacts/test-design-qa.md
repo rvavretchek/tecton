@@ -476,7 +476,7 @@ pnpm vitest run -t "@P0"
 npx playwright test --grep @P0
 
 # Só persistência (matriz de bancos)
-TECTON_TEST_DB=mariadb pnpm vitest run -t "@persistence"
+TECTON_TEST_DB=mariadb pnpm test:persistence   # arquivos *.persistence.test.ts (convenção por nome de arquivo, não por tag)
 ```
 
 ---

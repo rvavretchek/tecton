@@ -39,4 +39,9 @@ describe('createTestClock', () => {
     expect(() => clock.advance(-1)).toThrow(RangeError);
     expect(() => clock.advance(Number.NaN)).toThrow(RangeError);
   });
+
+  it('rejects invalid dates', () => {
+    expect(() => createTestClock(new Date('nope'))).toThrow(RangeError);
+    expect(() => createTestClock().set(new Date('nope'))).toThrow(RangeError);
+  });
 });

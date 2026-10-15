@@ -4,8 +4,7 @@ baseline_commit: 8f8cd23032f54cabcf0b6b31d48c7ea3f1a78618
 
 # Story 1.8: AsyncAPI a partir dos events
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev ou agente de IA que precisa entender os contratos assíncronos de um domínio**,
@@ -33,6 +32,10 @@ para que publicação e consumo de eventos fiquem documentados e validados sem e
   - [x] `tools/asyncapi/validate-examples.mjs` + script `pnpm validate:asyncapi`: carrega os manifests de exemplo pelo `dist`, gera e valida cada AsyncAPI, imprime o resultado e sai com código ≠ 0 em qualquer erro. Passo novo no job `build-test` do CI, depois do build.
 - [x] **T3. Exportar** `buildAsyncApiDocument` e o tipo de opções no `index.ts`.
 - [x] **T4. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`, `pnpm lint:examples`, `pnpm validate:asyncapi`.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] P11 (média) Ids de operação `receive` colidem (`leave-request.Created` × `leave.RequestCreated`) e a segunda some do AsyncAPI (confirmado) [packages/manifest/src/asyncapi.ts:225]
 
 ## Dev Notes
 
@@ -75,3 +78,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-09: Story 1.8 implementada: AsyncAPI 3.0 gerado dos events e validado pelo parser oficial, inclusive no CI.
+- 2026-10-15: Code review do Epic 1 — 1 correção(ões) aplicada(s) (ver Review Findings); status → done.

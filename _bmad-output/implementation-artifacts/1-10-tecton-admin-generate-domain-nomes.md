@@ -4,8 +4,7 @@ baseline_commit: c9823da0bd92635f21dffefb1dc2330176e60b36
 
 # Story 1.10: `tecton-admin generate domain <nomes...>`
 
-Status: review
-
+Status: done
 ## Story
 
 Como **dev ou agente de IA estruturando os domínios de um sistema**,
@@ -40,6 +39,14 @@ para começar a declarar actions e events imediatamente.
   - [x] Rápidos: `generate-domain.test.ts` (workspace criado por `new` num diretório temporário; AC 1–4 e 6, incluindo `lint` passando logo depois; `--from` com comentários e linhas vazias; modo `link:`); `domain-server.test.ts` no core (manifest com action → 501 via `inject`; manifest inválido → erro claro); testes do aviso do `AGENTS.md` no lint (texto e JSON).
   - [x] Lento (`*.generation.test.ts`): workspace com `--framework`, `generate domain finance`, acrescentar uma action ao manifest, `pnpm install`, `turbo run build`, iniciar o domínio com `pnpm start` numa porta livre, `POST /finance/<action>` → 501, encerrar o processo.
 - [x] **T6. Verificação final:** `pnpm build`, `pnpm typecheck`, `pnpm test`, `pnpm check:deps`, `pnpm lint:examples`, `pnpm validate:asyncapi`, `pnpm test:generation`.
+
+### Review Findings (code review do Epic 1, 2026-10-13)
+
+- [x] [Review][Patch] P21 (baixa) Entradas repetidas na seção do AGENTS.md somem em silêncio (Map) [packages/manifest/src/lint/agents-document.ts:332]
+- [x] [Review][Patch] P28 (baixa) `--from` apontando para diretório lança EISDIR; BOM UTF-8 não é removido [packages/cli/src/commands/generate-domain.ts]
+- [x] [Review][Patch] P30 (baixa) `main.ts` gerado: `PORT` vazio vira porta aleatória e `abc` vira NaN; sem SIGTERM/SIGINT para fechar o servidor [packages/cli/templates/domain/src/main.ts]
+- [x] [Review][Patch] P45 (baixa) 'Tudo ou nada' do `generate domain` (e do `new`) só vale na validação: falha de disco no meio deixa domínios parciais, sem desfazer [packages/cli/src/commands/generate-domain.ts:65]
+- [x] [Review][Patch] P46 (média) Domínios gerados recebem `^<versão do CLI em execução>`, não a versão que o workspace fixou; um CLI global de outra versão gera dependências desalinhadas [packages/cli/src/workspace.ts]
 
 ## Dev Notes
 
@@ -83,3 +90,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 ## Change Log
 
 - 2026-10-12: Story 1.10 implementada: `tecton-admin generate domain` (vários nomes ou `--from`, tudo ou nada), walking skeleton executável e aviso de divergência do `AGENTS.md` no lint.
+- 2026-10-15: Code review do Epic 1 — 5 correção(ões) aplicada(s) (ver Review Findings); status → done.

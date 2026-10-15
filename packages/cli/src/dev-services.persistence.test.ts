@@ -47,7 +47,8 @@ describe(`Dev Services with ${engine} (Story 1.11, AC 3)`, () => {
       throw new Error('This test needs Docker with the compose plugin. Start Docker, or point DOCKER_HOST to a reachable engine.');
     }
     expect(await run(['new', name, '--db', engine], io)).toBe(0);
-    expect(await run(['generate', 'domain', 'finance'], { ...io, cwd: root })).toBe(0);
+    // "user" is a reserved word in PostgreSQL: its CREATE DATABASE must quote the name.
+    expect(await run(['generate', 'domain', 'user', 'finance'], { ...io, cwd: root })).toBe(0);
   }, 60_000);
 
   afterAll(() => {
@@ -60,6 +61,7 @@ describe(`Dev Services with ${engine} (Story 1.11, AC 3)`, () => {
     expect(up.status, up.output).toBe(0);
 
     expect(await waitForDatabase(databaseName('finance'))).toBe(true);
+    expect(await waitForDatabase(databaseName('user'))).toBe(true);
     expect(compose('exec -T valkey valkey-cli ping').output).toBe('PONG');
   }, 300_000);
 

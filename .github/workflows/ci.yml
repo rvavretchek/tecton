@@ -2,8 +2,11 @@ name: CI
 
 # Runs on every push and pull request. Target: under 15 minutes (Test Design, execution strategy).
 # Job names are referenced by branch protection; keep them stable.
+# Pushes run CI on the long-lived branches; other branches get it through their pull request
+# (one run per change instead of two).
 on:
   push:
+    branches: [main, dev]
   pull_request:
 
 permissions:
@@ -11,7 +14,8 @@ permissions:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel on main: its successful runs trigger the deploy.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # Static gates + tests that need no infrastructure.

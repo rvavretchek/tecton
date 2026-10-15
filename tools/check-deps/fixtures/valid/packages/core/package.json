@@ -1,0 +1,7 @@
+{
+  "name": "@tecton/core",
+  "private": true,
+  "dependencies": {
+    "@tecton/manifest": "workspace:*"
+  }
+}
