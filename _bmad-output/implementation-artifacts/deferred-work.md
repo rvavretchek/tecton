@@ -11,3 +11,10 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 - W5 Jobs Playwright dormentes: `e2e` falha sem testes e `api` passa vazio sem `BASE_URL` [.github/workflows/nightly.yml:77] — corrigir ao ativar (Story 3.13 / Epic 4) (story 1-1)
 - W6 `docs/aether-tecton-compatibility.md` (commit ca1f3e5 do autor) reordena um log declarado append-only [docs/aether-tecton-compatibility.md] — fora do escopo do Epic 1 (story 1-1)
 - W7 `createTectonServer` usa `logger: false` por padrão, então a exceção de um 500 se perde fora do `main.ts` gerado [packages/core/src/server.ts] — configuração de log vem com o ConfigProvider/OTel (Stories 3.1/3.3) (story 1-7)
+
+## Deferred from: code review da Story 2.1 (2026-10-15)
+
+- W1 Concorrência sem limite no threadpool do libuv (rajada de logins) — limite de taxa e bloqueio de login nas Stories 2.6 e 3.7; dimensionar `UV_THREADPOOL_SIZE` na 2.2
+- W2 Verificação de mentira para login inexistente (timing) — Story 2.2 (EQ-7)
+- W3 Pepper em `process.env` durante todo o processo — `ConfigProvider` (Story 3.1)
+- W4 Verificador de hashes legados (migração) — `LegacyAuthBridge` (Story 6.5)

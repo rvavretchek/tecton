@@ -1,10 +1,9 @@
 import { argon2, createHmac } from 'node:crypto';
-import { promisify } from 'node:util';
-import { inspect } from 'node:util';
+import { inspect, promisify } from 'node:util';
 import { assertNoSecretsLeaked } from '#test-support';
 import { describe, expect, it } from 'vitest';
 import type { AuthProvider } from './auth-provider.js';
-import { createArgon2idAuthProvider } from './argon2id-auth-provider.js';
+import { createArgon2idAuthProvider, MAX_PASSWORD_LENGTH } from './argon2id-auth-provider.js';
 import { PepperConfigError, type Pepper } from './pepper.js';
 
 const argon2Async = promisify(argon2);
@@ -187,5 +186,114 @@ describe('Argon2id AuthProvider: no leaks (AC 6)', () => {
 
     expect(message).not.toBe('');
     assertNoSecretsLeaked(message, { pepper: short });
+  });
+});
+
+describe('Argon2id AuthProvider: code review fixes (Story 2.1)', () => {
+  const tamper = (hash: string, from: RegExp | string, to: string) => hash.replace(from, to);
+
+  /** A valid hash built by hand with chosen salt and tag sizes (the provider always uses 16 and 32). */
+  async function handMadeHash(saltBytes: number, tagBytes: number): Promise<string> {
+    const salt = Buffer.alloc(saltBytes, 7);
+    const message = createHmac('sha256', PEPPER_1.key).update(PASSWORD.normalize('NFKC'), 'utf8').digest();
+    // Argon2 itself refuses salts under 8 bytes; those hashes must be refused by the parser
+    // before Argon2 runs, so any tag will do.
+    const tag =
+      saltBytes < 8
+        ? Buffer.alloc(tagBytes, 1)
+        : await argon2Async('argon2id', { message, nonce: salt, memory: 19456, passes: 2, parallelism: 1, tagLength: tagBytes });
+    return `$argon2id$v=19$m=19456,t=2,p=1,keyid=${unpadded(Buffer.from('1'))}$${unpadded(salt)}$${unpadded(tag)}`;
+  }
+
+  it('P1: a caller mutating a rejection result never turns later rejections into matches', async () => {
+    const auth = provider();
+    const first = await auth.verifyPassword(PASSWORD, 'garbage');
+    (first as { valid: boolean }).valid = true;
+
+    expect(await auth.verifyPassword(PASSWORD, 'other-garbage')).toEqual({ valid: false, needsRehash: false });
+  });
+
+  it('P2: refuses passwords with lone UTF-16 surrogates instead of letting them collide', async () => {
+    const auth = provider();
+    const lone = (code: number) => `pw${String.fromCodePoint(code)}`;
+    const hash = await auth.hashPassword('pw-normal');
+
+    await expect(auth.hashPassword(lone(0xd800))).rejects.toThrow(/well-formed/);
+    expect(await auth.verifyPassword(lone(0xdfff), hash)).toEqual({ valid: false, needsRehash: false });
+  });
+
+  it.each([
+    ['t', 'm=19456,t=2,', 'm=19456,t=9,'],
+    ['p', ',p=1,', ',p=5,'],
+    ['m', 'm=19456,', 'm=77825,'],
+  ])('P3: refuses a stored %s above 4x the configured value', async (_label, from, to) => {
+    const auth = provider();
+    const hash = tamper(await auth.hashPassword(PASSWORD), from, to);
+
+    expect(await auth.verifyPassword(PASSWORD, hash)).toEqual({ valid: false, needsRehash: false });
+  });
+
+  it.each([
+    ['a salt under 8 bytes', 7, 32],
+    ['a salt over 64 bytes', 65, 32],
+    ['a tag under 16 bytes', 16, 15],
+    ['a tag over 64 bytes', 16, 65],
+  ])('P4: refuses a hash with %s', async (_label, salt, tag) => {
+    expect(await provider().verifyPassword(PASSWORD, await handMadeHash(salt, tag))).toEqual({ valid: false, needsRehash: false });
+  });
+
+  it.each([
+    ['a short salt', 8, 32],
+    ['a short tag', 16, 16],
+    ['a long tag', 16, 64],
+  ])('P4: accepts but asks to rehash a hash with %s', async (_label, salt, tag) => {
+    expect(await provider().verifyPassword(PASSWORD, await handMadeHash(salt, tag))).toEqual({ valid: true, needsRehash: true });
+  });
+
+  it('P5: refuses passwords longer than MAX_PASSWORD_LENGTH', async () => {
+    const auth = provider();
+    const long = 'x'.repeat(MAX_PASSWORD_LENGTH + 1);
+
+    await expect(auth.hashPassword(long)).rejects.toThrow(RangeError);
+    expect(await auth.verifyPassword(long, await auth.hashPassword('x'))).toEqual({ valid: false, needsRehash: false });
+    await expect(auth.hashPassword('x'.repeat(MAX_PASSWORD_LENGTH))).resolves.toMatch(PHC);
+  });
+
+  it.each([
+    ['parallelism above memoryKiB / 8', { parallelism: 4096 }],
+    ['memoryKiB above the Argon2 limit', { memoryKiB: 2 ** 33 }],
+    ['parallelism above the Argon2 limit', { parallelism: 2 ** 25, memoryKiB: 2 ** 32 - 1 }],
+  ])('P6: rejects %s at construction, not at the first login', (_label, params) => {
+    expect(() => provider({ params })).toThrow(RangeError);
+  });
+
+  it('P10: an explicit undefined parameter falls back to the default', async () => {
+    const params = { memoryKiB: undefined } as unknown as Partial<{ memoryKiB: number }>;
+
+    expect(PHC.exec(await provider({ params }).hashPassword(PASSWORD))?.[1]).toBe('19456');
+  });
+
+  it.each([
+    ['v', 'v=19', 'v=019'],
+    ['m', 'm=19456', 'm=019456'],
+  ])('P9: refuses a non-canonical %s with a leading zero', async (_label, from, to) => {
+    const auth = provider();
+    const hash = tamper(await auth.hashPassword(PASSWORD), from, to);
+
+    expect(await auth.verifyPassword(PASSWORD, hash)).toEqual({ valid: false, needsRehash: false });
+  });
+
+  it('P8/P12: rejects a non-string Pepper id or current id without echoing it', () => {
+    const misplaced = 'swapped-secret-value-0123456789abcdef';
+
+    expect(() => provider({ peppers: [{ id: 1 as unknown as string, key: PEPPER_1.key }] })).toThrow(PepperConfigError);
+    let message = '';
+    try {
+      provider({ currentPepperId: misplaced });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).not.toBe('');
+    assertNoSecretsLeaked(message, { misplaced });
   });
 });

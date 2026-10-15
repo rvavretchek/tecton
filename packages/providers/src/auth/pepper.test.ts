@@ -52,7 +52,32 @@ describe('pepperFromEnv', () => {
     expect(pepperFromEnv({ TECTON_AUTH_PEPPER: twoByte }).key).toHaveLength(32);
   });
 
-  it.each(['', 'too-long-id', 'has space', 'a/b'])('fails on the invalid Pepper id "%s"', (id) => {
+  it.each(['too-long-id', 'has space', 'a/b'])('fails on the invalid Pepper id "%s"', (id) => {
     expect(() => pepperFromEnv({ TECTON_AUTH_PEPPER: VALID, TECTON_AUTH_PEPPER_ID: id })).toThrow(PepperConfigError);
+  });
+
+  it('uses the default id when TECTON_AUTH_PEPPER_ID is set but empty (e.g. "TECTON_AUTH_PEPPER_ID=" in a Compose file)', () => {
+    expect(pepperFromEnv({ TECTON_AUTH_PEPPER: VALID, TECTON_AUTH_PEPPER_ID: '' }).id).toBe('1');
+  });
+
+  it('counts bytes, not characters: 31 bytes of multibyte text fail', () => {
+    const multibyte = `${String.fromCodePoint(0xe9).repeat(15)}x`;
+
+    expect(Buffer.byteLength(multibyte, 'utf8')).toBe(31);
+    expect(() => pepperFromEnv({ TECTON_AUTH_PEPPER: multibyte })).toThrow(/31 bytes/);
+  });
+
+  it.each([
+    ['a trailing newline', `${VALID}${String.fromCodePoint(10)}`],
+    ['a leading space', ` ${VALID}`],
+  ])('fails on a Pepper with %s, a common secret-file mistake', (_label, value) => {
+    expect(() => pepperFromEnv({ TECTON_AUTH_PEPPER: value })).toThrow(/whitespace/);
+  });
+
+  it('never echoes an invalid id: when id and Pepper are swapped, the "id" is the secret', () => {
+    const error = errorOf(() => pepperFromEnv({ TECTON_AUTH_PEPPER: VALID, TECTON_AUTH_PEPPER_ID: 'swapped-secret-value-0123456789abcdef' }));
+
+    expect(error).toBeInstanceOf(PepperConfigError);
+    assertNoSecretsLeaked(`${error.message} ${error.stack ?? ''}`, { misplaced: 'swapped-secret-value-0123456789abcdef' });
   });
 });

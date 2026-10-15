@@ -1,7 +1,7 @@
 packages:
   - 'packages/*'
 
-# Fail installs on a Node version outside "engines" (>=24.7 <25).
+# Fail installs on a Node version outside "engines" (>=24.19 <25).
 engineStrict: true
 linkWorkspacePackages: true
 

@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "packageManager": "pnpm@12.10.1",
   "engines": {
-    "node": ">=24.7 <25"
+    "node": ">=24.19 <25"
   },
   "scripts": {
     "build": "tsc -b && pnpm -r --if-present run emit",

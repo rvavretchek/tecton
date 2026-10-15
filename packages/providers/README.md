@@ -38,10 +38,23 @@ fails the build if anything but the Argon2id adapter calls Argon2.
    Salt and hash are base64 without padding.
 
 `verifyPassword` recomputes with the parameters and the Pepper recorded in the stored hash and
-compares in constant time. It never throws because of the stored value: a malformed or foreign
-hash, an unknown Pepper, or parameters above a safety ceiling (1 GiB of memory, 16 passes,
-16 lanes, or the configured values if higher) are simply not valid. That ceiling stops a tampered
-row from making a login allocate unbounded memory.
+compares in constant time. It never throws because of its input. These are simply not valid:
+- a malformed, non-canonical or foreign hash, or one whose Pepper is unknown;
+- a salt outside 8-64 bytes or a tag outside 16-64 bytes;
+- parameters above **4 times** the configured ones. A tampered row therefore costs a login at most
+  4x a normal check, and Argon2 does not run at all for the refused ones.
+
+A valid hash with a salt other than 16 bytes, a tag other than 32 bytes, weaker parameters or an
+old Pepper comes back with `needsRehash: true`.
+
+Passwords must be well-formed UTF-16 (lone surrogates would all encode to U+FFFD and collide) and
+at most 4096 characters (`MAX_PASSWORD_LENGTH`). Normalization and HMAC run on the event loop,
+so input size is capped here. `hashPassword` throws `RangeError` on such input, and
+`verifyPassword` returns not valid. Minimum length and complexity are password policy, which
+belongs to the Auth service.
+
+The provider does not limit how many hashes run at once. Argon2 runs on the libuv threadpool, so
+size `UV_THREADPOOL_SIZE` and rate-limit logins in the service that calls it.
 
 ### Parameters
 
@@ -51,8 +64,9 @@ row from making a login allocate unbounded memory.
 | `passes` | 2 | iterations |
 | `parallelism` | 1 | lanes |
 
-The defaults are the OWASP minimum for Argon2id. Configuration can raise them, never lower them,
-and lowering throws `RangeError`. When the stored hash uses lower values than the configuration,
+The defaults are the OWASP minimum for Argon2id. Configuration can raise them, never lower them.
+Lowering them, going over Argon2's limits, or setting `memoryKiB` below 8 x `parallelism` throws
+`RangeError` when the provider is created, not at the first login. When the stored hash uses lower values than the configuration,
 `verifyPassword` returns `needsRehash: true` after a successful check.
 
 ### Pepper
@@ -60,10 +74,12 @@ and lowering throws `RangeError`. When the stored hash uses lower values than th
 | Variable | Meaning |
 |---|---|
 | `TECTON_AUTH_PEPPER` | the secret, at least 32 bytes (UTF-8). Generate one with `openssl rand -base64 48`. |
-| `TECTON_AUTH_PEPPER_ID` | its version id, 1-8 characters of `[A-Za-z0-9_-]`; default `1` |
+| `TECTON_AUTH_PEPPER_ID` | its version id, 1-8 characters of `[A-Za-z0-9_-]`; default `1` (also when empty) |
 
 A missing or short Pepper fails at startup with `PepperConfigError`, before any hash is produced.
-The message never contains the value. `pepperFromEnv` is a minimal reader; the `ConfigProvider`
+So does one with leading or trailing whitespace, usually a newline left by a secret file. The
+message never contains the value, and never repeats an invalid id: if id and secret were swapped by
+mistake, the "id" is the secret. `pepperFromEnv` is a minimal reader; the `ConfigProvider`
 (Story 3.1) will replace it.
 
 **Rotation:** configure the new Pepper and keep the old ones in `peppers`, and point
@@ -72,9 +88,9 @@ to the new Pepper on each user's next login. Remove an old Pepper only when no s
 
 ### Why native `crypto.argon2`
 
-The adapter uses Node's built-in `crypto.argon2`, available since Node 24.7.0, the minimum version
-of this project. In the Node 24.20.0 documentation it carries no experimental marker (it inherits
-the stability of the `crypto` module), and calling it emits no `ExperimentalWarning`. Using it
+The adapter uses Node's built-in `crypto.argon2`. It was added in Node 24.7.0 as "Stability: 1.2 -
+Release candidate" (a level of Experimental) and is stable from Node 24.19.0, when the marker was
+removed. That is why this project requires Node `>=24.19 <25`. Using it
 avoids a native addon such as `@node-rs/argon2`, which would need a build-script exception in the
 package manager.
 

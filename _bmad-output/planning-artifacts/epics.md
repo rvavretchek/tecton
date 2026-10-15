@@ -75,7 +75,7 @@ This document provides the complete epic and story breakdown for Tecton, decompo
 - AD-8: Gateway nunca importa pacote de circuit breaker, cache de resposta, ou pacote de domínio específico — `lint:gateway` enforça isso em CI
 - AD-9: Único jeito de um domínio A obter dado de domínio B é `ServiceClient` (síncrono, exceção) ou consumir `events.publishes` (padrão) — nunca import direto de código nem acesso direto a banco de outro domínio, Directory Service incluído
 - AD-10: `@tecton/ui` como único runtime de renderização schema→tela; tema default (tokens CSS) + porta `UiThemeProvider` (slots substituíveis, compostos pelo `Core`, nunca resolvidos pelo slot substituto); namespace de `i18nKey` `<domínio>.<chave>`; `ObjectTreeView` exclusivo do Directory (containment/ACL), `AttributeForm` reusável por qualquer domínio via `@tecton/manifest` (nunca import direto de `@tecton/directory`); SPA admin embutida em `@tecton/directory`, servida em `/admin`; toda chamada de API da SPA (não só o shell inicial) atravessa o Gateway
-- Stack fixado (corrigido em 2026-10-06): Node.js 24.x (>=24.7), TypeScript 6.0.3, Fastify 5.12.x, Prisma 7.x (o 8 ainda não suporta MySQL nem MariaDB), Valkey 9.1.x, React 19.x, `@rjsf/core` 6.x mais recente, JSON Schema draft-07, OpenTelemetry, Awilix, Testcontainers
+- Stack fixado (corrigido em 2026-10-06): Node.js 24.x (>=24.19; piso subido de 24.7 no code review da Story 2.1, 2026-10-15, porque o `crypto.argon2` nativo só é estável a partir da 24.19.0), TypeScript 6.0.3, Fastify 5.12.x, Prisma 7.x (o 8 ainda não suporta MySQL nem MariaDB), Valkey 9.1.x, React 19.x, `@rjsf/core` 6.x mais recente, JSON Schema draft-07, OpenTelemetry, Awilix, Testcontainers
 - Estrutura de monorepo do framework: pnpm workspaces, pacotes `packages/{manifest,core,providers,auth,directory,service-client,ui,cli}`; app gerada por `tecton-admin new` usa Turborepo com `apps/{gateway,auth,directory,domains/<nome>}`
 - Sem starter template externo para o repositório do próprio framework — scaffold nasce do zero conforme o Structural Seed acima (não é greenfield de app, é o framework sendo construído)
 
@@ -182,7 +182,7 @@ para que cada story seguinte tenha onde nascer sem violar o AD-3.
 
 **Dado** um clone limpo do repositório
 **Quando** eu rodo `pnpm install` e `pnpm build`
-**Então** os pacotes `@tecton/{manifest,core,providers,auth,directory,service-client,ui,cli}` compilam com TypeScript 6.0.3, com `engines.node` fixado em `>=24.7 <25`
+**Então** os pacotes `@tecton/{manifest,core,providers,auth,directory,service-client,ui,cli}` compilam com TypeScript 6.0.3, com `engines.node` fixado em `>=24.19 <25` (era `>=24.7`; ver Story 2.1)
 **E** o repositório do framework usa só pnpm workspaces, sem Turborepo nem Nx (Structural Seed). O Turborepo pertence à app gerada por `tecton-admin new` (Story 1.9), não a este repositório.
 
 **Dado** um pacote que importa uma dependência interna proibida (ex.: `@tecton/manifest` importando `@tecton/core`)
@@ -595,7 +595,7 @@ para que nenhuma senha seja guardada de forma recuperável, mesmo se o banco vaz
 
 **Critérios de Aceite:**
 
-**Dado** a interface `AuthProvider` em `@tecton/providers` e o adaptador de referência Argon2id, que usa o `crypto.argon2` nativo do Node (disponível desde a 24.7.0) se ele estiver estável na versão fixada, ou `@node-rs/argon2` caso ainda seja experimental, com a escolha e o motivo registrados no README do pacote
+**Dado** a interface `AuthProvider` em `@tecton/providers` e o adaptador de referência Argon2id, que usa o `crypto.argon2` nativo do Node (disponível desde a 24.7.0, estável desde a 24.19.0, o piso do projeto desde o code review da 2.1) se ele estiver estável na versão fixada, ou `@node-rs/argon2` caso ainda seja experimental, com a escolha e o motivo registrados no README do pacote
 **Quando** eu gero o hash de uma senha
 **Então** a senha passa primeiro por HMAC-SHA256 com o Pepper como chave e depois por Argon2id, com parâmetros mínimos configuráveis (padrão: 19 MiB de memória, 2 iterações, paralelismo 1)
 **E** o resultado guardado está no formato PHC, com os parâmetros e o identificador da versão do Pepper usado

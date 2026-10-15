@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "engines": {
-    "node": ">=24.7 <25"
+    "node": ">=24.19 <25"
   },
   "bin": {
     "tecton-admin": "./dist/bin.js"

@@ -23,7 +23,7 @@ Monorepo com **pnpm workspaces** (sem Turborepo nem Nx; o Turborepo é usado só
 
 ### Pré-requisitos
 
-- **Node.js 24.7 ou superior, na linha 24** (`engines: >=24.7 <25`; o `pnpm install` falha fora dessa faixa). O arquivo `.node-version` indica a linha para fnm, nvm-windows, volta e o CI.
+- **Node.js 24.19 ou superior, na linha 24** (`engines: >=24.19 <25`; a 24.19 é a primeira em que o `crypto.argon2` nativo é estável; o `pnpm install` falha fora dessa faixa). O arquivo `.node-version` indica a linha para fnm, nvm-windows, volta e o CI.
 - **pnpm 12**, fixado no campo `packageManager` do `package.json`. O jeito mais simples é o Corepack: `corepack enable`.
 - **Docker**, para os testes de persistência (usam Testcontainers).
 

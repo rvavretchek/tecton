@@ -6,7 +6,7 @@ strategy behind it (risks, priorities, coverage) is in
 
 ## Setup
 
-1. Node.js 24.7+ (24.x line) and pnpm 12 via Corepack: `corepack enable`, then `pnpm install`.
+1. Node.js 24.19+ (24.x line) and pnpm 12 via Corepack: `corepack enable`, then `pnpm install`.
 2. Docker, for container and persistence tests. Without a local Docker, point Testcontainers
    to a remote engine through an SSH socket tunnel, with `DOCKER_HOST` and
    `TESTCONTAINERS_HOST_OVERRIDE` (recipe in `.env.example`). The Dev Services test
@@ -116,7 +116,7 @@ closes (Test Design). Required checks on the protected branches: `build-test`,
 
 - **"This test needs Docker"**: container and persistence tests found no Docker engine.
   Start Docker, or set `DOCKER_HOST` to a reachable engine. `pnpm test` never needs Docker.
-- **`ERR_PNPM_UNSUPPORTED_ENGINE`**: the active Node is outside 24.7–24.x; switch with the
+- **`ERR_PNPM_UNSUPPORTED_ENGINE`**: the active Node is outside 24.19–24.x; switch with the
   version in `.node-version`.
 - **API tests show "skipped"**: `BASE_URL` is not set; they need a running workspace.
 - **`Executable doesn't exist` (Playwright)**: install the browser with

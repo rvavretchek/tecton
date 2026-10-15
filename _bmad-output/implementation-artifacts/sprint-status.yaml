@@ -62,7 +62,7 @@ development_status:
   1-11-dev-services: done
   epic-1-retrospective: done
   epic-2: in-progress
-  2-1-authprovider-com-argon2id-e-pepper: review
+  2-1-authprovider-com-argon2id-e-pepper: done
   2-2-servico-tecton-auth-login-access-token-eddsa-e-jwks: backlog
   2-3-refresh-token-opaco-com-rotacao-e-logout: backlog
   2-4-verificacao-local-do-token-em-todo-servico: backlog

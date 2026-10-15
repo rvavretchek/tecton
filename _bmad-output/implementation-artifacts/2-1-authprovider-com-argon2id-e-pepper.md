@@ -4,7 +4,7 @@ baseline_commit: 4033cc43c13641d2c4d4e8d6fa212952d5c6e4d1
 
 # Story 2.1: `AuthProvider` com Argon2id e Pepper
 
-Status: review
+Status: done
 
 ## Story
 
@@ -119,7 +119,30 @@ para que nenhuma senha seja guardada de forma recuperável, mesmo se o banco vaz
   - [x] Seção "Why native `crypto.argon2`", com o motivo da escolha (ver Dev Notes).
 - [x] **T6. Verificação final**
   - [x] `pnpm build`, `pnpm typecheck`, `pnpm check:deps`, `pnpm lint:examples`, `pnpm validate:asyncapi` e `pnpm test`, todos verdes (inclui o teste de higiene de fonte da A2).
-  - [ ] Code review desta story antes da 2.2 (retro do Epic 1, A1).
+  - [x] Code review desta story antes da 2.2 (retro do Epic 1, A1).
+
+### Review Findings (code review da Story 2.1, 2026-10-15)
+
+- [x] [Review][Patch] D1 (média) Faixa de Node e estabilidade do `crypto.argon2` — na 24.7.0 a 24.18.0 a documentação marca "Stability: 1.2 - Release candidate", subnível de Stability 1 (Experimental); sem marcador (estável) só a partir da 24.19.0. Os `engines` aceitam `>=24.7 <25`. O AC 1 pede o nativo só se for estável na versão fixada. Opções: subir o piso para `>=24.19` / trocar para `@node-rs/argon2` / aceitar o Release candidate — decidido (2026-10-15): piso subido para `>=24.19 <25` em todos os pacotes, templates, READMEs e `epics.md`
+- [x] [Review][Patch] P1 (alta) Objeto `INVALID` compartilhado e mutável: um chamador que muda o resultado faz toda rejeição seguinte voltar `valid: true` (confirmado) [packages/providers/src/auth/argon2id-auth-provider.ts:46]
+- [x] [Review][Patch] P2 (média) Senhas com surrogate UTF-16 isolado colidem (todas viram U+FFFD na codificação; confirmado) [argon2id-auth-provider.ts:122]
+- [x] [Review][Patch] P3 (média) Teto de custo alto demais: `m=1 GiB,t=16` levou ~34 s por verificação (confirmado); limitar a 4x o configurado [argon2id-auth-provider.ts:44]
+- [x] [Review][Patch] P4 (média) Salt e tag sem limite superior (tag de 16 MiB aceita; confirmado); tag mínima de 4 bytes é fraca; salt < 16 ou tag ≠ 32 não pedem rehash [argon2id-auth-provider.ts:90]
+- [x] [Review][Patch] P5 (média) Senha sem limite de tamanho: NFKC e HMAC síncronos sobre entrada enorme bloqueiam o event loop [argon2id-auth-provider.ts:122]
+- [x] [Review][Patch] P6 (média) Parâmetros configurados sem teto nem relação `m >= 8p`: o provider sobe e todo `hashPassword` falha com `ERR_OUT_OF_RANGE` (confirmado) [argon2id-auth-provider.ts:62]
+- [x] [Review][Patch] P7 (média) Teste de fronteira AD-1 não pega `promisify(argon2)`, `import { argon2 }`, `require`, `import()` nem `.mts/.cts/.js` [argon2-boundary.test.ts]
+- [x] [Review][Patch] P8 (média) Id inválido é ecoado na mensagem: Pepper e id trocados de variável vazariam o Pepper; `currentPepperId` não validado [pepper.ts:23]
+- [x] [Review][Patch] P9 (baixa) PHC aceita números não canônicos (`v=019`, `m=019456`; confirmado) [argon2id-auth-provider.ts:48]
+- [x] [Review][Patch] P10 (baixa) Parâmetro `undefined` explícito lança em vez de usar o padrão [argon2id-auth-provider.ts:63]
+- [x] [Review][Patch] P11 (baixa) Pepper com espaço ou quebra de linha nas pontas (secret de arquivo) muda a chave em silêncio [pepper.ts:46]
+- [x] [Review][Patch] P12 (baixa) Id ou chave de Pepper com tipo errado (JS/JSON) passa na construção e falha depois com `TypeError` [pepper.ts:22]
+- [x] [Review][Patch] P13 (baixa) `TECTON_AUTH_PEPPER_ID=` vazio falha em vez de usar o padrão `1` [pepper.ts:46]
+- [x] [Review][Patch] P14 (baixa) Testes faltando: teto em `t` e `p`, rehash por tag curta, Pepper multibyte de 31 bytes [*.test.ts]
+- [x] [Review][Patch] P15 (baixa) Completion Notes com contagem errada (10 de Pepper e 23 do adaptador, não 8 e 25); README exagera a proteção contra DoS [story, README.md]
+- [x] [Review][Defer] W1 Concorrência sem limite no threadpool do libuv (rajada de logins) [argon2id-auth-provider.ts] — adiado: limite de taxa e bloqueio de login são das Stories 2.6 e 3.7; dimensionar `UV_THREADPOOL_SIZE` entra na 2.2
+- [x] [Review][Defer] W2 Sem verificação de mentira para login inexistente (timing) [auth-provider.ts] — adiado: a Story 2.2 cuida disso (EQ-7), verificando contra um hash fixo
+- [x] [Review][Defer] W3 Pepper fica em `process.env` durante todo o processo [pepper.ts] — adiado: segredos por arquivo e limpeza do ambiente são do `ConfigProvider` (Story 3.1)
+- [x] [Review][Defer] W4 Sem verificador de hashes legados (migração) [argon2id-auth-provider.ts] — adiado: `LegacyAuthBridge` da Story 6.5
 
 ## Dev Notes
 
@@ -210,6 +233,27 @@ Claude Opus 5.5 (claude-opus-5-5)
 
 - O teste do teto usava `m=4294967295`, valor que o `crypto.argon2` provavelmente recusaria sozinho e na hora, deixando o teste verde mesmo sem o teto. Trocado por `m=1100000`, logo acima de 1 GiB, que o Argon2id aceitaria. A mutação 3 confirmou que o teste agora depende do teto.
 
+- Fase vermelha das correções do code review (A3), por mutação, cada uma restaurada (68/68 verde depois):
+
+  | Mutação | Testes que falharam |
+  |---|---|
+  | resultado inválido compartilhado | 12 |
+  | sem `isWellFormed` | 1 |
+  | teto x1000 | 1 |
+  | sem faixa de salt e tag | 3 |
+  | sem rehash por salt e tag | 3 |
+  | sem limite de senha | 1 |
+  | sem limites e relação dos parâmetros | 3 |
+  | números não canônicos aceitos | 2 |
+  | `undefined` sobrescreve o padrão | 30 |
+  | `currentPepperId` sem validação | 1 |
+  | espaço nas pontas aceito | 2 |
+  | id inválido ecoado | 1 |
+  | id vazio falha | 1 |
+
+- Code review: o Acceptance Auditor levantou que a estabilidade só tinha sido conferida na 24.20. Conferido na documentação de cada versão de 24.7.0 a 24.20.0: "Stability: 1.2 - Release candidate" até a 24.18.0; sem marcador a partir da 24.19.0.
+- O helper de teste não gera um hash real com salt de 7 bytes, porque o próprio `crypto.argon2` exige pelo menos 8. Nesse caso o teste usa uma tag qualquer, porque o parse recusa antes de chegar no Argon2.
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
@@ -224,10 +268,29 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **Pepper:** `pepperFromEnv` (`TECTON_AUTH_PEPPER` com 32 bytes ou mais, `TECTON_AUTH_PEPPER_ID`, padrão `1`) e `PepperConfigError`, sem o valor na mensagem. É o único ponto do pacote que lê o ambiente, até a Story 3.1.
 - **AD-1:** teste estrutural garante que só o adaptador chama Argon2.
 - **README do pacote** em inglês, com a decisão pelo `crypto.argon2` nativo: estável na 24.20.0, sem marcador experimental nem `ExperimentalWarning`, e sem addon nativo para liberar no pnpm.
-- **Testes:** 34 novos (8 de Pepper, 25 do adaptador, 1 de fronteira). Suíte rápida com 393 verdes; build, typecheck, `check:deps` (80 módulos), `lint:examples` e `validate:asyncapi` verdes.
-- **Pendente nesta story:** o subitem "Code review desta story antes da 2.2" fica desmarcado de propósito. É o próximo passo (retro A1), não algo feito no desenvolvimento.
+- **Testes:** 34 novos no desenvolvimento (10 de Pepper, 23 do adaptador, 1 de fronteira), 68 depois do code review. Suíte rápida com 393 verdes; build, typecheck, `check:deps` (80 módulos), `lint:examples` e `validate:asyncapi` verdes.
+- **Code review (2026-10-15):** 1 decisão (piso do Node para 24.19, onde o `crypto.argon2` deixou de ser Release candidate), 15 correções aplicadas, 4 adiados e 5 descartados.
+- **Correções do review no adaptador:**
+  - resultado inválido novo a cada chamada;
+  - senha UTF-16 malformada recusada, e mais de 4096 caracteres também;
+  - teto de 4x o configurado;
+  - salt de 8 a 64 bytes e tag de 16 a 64, com rehash fora de 16 e 32;
+  - parâmetros validados contra os limites do Argon2 e `m >= 8p` na construção;
+  - PHC com números canônicos;
+  - parâmetro `undefined` usa o padrão.
+- **Correções do review no Pepper:**
+  - não ecoa id inválido;
+  - recusa espaço nas pontas;
+  - valida os tipos;
+  - id vazio usa `1`.
+- **Correções do review no teste de fronteira:** pega `promisify(argon2)`, imports, `require` e `import()`, em `.ts/.mts/.cts/.js`.
+- Suíte total depois do review: 427 testes verdes.
 
 ### File List
+
+- `package.json`, `pnpm-workspace.yaml`, `packages/*/package.json`, `packages/cli/templates/{domain,workspace}/package.json`, `packages/cli/templates/workspace/pnpm-workspace.yaml` (code review D1: `engines` `>=24.19 <25`)
+- `README.md`, `tests/README.md`, `_bmad-output/planning-artifacts/epics.md` (code review D1: piso do Node)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (itens adiados do review)
 
 - `packages/providers/src/index.ts` (modificado: exporta a porta, o adaptador e o Pepper; placeholder removido)
 - `packages/providers/src/auth/auth-provider.ts` (novo)
@@ -245,3 +308,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 - 2026-10-15: Story criada (Create Story).
 - 2026-10-15: Validate Story: teto de parâmetros contra DoS na verificação, validação estrita de B64, política de senha fora do provider, prova da ordem HMAC → Argon2id sem salt injetável.
 - 2026-10-15: Story implementada (Dev Story): `AuthProvider`, adaptador Argon2id nativo com Pepper e PHC, testes com fase vermelha por mutação; status → review.
+- 2026-10-15: Code review: piso do Node subido para 24.19 (D1); 15 correções aplicadas com fase vermelha por mutação; 4 itens adiados; status → done.
