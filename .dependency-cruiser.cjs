@@ -64,11 +64,15 @@ module.exports = {
       to: { circular: true },
     },
     {
+      // Only Tecton's own imports (relative, @tecton/*, #test-support): third-party imports are
+      // already guaranteed by `pnpm typecheck`. dependency-cruiser 18.5 cannot resolve some valid
+      // packages on Linux (e.g. uuid 14, whose "exports" nest conditions under "node") although
+      // Node, TypeScript and enhanced-resolve itself all resolve them.
       name: 'not-to-unresolvable',
       comment: 'Import cannot be resolved (typo, or a dependency that is not installed)',
       severity: 'error',
       from: {},
-      to: { couldNotResolve: true },
+      to: { couldNotResolve: true, path: '^([.]|@tecton/|#)' },
     },
   ],
   options: {

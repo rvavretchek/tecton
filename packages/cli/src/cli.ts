@@ -64,7 +64,21 @@ function buildProgram(io: CliIo, setExitCode: (code: number) => void): Command {
     .requiredOption('--login <identifier>', 'login of the administrator')
     .addHelpText(
       'after',
-      '\nEnvironment:\n  TECTON_AUTH_DATABASE_URL        Auth database (postgresql://, mysql:// or mariadb://)\n  TECTON_AUTH_PEPPER              Pepper, at least 32 bytes\n  TECTON_AUTH_BOOTSTRAP_PASSWORD  password (optional; otherwise read from standard input)\n\nExample:\n  $ printf \'%s\' "$PASSWORD" | tecton-admin auth bootstrap --login admin\n',
+      [
+        '',
+        'Environment:',
+        '  TECTON_AUTH_DATABASE_URL        Auth database (postgresql://, mysql:// or mariadb://)',
+        '  TECTON_AUTH_PEPPER              Pepper, at least 32 bytes (the same as the Auth service)',
+        '  TECTON_AUTH_PEPPER_ID           Pepper id, default 1 (the same as the Auth service)',
+        '  TECTON_AUTH_BOOTSTRAP_PASSWORD  password, at least 12 characters (optional; otherwise read from standard input)',
+        '',
+        'Apply the Auth migrations first (applyAuthMigrations in @tecton/auth).',
+        'Exit codes: 0 created, 2 already bootstrapped (nothing changed), 1 failure.',
+        '',
+        'Example:',
+        `  $ printf '%s' "$PASSWORD" | tecton-admin auth bootstrap --login admin`,
+        '',
+      ].join('\n'),
     )
     .action(async (options: { login: string }) => {
       setExitCode(await authBootstrapCommand(options, io));

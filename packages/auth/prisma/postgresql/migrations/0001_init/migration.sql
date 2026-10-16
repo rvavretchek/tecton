@@ -1,5 +1,6 @@
--- CreateSchema
-CREATE SCHEMA IF NOT EXISTS "public";
+-- Edited by hand: Prisma emits CREATE SCHEMA IF NOT EXISTS "public" here, which needs the
+-- CREATE privilege on the database even when the schema exists, and breaks least-privilege roles.
+-- The schema comes from the connection (public, or ?schema=) and is created by migrate deploy.
 
 -- CreateTable
 CREATE TABLE "credentials" (

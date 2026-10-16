@@ -18,3 +18,10 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 - W2 Verificação de mentira para login inexistente (timing) — Story 2.2 (EQ-7)
 - W3 Pepper em `process.env` durante todo o processo — `ConfigProvider` (Story 3.1)
 - W4 Verificador de hashes legados (migração) — `LegacyAuthBridge` (Story 6.5)
+
+## Deferred from: code review da Story 2.2a (2026-10-16)
+
+- W1 TLS: uma mesma URL não configura TLS igual para o motor de migrations e para o driver `mariadb` [prisma-credential-store.ts, migrations.ts] — adiado: configuração de conexão vem com o `ConfigProvider` (Story 3.1)
+- W2 Timezone da sessão no MySQL/MariaDB (`DATETIME` sem fuso) [prisma/mysql/schema.prisma] — adiado: forçar UTC no driver e testar com sessão fora de UTC quando o serviço subir (2.2b)
+- W3 Teste do pacote empacotado (`pnpm pack`, instalação e import) e `allowBuilds` no workspace gerado [packages/auth] — adiado: Story 2.2b, que instala o `@tecton/auth` no `apps/auth`
+- W4 `ß` e `SS` continuam logins diferentes (`toLowerCase` não faz case folding completo) [credential.ts] — adiado: decidir com o modelo de identidade da 4.3; trocar a normalização depois exige migrar logins

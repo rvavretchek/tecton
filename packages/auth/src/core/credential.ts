@@ -28,25 +28,41 @@ export class InvalidCredentialError extends Error {
   override readonly name = 'InvalidCredentialError';
 }
 
-function hasControlCharacter(text: string): boolean {
-  for (const character of text) {
-    const code = character.codePointAt(0) ?? 0;
-    if (code < 32 || code === 0x7f || (code >= 0x80 && code <= 0x9f)) return true;
-  }
-  return false;
-}
+/**
+ * Characters a login must never contain: control (Cc), invisible format characters such as
+ * zero-width space, joiners, bidirectional overrides and soft hyphen (Cf), line and paragraph
+ * separators (Zl, Zp), private use (Co) and unassigned code points (Cn). Invisible characters
+ * would allow logins that look identical to an existing one.
+ */
+const FORBIDDEN_IN_LOGIN = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Co}\p{Cn}]/u;
 
 /**
  * Canonical form of a login identifier: Unicode NFKC, surrounding whitespace removed, lower case
- * (locale-independent). Accents are kept, so "josé" and "jose" are different logins.
+ * (locale-independent). Accents are kept, so "josé" and "jose" are different logins. Lower-casing
+ * never takes an NFKC string out of NFKC (checked over every code point), and the result is
+ * stable: normalizeLogin(normalizeLogin(x)) === normalizeLogin(x).
  */
 export function normalizeLogin(raw: string): string {
   if (typeof raw !== 'string') throw new InvalidLoginError('login must be a string');
+  if (!raw.isWellFormed()) throw new InvalidLoginError('login is not well-formed UTF-16');
   const login = raw.normalize('NFKC').trim().toLowerCase();
   if (login === '') throw new InvalidLoginError('login must not be empty');
   if (login.length > MAX_LOGIN_LENGTH) throw new InvalidLoginError(`login must be at most ${MAX_LOGIN_LENGTH} characters`);
-  if (hasControlCharacter(login)) throw new InvalidLoginError('login must not contain control characters');
+  if (FORBIDDEN_IN_LOGIN.test(login)) {
+    throw new InvalidLoginError('login must not contain control, invisible or unassigned characters');
+  }
   return login;
+}
+
+const STATUSES: readonly string[] = ['active', 'disabled'];
+
+/** Fail closed on a credential that breaks the model (e.g. a row edited by hand). */
+export function assertValidCredential(credential: Credential): void {
+  if (!STATUSES.includes(credential.status)) {
+    throw new InvalidCredentialError(`invalid credential status ${JSON.stringify(credential.status)}`);
+  }
+  if (!Array.isArray(credential.permissions)) throw new InvalidCredentialError('credential permissions must be a list');
+  assertValidPermissions(credential.permissions);
 }
 
 /** Permissions use the same format as `auth.requires` in tecton.yaml, without repetition. */

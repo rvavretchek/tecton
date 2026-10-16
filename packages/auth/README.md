@@ -15,12 +15,14 @@ A credential is all the Auth service keeps about a subject, and nothing else:
 | `id` | subject id, UUID v7 (AD-5) |
 | `login` | normalized login identifier, unique |
 | `passwordHash` | PHC string from the `AuthProvider` of `@tecton/providers` (Argon2id + Pepper), never the password |
-| `status` | `active` or `disabled` |
+| `status` | `active` or `disabled`; any other value read back fails closed |
 | `permissions` | list in the manifest format, e.g. `tenant:create` |
 | `createdAt`, `updatedAt` | from the `Clock` port |
 
 Logins are normalized with `normalizeLogin`: Unicode NFKC, surrounding whitespace removed, lower
-case. Accents are kept, so `josé` and `jose` are different logins on every database.
+case. Accents are kept, so `josé` and `jose` are different logins on every database. Logins
+with control, invisible (zero-width, bidirectional overrides, soft hyphen), separator,
+private-use or unassigned characters are refused, so no login can look identical to another.
 
 Only the Auth service reads or writes this database (AD-9). Other services learn who a user is
 from the signed token, never from the table.
@@ -46,22 +48,31 @@ import { applyAuthMigrations } from '@tecton/auth';
 await applyAuthMigrations({ databaseUrl: process.env.TECTON_AUTH_DATABASE_URL! });
 ```
 
-It runs `prisma migrate deploy` for the right dialect. Error messages never contain the URL, which
-holds the database password. `tecton-admin migrate` (Story 6.1) will run it for every service.
+It runs `prisma migrate deploy` for the right dialect, with a 120 s timeout. The child process
+gets only what the Prisma CLI needs plus the URL, never the Pepper or other secrets. Error messages
+never contain the URL or its password. For PostgreSQL, `?schema=` in the URL is honored by both the
+migrations and the runtime client. `tecton-admin migrate` (Story 6.1) will run it for every service.
 
 ## First administrator
+
+Apply the migrations first, then:
 
 ```bash
 export TECTON_AUTH_DATABASE_URL=postgresql://...   # direct access to the Auth database
 export TECTON_AUTH_PEPPER=...                      # the same Pepper the service uses
+export TECTON_AUTH_PEPPER_ID=1                     # and the same Pepper id (default 1)
 printf '%s' "$PASSWORD" | tecton-admin auth bootstrap --login admin
 ```
 
-- It works only while the Auth database has no credentials. Afterwards it refuses and changes
-  nothing.
+- It works only while the Auth database has no credentials, and two runs at the same time never
+  both succeed: the final check and the insert share one serializable transaction. Afterwards it
+  refuses, changes nothing and exits with code 2. Other failures exit with 1.
+- The password needs at least 12 characters (`MIN_ADMIN_PASSWORD_LENGTH`).
 - The password comes from `TECTON_AUTH_BOOTSTRAP_PASSWORD` or standard input. There is no
   command-line option for it, so it never shows up in shell history or process lists. From an
-  interactive terminal without the variable, the command asks you to pipe the password.
+  interactive terminal without the variable, the command asks you to pipe the password. Standard
+  input must close within 10 seconds.
+- Database errors are reported in one line, without the connection string.
 - It writes directly to the database. There is no HTTP endpoint for bootstrapping (AD-7).
 - The administrator gets `BOOTSTRAP_ADMIN_PERMISSIONS`:
   - `auth:service:register`, to register services (Story 2.7);

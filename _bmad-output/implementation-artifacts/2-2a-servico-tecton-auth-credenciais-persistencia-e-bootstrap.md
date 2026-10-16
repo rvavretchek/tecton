@@ -4,7 +4,7 @@ baseline_commit: dff2d921a9fe658d90681e354b3c5d890eb7b2ff
 
 # Story 2.2a: Serviço `@tecton/auth`, parte 1: credenciais, persistência e bootstrap
 
-Status: review
+Status: done
 
 ## Story
 
@@ -158,7 +158,37 @@ para que exista quem se autentique antes de qualquer outro serviço subir (FR-12
 - [x] **T9. README do `@tecton/auth` (inglês) e verificação final**
   - [x] `packages/auth/README.md`: o que a parte 1 entrega; `TECTON_AUTH_DATABASE_URL` e dialetos; `applyAuthMigrations`; `tecton-admin auth bootstrap` (senha por stdin ou variável, nunca argumento); `BOOTSTRAP_ADMIN_PERMISSIONS`; normalização de login; AD-9 (banco só do Auth).
   - [x] Verificação completa: `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test` e `test:persistence` (local pelo túnel para o Docker remoto, ao menos com `TECTON_TEST_DB=postgres`; os três bancos no CI).
-  - [ ] Code review por story antes da 2.2b (retro do Epic 1, A1).
+  - [x] Code review por story antes da 2.2b (retro do Epic 1, A1).
+
+### Review Findings (code review da Story 2.2a, 2026-10-16)
+
+- [x] [Review][Patch] P1 (alta) Login aceita caracteres invisíveis e de formatação (U+200B, U+202E, U+00AD, U+2028), criando logins que parecem iguais (confirmado). A segunda parte do achado (minúsculas depois do NFKC desnormalizariam, como no İ) não se confirmou: nenhum code point do Unicode no Node 24 sai do NFKC ao passar para minúsculas (verificação exaustiva) [packages/auth/src/core/credential.ts]
+- [x] [Review][Patch] P2 (média) Erro de banco no `auth bootstrap` sai como stack trace cru (confirmado); `LoginTakenError` não tratado; erro do `close()` mascara o original [packages/cli/src/commands/auth-bootstrap.ts]
+- [x] [Review][Patch] P3 (média) Bootstrap concorrente pode criar dois administradores (count e create separados): passar a contagem e a inserção para uma transação serializável [packages/auth/src/core/bootstrap.ts, adapters/prisma]
+- [x] [Review][Patch] P4 (média) Senha do primeiro administrador sem mínimo (`x` e só espaços aceitos; confirmado) [packages/auth/src/core/bootstrap.ts]
+- [x] [Review][Patch] P5 (média) Linhas lidas não são validadas: `status` desconhecido e permissões fora do formato passam (cast); não lista vira `[]` em silêncio [packages/auth/src/adapters/prisma/prisma-credential-store.ts]
+- [x] [Review][Patch] P6 (média) PostgreSQL: `?schema=` vale para as migrations e é ignorado pelo `PrismaPg` em runtime [prisma-credential-store.ts]
+- [x] [Review][Patch] P7 (média) Processo filho das migrations herda todo o ambiente (Pepper, senha do bootstrap) [packages/auth/src/adapters/prisma/migrations.ts]
+- [x] [Review][Patch] P8 (média) Erro das migrations mascara só a URL exata: a senha sozinha, decodificada ou com outra codificação vazaria; saída sem limite [migrations.ts]
+- [x] [Review][Patch] P9 (média) stdin que nunca fecha deixa o comando pendurado (confirmado); `TECTON_AUTH_BOOTSTRAP_PASSWORD=` vazio cai para o stdin em silêncio [auth-bootstrap.ts]
+- [x] [Review][Patch] P10 (baixa) URL com espaço ou esquema em maiúsculas (`MARIADB://`) quebra a conversão de esquema (confirmado) [prisma-credential-store.ts, migrations.ts]
+- [x] [Review][Patch] P11 (baixa) Qualquer `P2002` vira `LoginTakenError`, inclusive id repetido [prisma-credential-store.ts]
+- [x] [Review][Patch] P12 (baixa) Processo das migrations sem timeout; morte por sinal aparece como "exited with null" [migrations.ts]
+- [x] [Review][Patch] P13 (baixa) Mensagem de dialeto ecoa o "esquema", que pode ser o começo de um segredo colado por engano (confirmado) [packages/auth/src/adapters/prisma/dialect.ts]
+- [x] [Review][Patch] P14 (baixa) Ajuda do comando e README omitem `TECTON_AUTH_PEPPER_ID` (Pepper com outro id gera `keyid` errado) [cli.ts, packages/auth/README.md]
+- [x] [Review][Patch] P15 (baixa) Código de saída igual para "já tem credencial" e falha real; usar 2 para a recusa [auth-bootstrap.ts]
+- [x] [Review][Patch] P16 (baixa) `CREATE SCHEMA IF NOT EXISTS "public"` na migration exige CREATE no banco para um papel de menor privilégio [prisma/postgresql/migrations/0001_init/migration.sql]
+- [x] [Review][Patch] P17 (baixa) Collation binária protegida só no arquivo da primeira migration; conferir a coluna viva em `information_schema` [prisma-credential-store.persistence.test.ts]
+- [x] [Review][Patch] P18 (baixa) Testes faltando: vazamento no caminho de erro de banco; "bootstrap duas vezes, 1 linha" literal; todas as URLs recusadas checadas para vazamento [testes]
+- [x] [Review][Patch] P19 (baixa) `uuid` com faixa `^` enquanto o Prisma está fixo; fixar `14.0.3` [packages/auth/package.json]
+- [x] [Review][Patch] P20 (baixa) `catch` de qualquer `RangeError` no CLI como erro do usuário; trocar por erro específico de política de senha [auth-bootstrap.ts]
+- [x] [Review][Patch] P21 (baixa) Dev Agent Record: dependência do CLI em `@tecton/providers` não registrada [esta story]
+- [x] [Review][Patch] P22 (alta, CI) `check:deps` falhou no CI: o dependency-cruiser 18.5 não resolve o `uuid` 14 no Linux (reproduzido num container `node:24`), embora Node, TypeScript e o próprio enhanced-resolve resolvam; regra `not-to-unresolvable` restrita aos imports do Tecton (relativos, `@tecton/*`, `#`), já que imports de terceiros são garantidos pelo `typecheck` [.dependency-cruiser.cjs]
+- [x] [Review][Defer] W1 TLS: uma mesma URL não configura TLS igual para o motor de migrations e para o driver `mariadb` [prisma-credential-store.ts, migrations.ts] — adiado: configuração de conexão vem com o `ConfigProvider` (Story 3.1) — adiado
+- [x] [Review][Defer] W2 Timezone da sessão no MySQL/MariaDB (`DATETIME` sem fuso) [prisma/mysql/schema.prisma] — adiado: forçar UTC no driver e testar com sessão fora de UTC quando o serviço subir (2.2b) — adiado
+- [x] [Review][Defer] W3 Teste do pacote empacotado (`pnpm pack`, instalação e import) e `allowBuilds` no workspace gerado [packages/auth] — adiado: Story 2.2b, que instala o `@tecton/auth` no `apps/auth` — adiado
+- [x] [Review][Defer] W4 `ß` e `SS` continuam logins diferentes (`toLowerCase` não faz case folding completo) [credential.ts] — adiado: decidir com o modelo de identidade da 4.3; trocar a normalização depois exige migrar logins — adiado
+- Descartado: AD-9 "não imposto em código". O AD-3 já impede outro pacote do framework de importar `@tecton/auth` (só o CLI pode), e cada serviço tem banco e credencial próprios.
 
 ## Dev Notes
 
@@ -267,6 +297,27 @@ Claude Opus 5.5 (claude-opus-5-5)
   | collation removida | 1 |
   | stdin lido em terminal interativo | 0 na primeira rodada; teste corrigido, agora 1 |
 
+- **Code review (2026-10-16), CI vermelho no `check:deps`:** o dependency-cruiser 18.5 não resolve o `uuid` 14 no Linux. Reproduzido num container `node:24` no ubt-host02 com o `git archive` do commit. Node, TypeScript e o próprio enhanced-resolve 5.26 resolvem; o dependency-cruiser marca `couldNotResolve` com qualquer combinação de condições e extensões. A regra `not-to-unresolvable` ficou restrita aos imports do Tecton; ainda pega import relativo e `@tecton/*` quebrados (verificado plantando um arquivo).
+- **Code review, P3 no PostgreSQL:** a falha de serialização chega como `DriverAdapterError` de tipo `TransactionWriteConflict` (SQLSTATE 40001), não como `P2034`. `isWriteConflict` reconhece as duas formas. O teste de dois bootstraps concorrentes passou 3 vezes seguidas no PostgreSQL e nos três bancos.
+- **Code review, P1:** caracteres invisíveis no fim do login são removidos pelo `trim()` (BOM e separadores contam como espaço). O teste passou a colocá-los no meio, onde está o risco real.
+- **Fase vermelha das correções do review (A3):**
+
+  | Mutação | Testes que falharam |
+  |---|---|
+  | invisíveis aceitos | 13 |
+  | sem mínimo de senha | 2 |
+  | resultado do `createIfEmpty` ignorado | 1 |
+  | ambiente inteiro para o filho | 1 |
+  | só a URL exata mascarada | 1 |
+  | esquema ecoado | 1 |
+  | variável vazia cai no stdin | 1 |
+  | erro cru impresso | 1 |
+  | recusa com saída 1 | 1 |
+
+  Duas mutações sobreviveram por serem equivalentes:
+  - a segunda NFKC: nenhum code point a exige; foi removida do código;
+  - o `trim` no `protocolOf`: o parser de URL já descarta espaços nas pontas; o `trim` fica pelo `withScheme`.
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
@@ -289,7 +340,15 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **README** do `@tecton/auth` em inglês.
 - **Verificação:** suíte rápida com 472 testes; persistência 7/7 em cada um dos três bancos; `test:generation` 2/2; build, typecheck, `check:deps` (100 módulos), `lint:examples` e `validate:asyncapi`, todos verdes.
 - **Para a 2.2b:** o `pnpm-workspace.yaml` do workspace gerado vai precisar de `allowBuilds` para `prisma` e `@prisma/engines` quando o `apps/auth` instalar o `@tecton/auth` pelo registro (com `link:` não é necessário).
-- **Pendente nesta story:** o code review (A1), próximo passo.
+- **Code review (2026-10-16):** 22 correções aplicadas, 4 adiados e 1 descartado.
+  - Login: recusa caracteres invisíveis e de formatação; linha lida com status ou permissões inválidos falha fechada.
+  - Bootstrap: atômico em transação serializável (`createIfEmpty`); senha do administrador com pelo menos 12 caracteres; saída 2 na recusa.
+  - CLI: erro de banco numa linha sem URL; stdin com limite de 10 s; variável vazia é erro.
+  - Migrations: ambiente mínimo para o filho; mascaramento da senha em todas as formas; timeout e sinal; sem `CREATE SCHEMA "public"`.
+  - Banco: `?schema=` honrado em runtime; `P2002` só vira `LoginTakenError` quando o conflito é no login; esquema da URL tratado com espaço e maiúsculas; mensagem de dialeto sem eco.
+  - Outros: `uuid` fixado em 14.0.3; ajuda e README com `TECTON_AUTH_PEPPER_ID` e os códigos de saída.
+- **Desvio não registrado no desenvolvimento** (P21): o `@tecton/cli` também passou a depender de `@tecton/providers` (`pepperFromEnv`, Argon2id e `systemClock` no comando). O AD-3 permite.
+- **Testes depois do review:** suíte rápida com 503; persistência com 13 por banco (12 rodam em cada; 1 é específico do dialeto), verde nos três.
 
 ### File List
 
@@ -309,3 +368,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 - 2026-10-15: Story criada (Create Story), primeira metade da 2.2 dividida.
 - 2026-10-15: Validate Story e aprovações do Boss (dependências, `allowBuilds`, permissões do bootstrap).
 - 2026-10-16: Story implementada (Dev Story); persistência verificada nos três bancos; status → review.
+- 2026-10-16: Code review: 22 correções com fase vermelha por mutação, CI do `check:deps` corrigido; status → done.

@@ -2,7 +2,7 @@ import { createArgon2idAuthProvider } from '@tecton/providers';
 import { assertNoSecretsLeaked, createTestClock, selectedDatabase, startDatabase, type StartedDatabase } from '#test-support';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AlreadyBootstrappedError, bootstrapAdmin } from '../../core/bootstrap.js';
-import type { Credential } from '../../core/credential.js';
+import { InvalidCredentialError, type Credential } from '../../core/credential.js';
 import { LoginTakenError, type CredentialStore } from '../../core/credential-store.js';
 import { applyAuthMigrations } from './migrations.js';
 import { createPrismaCredentialStore } from './prisma-credential-store.js';
@@ -114,5 +114,82 @@ describe(`Auth bootstrap on an empty ${selectedDatabase()} database`, () => {
     expect(message).toContain('migrations failed');
     assertNoSecretsLeaked(message, { password: 'wrong-password-for-the-test' });
     expect(message).not.toContain(broken);
+  }, 120_000);
+});
+
+describe(`Auth store review fixes on ${selectedDatabase()}`, () => {
+  let database: StartedDatabase;
+  let store: CredentialStore;
+  const table = selectedDatabase() === 'postgres' ? '"credentials"' : '`credentials`';
+
+  beforeAll(async () => {
+    database = await startDatabase();
+    await applyAuthMigrations({ databaseUrl: database.url });
+    store = createPrismaCredentialStore({ databaseUrl: database.url });
+  }, 240_000);
+
+  afterAll(async () => {
+    await store?.close();
+    await database?.stop();
+  });
+
+  it('P3: two concurrent bootstraps on an empty database create exactly one administrator', async () => {
+    const run = (login: string) =>
+      bootstrapAdmin({ store, auth, clock: createTestClock(), login, password: 'admin-password-123' }).then(
+        () => 'created',
+        (error: unknown) => (error instanceof AlreadyBootstrappedError ? 'refused' : Promise.reject(error)),
+      );
+    const outcomes = await Promise.all([run('first-admin'), run('second-admin')]);
+
+    expect(outcomes.sort()).toEqual(['created', 'refused']);
+    expect(await store.count()).toBe(1);
+  });
+
+  it('P18: a second bootstrap after the first leaves exactly one row', async () => {
+    await expect(
+      bootstrapAdmin({ store, auth, clock: createTestClock(), login: 'third-admin', password: 'admin-password-123' }),
+    ).rejects.toThrow(AlreadyBootstrappedError);
+    expect(await store.count()).toBe(1);
+  });
+
+  it('P11: a repeated id is not reported as a taken login', async () => {
+    const existing = credential({ id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e70', login: 'bob' });
+    await store.create(existing);
+
+    const error = await store.create(credential({ id: existing.id, login: 'carol' })).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(LoginTakenError);
+  });
+
+  it('P5: a row with an unknown status fails closed when read', async () => {
+    await database.query(
+      `INSERT INTO ${table} (id, login, password_hash, status, permissions, created_at, updated_at) ` +
+        `VALUES ('0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e71', 'mallory', 'hash', 'superuser', '[]', '2026-01-01 00:00:00', '2026-01-01 00:00:00')`,
+    );
+
+    await expect(store.findByLogin('mallory')).rejects.toThrow(InvalidCredentialError);
+  });
+
+  it.runIf(selectedDatabase() !== 'postgres')('P17: the live login column has a binary collation', async () => {
+    const collation = await database.query(
+      "SELECT COLLATION_NAME FROM information_schema.COLUMNS WHERE TABLE_NAME = 'credentials' AND COLUMN_NAME = 'login'",
+    );
+
+    expect(collation).toBe('utf8mb4_bin');
+  });
+
+  it.runIf(selectedDatabase() === 'postgres')('P6: honours ?schema= in migrations and at runtime alike', async () => {
+    const url = new URL(database.url);
+    url.searchParams.set('schema', 'tecton_auth');
+    const scoped = url.toString();
+    await applyAuthMigrations({ databaseUrl: scoped });
+    const scopedStore = createPrismaCredentialStore({ databaseUrl: scoped });
+    try {
+      await scopedStore.create(credential({ id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e72', login: 'scoped' }));
+      expect(await scopedStore.count()).toBe(1);
+      expect(await database.query('SELECT count(*) FROM tecton_auth.credentials')).toBe('1');
+    } finally {
+      await scopedStore.close();
+    }
   }, 120_000);
 });

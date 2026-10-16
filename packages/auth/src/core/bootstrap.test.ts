@@ -1,7 +1,7 @@
 import { createArgon2idAuthProvider, type AuthProvider } from '@tecton/providers';
 import { assertNoSecretsLeaked, createTestClock } from '#test-support';
 import { describe, expect, it } from 'vitest';
-import { AlreadyBootstrappedError, BOOTSTRAP_ADMIN_PERMISSIONS, bootstrapAdmin } from './bootstrap.js';
+import { AlreadyBootstrappedError, BOOTSTRAP_ADMIN_PERMISSIONS, bootstrapAdmin, PasswordPolicyError } from './bootstrap.js';
 import type { Credential } from './credential.js';
 import { LoginTakenError, type CredentialStore } from './credential-store.js';
 
@@ -22,6 +22,12 @@ function memoryStore(initial: Credential[] = []) {
       calls.create += 1;
       if (rows.some((row) => row.login === credential.login)) throw new LoginTakenError();
       rows.push(credential);
+    },
+    createIfEmpty: async (credential) => {
+      if (rows.length > 0) return false;
+      calls.create += 1;
+      rows.push(credential);
+      return true;
     },
     close: async () => undefined,
   };
@@ -61,5 +67,27 @@ describe('bootstrapAdmin', () => {
   it('exposes the bootstrap permissions as an immutable list', () => {
     expect(BOOTSTRAP_ADMIN_PERMISSIONS).toEqual(['auth:service:register', 'auth:credential:create']);
     expect(Object.isFrozen(BOOTSTRAP_ADMIN_PERMISSIONS)).toBe(true);
+  });
+
+  it.each([
+    ['too short', 'short-pass1'],
+    ['only spaces', ' '.repeat(16)],
+    ['empty', ''],
+  ])('refuses a password that is %s, writing nothing', async (_label, password) => {
+    const { store, rows } = memoryStore();
+
+    await expect(bootstrapAdmin({ store, auth, clock: createTestClock(), login: 'admin', password })).rejects.toThrow(PasswordPolicyError);
+    expect(rows).toHaveLength(0);
+  });
+
+  it('refuses when the atomic insert finds credentials created meanwhile (concurrent bootstrap)', async () => {
+    const { store, rows } = memoryStore();
+    // count() sees an empty table, then another bootstrap commits before our insert.
+    const racing: CredentialStore = { ...store, count: async () => 0, createIfEmpty: async () => false };
+
+    await expect(bootstrapAdmin({ store: racing, auth, clock: createTestClock(), login: 'admin', password: PASSWORD })).rejects.toThrow(
+      AlreadyBootstrappedError,
+    );
+    expect(rows).toHaveLength(0);
   });
 });

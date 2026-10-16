@@ -19,6 +19,11 @@ function memoryStore(initial: Credential[] = []) {
     create: async (credential) => {
       rows.push(credential);
     },
+    createIfEmpty: async (credential) => {
+      if (rows.length > 0) return false;
+      rows.push(credential);
+      return true;
+    },
     close: async () => {
       closed = true;
     },
@@ -79,7 +84,7 @@ describe('tecton-admin auth bootstrap (Story 2.2a, AC 2 and 3)', () => {
     await authBootstrapCommand({ login: 'first' }, harness({ ...BASE_ENV, TECTON_AUTH_BOOTSTRAP_PASSWORD: PASSWORD }).io, deps(memory.store));
     const { io, output } = harness({ ...BASE_ENV, TECTON_AUTH_BOOTSTRAP_PASSWORD: PASSWORD });
 
-    expect(await authBootstrapCommand({ login: 'second' }, io, deps(memory.store))).toBe(1);
+    expect(await authBootstrapCommand({ login: 'second' }, io, deps(memory.store))).toBe(2);
     expect(output().stderr).toContain('auth bootstrap refused');
     expect(memory.rows).toHaveLength(1);
   });
@@ -120,5 +125,62 @@ describe('tecton-admin auth bootstrap (Story 2.2a, AC 2 and 3)', () => {
     await run(['auth', 'bootstrap', '--help'], io);
     expect(output().stdout).toContain('TECTON_AUTH_BOOTSTRAP_PASSWORD');
     expect(output().stdout).toContain('standard input');
+  });
+
+  it('reports a database error in one line, without the URL, the password or a stack trace (review P2)', async () => {
+    const failing = memoryStore();
+    const store: CredentialStore = {
+      ...failing.store,
+      count: async () => {
+        const error = new Error(`connect ECONNREFUSED ${DATABASE_URL}`);
+        Object.assign(error, { code: 'P1001' });
+        throw error;
+      },
+      close: async () => {
+        throw new Error('close failed too');
+      },
+    };
+    const { io, output } = harness({ ...BASE_ENV, TECTON_AUTH_BOOTSTRAP_PASSWORD: PASSWORD });
+
+    expect(await authBootstrapCommand({ login: 'admin' }, io, deps(store))).toBe(1);
+    expect(output().stderr).toMatch(/^auth bootstrap failed: could not complete the bootstrap \(Error P1001\)/);
+    expect(output().stderr).not.toContain('    at ');
+    expect(output().stderr).not.toContain('close failed');
+    assertNoSecretsLeaked(output().stderr, { database: 'database-secret-123', url: DATABASE_URL });
+  });
+
+  it('refuses a password variable that is set but empty instead of reading standard input (review P9)', async () => {
+    const memory = memoryStore();
+    const { io, output } = harness({ ...BASE_ENV, TECTON_AUTH_BOOTSTRAP_PASSWORD: '' }, { text: PASSWORD });
+
+    expect(await authBootstrapCommand({ login: 'admin' }, io, deps(memory.store))).toBe(1);
+    expect(output().stderr).toContain('set but empty');
+    expect(memory.rows).toHaveLength(0);
+  });
+
+  it('gives up on standard input that never closes (review P9)', async () => {
+    const memory = memoryStore();
+    const { io, output } = harness(BASE_ENV);
+    io.stdin = { isTTY: false, readAll: () => new Promise<string>(() => undefined) };
+
+    expect(await authBootstrapCommand({ login: 'admin' }, io, { ...deps(memory.store), stdinTimeoutMs: 50 })).toBe(1);
+    expect(output().stderr).toContain('did not close');
+  });
+
+  it('refuses a weak administrator password (review P4)', async () => {
+    const memory = memoryStore();
+    const { io, output } = harness({ ...BASE_ENV, TECTON_AUTH_BOOTSTRAP_PASSWORD: 'x' });
+
+    expect(await authBootstrapCommand({ login: 'admin' }, io, deps(memory.store))).toBe(1);
+    expect(output().stderr).toContain('at least 12 characters');
+    expect(memory.rows).toHaveLength(0);
+  });
+
+  it('documents TECTON_AUTH_PEPPER_ID and the exit codes in its help (review P14, P15)', async () => {
+    const { io, output } = harness({});
+
+    await run(['auth', 'bootstrap', '--help'], io);
+    expect(output().stdout).toContain('TECTON_AUTH_PEPPER_ID');
+    expect(output().stdout).toContain('2 already bootstrapped');
   });
 });

@@ -35,6 +35,6 @@
     "@tecton/manifest": "workspace:*",
     "@tecton/providers": "workspace:*",
     "prisma": "7.10.0",
-    "uuid": "^14.0.3"
+    "uuid": "14.0.3"
   }
 }
