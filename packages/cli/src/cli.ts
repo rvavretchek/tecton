@@ -1,4 +1,5 @@
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
+import { authBootstrapCommand } from './commands/auth-bootstrap.js';
 import { generateDomainCommand } from './commands/generate-domain.js';
 import { lintCommand, type OutputFormat } from './commands/lint.js';
 import { newCommand } from './commands/new.js';
@@ -51,6 +52,22 @@ function buildProgram(io: CliIo, setExitCode: (code: number) => void): Command {
     .addHelpText('after', '\nExamples:\n  $ tecton-admin generate domain finance inventory sales\n  $ tecton-admin generate domain --from domains.txt\n')
     .action((names: string[], options: { from?: string }) => {
       setExitCode(generateDomainCommand(names, options, io));
+    });
+
+  const auth = program.command('auth').description('Administer the Auth service.');
+  auth
+    .command('bootstrap')
+    .description(
+      'Create the first administrator credential directly in the Auth database (only when it has none). ' +
+        'The password is read from TECTON_AUTH_BOOTSTRAP_PASSWORD or standard input, never from an argument.',
+    )
+    .requiredOption('--login <identifier>', 'login of the administrator')
+    .addHelpText(
+      'after',
+      '\nEnvironment:\n  TECTON_AUTH_DATABASE_URL        Auth database (postgresql://, mysql:// or mariadb://)\n  TECTON_AUTH_PEPPER              Pepper, at least 32 bytes\n  TECTON_AUTH_BOOTSTRAP_PASSWORD  password (optional; otherwise read from standard input)\n\nExample:\n  $ printf \'%s\' "$PASSWORD" | tecton-admin auth bootstrap --login admin\n',
+    )
+    .action(async (options: { login: string }) => {
+      setExitCode(await authBootstrapCommand(options, io));
     });
 
   return program;

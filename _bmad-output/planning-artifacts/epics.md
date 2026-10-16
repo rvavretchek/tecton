@@ -622,11 +622,13 @@ para que nenhuma senha seja guardada de forma recuperável, mesmo se o banco vaz
 
 > **Nota:** a leitura do Pepper usa validação mínima própria. O `ConfigProvider` formal com fail-fast é do Epic 3 (FR-22) e vai absorver essa leitura.
 
-### Story 2.2: Serviço `@tecton/auth`: login, access token EdDSA e JWKS
+> **Divisão (Create Story de 2026-10-15):** a Story 2.2 original foi dividida em 2.2a (credenciais, persistência e bootstrap) e 2.2b (login, access token e JWKS), conforme a nota de tamanho do pre-mortem e o pedido do Boss. Os critérios abaixo são os originais, redistribuídos sem perda; a porta `Clock` (ASR-1 do Test Design, "antes da Story 2.2") entra na 2.2a.
+
+### Story 2.2a: Serviço `@tecton/auth`, parte 1: credenciais, persistência e bootstrap
 
 Como **dev de um sistema construído com o Tecton**,
-quero um serviço de Auth pronto que autentique por login e senha e emita access token assinado,
-para que todo serviço consiga verificar a identidade por conta própria, sem conseguir forjá-la.
+quero que o serviço de Auth guarde credenciais no próprio banco e que eu consiga criar a primeira credencial administrativa,
+para que exista quem se autentique antes de qualquer outro serviço subir.
 
 **Critérios de Aceite:**
 
@@ -645,6 +647,19 @@ para que todo serviço consiga verificar a identidade por conta própria, sem co
 **Quando** alguém roda `tecton-admin auth bootstrap`
 **Então** o comando falha sem alterar nada
 
+**Dado** o pacote `@tecton/auth`
+**Quando** eu inspeciono o que ele exporta
+**Então** ele traz o próprio `tecton.yaml`, com as actions do Auth (`login`, `refresh`, `logout`, `service-token` e, a partir da Story 4.3, `create-credential`), resolvível pelo lint como pacote npm (Story 1.6)
+**E** o JWKS fica fora do manifest, porque não é action
+
+### Story 2.2b: Serviço `@tecton/auth`, parte 2: login, access token EdDSA e JWKS
+
+Como **dev de um sistema construído com o Tecton**,
+quero um serviço de Auth pronto que autentique por login e senha e emita access token assinado,
+para que todo serviço consiga verificar a identidade por conta própria, sem conseguir forjá-la.
+
+**Critérios de Aceite:**
+
 **Dado** uma credencial válida
 **Quando** eu chamo `POST /auth/login` com identificador e senha
 **Então** recebo um access token JWT assinado com EdDSA (Ed25519), com `kid` no cabeçalho e os claims `iss`, `sub`, `aud`, `iat`, `exp` (padrão de 15 minutos, configurável), `jti` em UUID v7, `typ: user` e `perms`
@@ -662,11 +677,6 @@ para que todo serviço consiga verificar a identidade por conta própria, sem co
 **Quando** ele inicia
 **Então** a inicialização falha com mensagem clara
 
-**Dado** o pacote `@tecton/auth`
-**Quando** eu inspeciono o que ele exporta
-**Então** ele traz o próprio `tecton.yaml`, com as actions do Auth (`login`, `refresh`, `logout`, `service-token` e, a partir da Story 4.3, `create-credential`), resolvível pelo lint como pacote npm (Story 1.6)
-**E** o JWKS fica fora do manifest, porque não é action
-
 **Dado** um workspace novo
 **Quando** eu rodo `tecton-admin new`
 **Então** é gerado `apps/auth` como instância configurada de `@tecton/auth`, com dependência versionada (AD-4)
@@ -679,8 +689,6 @@ para que todo serviço consiga verificar a identidade por conta própria, sem co
 > - O JWKS é um endpoint padrão de mercado e por isso usa `GET` em caminho `.well-known`, fora da convenção RPC das actions.
 > - Proteção contra força bruta fica com o rate limiting do Gateway (Epic 3, FR-19).
 > - Nesta story, `perms` vem da credencial. No Epic 4, a fonte passa a ser o ACL do Directory.
-
-> **Nota de tamanho (pre-mortem de 2026-10-05):** story grande para uma única sessão de agente; candidata a divisão no `bmad-create-story`.
 
 ### Story 2.3: Refresh token opaco com rotação e logout
 

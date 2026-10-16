@@ -1,0 +1,29 @@
+# Manifest of the ready-made Auth service (@tecton/auth). Other domains resolve it through the
+# package's "tecton.manifests" field (tecton-admin lint, Story 1.6). Contracts are provisional:
+# Stories 2.2b, 2.3 and 2.7 refine them additively. The JWKS endpoint
+# (GET /auth/.well-known/jwks.json) is infrastructure, not an action, so it is not listed here.
+manifestVersion: "0.1"
+domain: auth
+version: 0.0.0
+description: "Authenticates users and services and issues signed access tokens (EdDSA, verifiable through JWKS)."
+actions:
+  - name: login
+    description: "Authenticates a user by login and password and returns an access token."
+    input: { login: string, password: string }
+    output: { accessToken: string, tokenType: string, expiresIn: integer }
+    auth: { public: true }
+  - name: refresh
+    description: "Issues a new access token from the refresh cookie, rotating the refresh token."
+    input: {}
+    output: { accessToken: string, tokenType: string, expiresIn: integer }
+    auth: { public: true }
+  - name: logout
+    description: "Revokes the refresh token family identified by the refresh cookie."
+    input: {}
+    output: {}
+    auth: { public: true }
+  - name: serviceToken
+    description: "Issues a service access token for a registered service credential."
+    input: { serviceId: string, secret: string }
+    output: { accessToken: string, tokenType: string, expiresIn: integer }
+    auth: { public: true }

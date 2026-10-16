@@ -151,3 +151,6 @@ docs/Laboratório/
 # Test results (Vitest/Playwright reports, traces, JUnit)
 test-results/
 playwright-report/
+
+# Prisma Client generated at build time (pnpm build runs `generate` first)
+packages/auth/src/generated/

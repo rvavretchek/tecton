@@ -73,7 +73,9 @@ module.exports = {
   ],
   options: {
     doNotFollow: { path: 'node_modules' },
-    exclude: { path: '(^|/)(node_modules|dist)/' },
+    // Generated Prisma clients (packages/*/src/generated) have internal import cycles of their own;
+    // they are not Tecton code and import nothing from @tecton/*.
+    exclude: { path: '(^|/)(node_modules|dist)/|^packages/[^/]+/src/generated/' },
     tsConfig: { fileName: 'tsconfig.depcruise.json' },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {

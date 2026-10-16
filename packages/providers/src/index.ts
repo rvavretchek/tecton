@@ -6,4 +6,5 @@ export {
   type Argon2idAuthProviderOptions,
   type Argon2idParams,
 } from './auth/argon2id-auth-provider.js';
+export { systemClock, type Clock } from './clock.js';
 export { MIN_PEPPER_BYTES, PepperConfigError, pepperFromEnv, type Pepper } from './auth/pepper.js';

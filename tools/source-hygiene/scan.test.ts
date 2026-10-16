@@ -28,7 +28,9 @@ describe('findHygieneIssues', () => {
   });
 });
 
-describe('repository source hygiene (Epic 1 retrospective, A2)', () => {
+// Spawns git and reads every tracked file: under 1 s alone, several seconds while the whole suite
+// runs in parallel, so it gets its own timeout instead of Vitest's 5 s default.
+describe('repository source hygiene (Epic 1 retrospective, A2)', { timeout: 30_000 }, () => {
   it('has no byte order mark or control character in code, configuration or workflows', () => {
     const issues = scanRepository(repoRoot).map((issue) => `${issue.file}:${issue.line}:${issue.column} ${issue.kind} ${issue.codePoint}`);
 

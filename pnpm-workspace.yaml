@@ -11,6 +11,10 @@ linkWorkspacePackages: true
 # protobufjs' postinstall is only a version check, and @scarf/scarf (pulled by
 # @asyncapi/parser) only sends install telemetry.
 allowBuilds:
+  # Prisma 7 (Story 2.2a, approved by the Boss): prisma's preinstall checks the Node version;
+  # @prisma/engines' postinstall downloads the schema engine used by migrations.
+  prisma: true
+  '@prisma/engines': true
   '@scarf/scarf': false
   '@seontechnologies/playwright-utils': false
   cpu-features: false

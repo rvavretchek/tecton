@@ -16,6 +16,25 @@
   "files": [
     "dist",
     "!dist/.tsbuildinfo",
-    "!dist/**/*.map"
-  ]
+    "!dist/**/*.map",
+    "prisma",
+    "tecton.yaml"
+  ],
+  "tecton": {
+    "manifests": [
+      "./tecton.yaml"
+    ]
+  },
+  "scripts": {
+    "generate": "prisma generate --config prisma/postgresql/prisma.config.ts && prisma generate --config prisma/mysql/prisma.config.ts"
+  },
+  "dependencies": {
+    "@prisma/adapter-mariadb": "7.10.0",
+    "@prisma/adapter-pg": "7.10.0",
+    "@prisma/client": "7.10.0",
+    "@tecton/manifest": "workspace:*",
+    "@tecton/providers": "workspace:*",
+    "prisma": "7.10.0",
+    "uuid": "^14.0.3"
+  }
 }

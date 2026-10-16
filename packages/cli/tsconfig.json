@@ -14,6 +14,12 @@
   "references": [
     {
       "path": "../manifest"
+    },
+    {
+      "path": "../auth"
+    },
+    {
+      "path": "../providers"
     }
   ]
 }

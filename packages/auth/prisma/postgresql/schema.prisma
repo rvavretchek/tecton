@@ -1,0 +1,26 @@
+// Auth service schema, postgresql dialect. Keep it identical to the other dialect except for
+// native @db types: schema-parity.test.ts compares them. Only the Auth service uses this
+// database (AD-9). Timestamps come from the Clock port, never from database defaults.
+generator client {
+  provider               = "prisma-client"
+  output                 = "../../src/generated/postgresql"
+  moduleFormat           = "esm"
+  importFileExtension    = "js"
+  generatedFileExtension = "ts"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Credential {
+  id           String   @id @db.Char(36)
+  login        String   @unique @db.VarChar(320)
+  passwordHash String   @map("password_hash") @db.VarChar(256)
+  status       String   @db.VarChar(16)
+  permissions  Json
+  createdAt    DateTime @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime @map("updated_at") @db.Timestamptz(3)
+
+  @@map("credentials")
+}

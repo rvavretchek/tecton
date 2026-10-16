@@ -10,5 +10,13 @@
   ],
   "exclude": [
     "src/**/*.test.ts"
+  ],
+  "references": [
+    {
+      "path": "../manifest"
+    },
+    {
+      "path": "../providers"
+    }
   ]
 }
