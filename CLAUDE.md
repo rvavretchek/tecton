@@ -4,11 +4,31 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Estado do projeto
 
-Este repositório está em **fase de planejamento/pré-código**: não há `package.json`, código-fonte, testes ou pipeline de build ainda. Não existem comandos de build/lint/test para documentar até que a stack seja escolhida e o scaffolding inicial seja criado — não invente comandos, verifique o que existe antes de assumir qualquer tooling.
+Este repositório está **em implementação**. É um monorepo pnpm (Node `>=24.19 <25`, TypeScript 6.0.3), com os pacotes `@tecton/*` em `packages/`, testes Vitest e CI no GitHub Actions. A seção "Desenvolvimento" do `README.md` e o `tests/README.md` têm os comandos (`pnpm build`, `typecheck`, `test`, `test:containers`, `test:persistence`, `check:deps`...). Não invente comandos: confira o `package.json` da raiz.
 
-O que existe hoje é uma instalação do **BMAD Method** (`_bmad/`) usada para conduzir o processo de descoberta, design e planejamento do produto antes da implementação.
+O processo segue o **BMAD Method** (`_bmad/`): cada story passa por Create Story, Validate Story, Dev Story e Code Review, nessa ordem e antes da próxima story (retro do Epic 1, ação A1).
 
-**Onde o planejamento está (atualizado em 2026-10-07):** Product Brief (2026-08-10), PRD final com 31 FRs/8 NFRs (2026-08-14), Architecture Spine final com AD-1 a AD-10 + `UML.md` (2026-08-28, com emendas de 2026-10-01 a 2026-10-07 feitas durante a escrita das stories), UX contract restrito ao admin do Directory Service (2026-09-03) e `epics.md` **completo: 61 stories em 6 épicos, 381 critérios de aceite** (workflow `bmad-create-epics-and-stories` concluído em 2026-10-07, com elicitação avançada e revisão em party mode). Ordem dos épicos: 1 Manifest, 2 Auth/Zero Trust, 3 Interoperabilidade, 4 Directory, 5 Formato de API, 6 CLI/DX. Stack corrigida: Prisma 7.x (não 8), bancos PostgreSQL, MariaDB e MySQL. Próximos passos: (1) `bmad-check-implementation-readiness`; (2) `bmad-sprint-planning`; (3) implementação a partir da Story 1.1 (stories marcadas como grandes devem ser divididas no `bmad-create-story`).
+**Onde o planejamento está (atualizado em 2026-10-07):** Product Brief (2026-08-10), PRD final com 31 FRs/8 NFRs (2026-08-14), Architecture Spine final com AD-1 a AD-10 + `UML.md` (2026-08-28, com emendas de 2026-10-01 a 2026-10-07 feitas durante a escrita das stories), UX contract restrito ao admin do Directory Service (2026-09-03) e `epics.md` **completo: 61 stories em 6 épicos, 381 critérios de aceite** (workflow `bmad-create-epics-and-stories` concluído em 2026-10-07, com elicitação avançada e revisão em party mode). Ordem dos épicos: 1 Manifest, 2 Auth/Zero Trust, 3 Interoperabilidade, 4 Directory, 5 Formato de API, 6 CLI/DX. Stack corrigida: Prisma 7.x (não 8), bancos PostgreSQL, MariaDB e MySQL.
+
+**Onde a implementação está (atualizado em 2026-10-16):**
+- **Epic 1:** concluído, com code review e retrospectiva (`_bmad-output/implementation-artifacts/epic-1-retro-2026-10-15.md`). O merge em `main` foi o `c7bb847`.
+- **Epic 2 (em andamento):**
+  - Stories 2.1 (`AuthProvider` com Argon2id e Pepper) e 2.2a (credenciais, persistência Prisma nos três bancos e `tecton-admin auth bootstrap`) concluídas em `dev`.
+  - A Story 2.2 foi dividida em 2.2a e 2.2b (ver o `epics.md`).
+- **Próximo passo: Story 2.2b**, a parte 2 do serviço `@tecton/auth`, para rodar pelo ciclo completo a partir do Create Story. Ela cobre:
+  - `POST /auth/login` com access token EdDSA (Ed25519, `kid`, claims de 15 minutos, `jti` UUID v7, `typ: user`, `perms`);
+  - 401 idêntico e com tempo equivalente para login inexistente e senha errada;
+  - `GET /auth/.well-known/jwks.json` só com chaves públicas e com suporte a rotação;
+  - falha na subida sem chave privada;
+  - `apps/auth` gerado pelo `tecton-admin new`, com o banco `auth` no Dev Services;
+  - logs sem segredos.
+- **Pendências herdadas para a 2.2b** (`deferred-work.md`, seção da 2.2a):
+  - `allowBuilds` para `prisma` e `@prisma/engines` no workspace gerado;
+  - teste do pacote empacotado;
+  - timezone do MySQL/MariaDB;
+  - verificação de mentira para login inexistente (W2 da 2.1).
+- **Depois:** 2.3 em diante. A 2.7 deve ser dividida, e o EQ-5 (autenticação do CLI como administrador) será decidido no Create Story dela. A emenda do modo escuro (ação A4 da retro) fica para antes do Epic 4.
+- **Testes com Docker localmente:** túnel SSH para o Docker do ubt-host02 (receita no `.env.example`).
 
 ## Objetivo do produto
 
