@@ -64,7 +64,7 @@ development_status:
   epic-2: in-progress
   2-1-authprovider-com-argon2id-e-pepper: done
   2-2a-servico-tecton-auth-credenciais-persistencia-e-bootstrap: done
-  2-2b-servico-tecton-auth-login-access-token-eddsa-e-jwks: backlog  # next step (2026-10-16): start with Create Story
+  2-2b-servico-tecton-auth-login-access-token-eddsa-e-jwks: ready-for-dev
   2-3-refresh-token-opaco-com-rotacao-e-logout: backlog
   2-4-verificacao-local-do-token-em-todo-servico: backlog
   2-5-tokenrevocationstore-com-valkey-e-fail-closed: backlog
