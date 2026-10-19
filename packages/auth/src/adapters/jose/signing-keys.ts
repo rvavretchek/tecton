@@ -19,7 +19,10 @@ export interface PublishedJwk extends JWK {
 export interface SigningKeys {
   /** The key that signs new tokens. */
   current: { kid: string; privateKey: KeyObject };
-  /** Current public key first, then the previous ones still published during a rotation. */
+  /**
+   * Current public key first, then the previous ones (still verifying older tokens) and the next
+   * ones (published before they sign, so verifiers already know them when a rotation happens).
+   */
   publicJwks: readonly PublishedJwk[];
 }
 
@@ -28,6 +31,8 @@ export interface SigningKeyMaterial {
   privateKeyPem: string;
   /** Previous public keys, PEM SPKI ("-----BEGIN PUBLIC KEY-----"), kept in the JWKS during a rotation. */
   previousPublicKeyPems?: readonly string[];
+  /** Next public keys, PEM SPKI, published ahead of a rotation. */
+  nextPublicKeyPems?: readonly string[];
 }
 
 const GENERATE_HINT = 'generate one with: openssl genpkey -algorithm ed25519';
@@ -51,16 +56,16 @@ function privateKeyFrom(pem: string): KeyObject {
   return key;
 }
 
-function publicKeyFrom(pem: string, position: number): KeyObject {
+function publicKeyFrom(pem: string, position: number, kind: 'previous' | 'next'): KeyObject {
   let key: KeyObject;
   try {
     if (!pem.includes('-----BEGIN PUBLIC KEY-----')) throw new Error('not SPKI');
     key = createPublicKey({ key: pem, format: 'pem' });
   } catch {
-    throw new SigningKeyConfigError(`previous public key #${position + 1} is not a PEM SPKI public key ("BEGIN PUBLIC KEY")`);
+    throw new SigningKeyConfigError(`${kind} public key #${position + 1} is not a PEM SPKI public key ("BEGIN PUBLIC KEY")`);
   }
   if (key.asymmetricKeyType !== 'ed25519') {
-    throw new SigningKeyConfigError(`previous public key #${position + 1} must be Ed25519, not ${key.asymmetricKeyType ?? 'unknown'}`);
+    throw new SigningKeyConfigError(`${kind} public key #${position + 1} must be Ed25519, not ${key.asymmetricKeyType ?? 'unknown'}`);
   }
   return key;
 }
@@ -79,11 +84,16 @@ async function publish(publicKey: KeyObject): Promise<PublishedJwk> {
  * Validates the signing key and the previous public keys and builds the JWKS. A rotation needs no
  * old private key: tokens signed before it are verified with the published public key.
  */
-export async function buildSigningKeys({ privateKeyPem, previousPublicKeyPems = [] }: SigningKeyMaterial): Promise<SigningKeys> {
+export async function buildSigningKeys({
+  privateKeyPem,
+  previousPublicKeyPems = [],
+  nextPublicKeyPems = [],
+}: SigningKeyMaterial): Promise<SigningKeys> {
   const privateKey = privateKeyFrom(privateKeyPem);
   const current = await publish(createPublicKey(privateKey));
-  const previous = await Promise.all(previousPublicKeyPems.map((pem, position) => publish(publicKeyFrom(pem, position))));
+  const previous = await Promise.all(previousPublicKeyPems.map((pem, position) => publish(publicKeyFrom(pem, position, 'previous'))));
+  const next = await Promise.all(nextPublicKeyPems.map((pem, position) => publish(publicKeyFrom(pem, position, 'next'))));
   const publicJwks: PublishedJwk[] = [current];
-  for (const jwk of previous) if (!publicJwks.some((known) => known.kid === jwk.kid)) publicJwks.push(jwk);
+  for (const jwk of [...previous, ...next]) if (!publicJwks.some((known) => known.kid === jwk.kid)) publicJwks.push(jwk);
   return { current: { kid: current.kid, privateKey }, publicJwks };
 }

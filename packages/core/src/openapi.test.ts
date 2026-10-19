@@ -61,11 +61,11 @@ describe('buildOpenApiDocument regenerated after a manifest change (AC 5)', () =
 });
 
 describe('buildOpenApiDocument error responses (review P33)', () => {
-  it('declares 400, 500 and 501 with the error body on every action', async () => {
+  it('declares 400, 401, 500 and 501 with the error body on every action', async () => {
     const doc = (await buildOpenApiDocument(manifestOf(source('{ displayName: string }')))) as Doc;
     const responses = doc['paths']['/tenant/create-tenant']['post']['responses'];
 
-    for (const status of ['400', '500', '501']) {
+    for (const status of ['400', '401', '500', '501']) {
       expect(responses[status]['content']['application/json']['schema']).toMatchObject({
         type: 'object',
         required: ['status', 'slug', 'i18nKey', 'message'],

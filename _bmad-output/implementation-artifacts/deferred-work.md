@@ -14,14 +14,19 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 
 ## Deferred from: code review da Story 2.1 (2026-10-15)
 
-- W1 Concorrência sem limite no threadpool do libuv (rajada de logins) — limite de taxa e bloqueio de login nas Stories 2.6 e 3.7; dimensionar `UV_THREADPOOL_SIZE` na 2.2
-- W2 Verificação de mentira para login inexistente (timing) — Story 2.2 (EQ-7)
+- W1 Concorrência sem limite no threadpool do libuv (rajada de logins) — limite de taxa e bloqueio de login nas Stories 2.6 e 3.7; dimensionar `UV_THREADPOOL_SIZE` na 2.2 — parcial (2.2b): o README do `@tecton/auth` orienta o `UV_THREADPOOL_SIZE`; o limite segue para 2.6 e 3.7 (W1 da 2.2b)
+- W2 Verificação de mentira para login inexistente (timing) — Story 2.2 (EQ-7) — **resolvido na 2.2b** (`dummyHash` e Argon2id fictício em toda recusa)
 - W3 Pepper em `process.env` durante todo o processo — `ConfigProvider` (Story 3.1)
 - W4 Verificador de hashes legados (migração) — `LegacyAuthBridge` (Story 6.5)
 
 ## Deferred from: code review da Story 2.2a (2026-10-16)
 
 - W1 TLS: uma mesma URL não configura TLS igual para o motor de migrations e para o driver `mariadb` [prisma-credential-store.ts, migrations.ts] — adiado: configuração de conexão vem com o `ConfigProvider` (Story 3.1)
-- W2 Timezone da sessão no MySQL/MariaDB (`DATETIME` sem fuso) [prisma/mysql/schema.prisma] — adiado: forçar UTC no driver e testar com sessão fora de UTC quando o serviço subir (2.2b)
-- W3 Teste do pacote empacotado (`pnpm pack`, instalação e import) e `allowBuilds` no workspace gerado [packages/auth] — adiado: Story 2.2b, que instala o `@tecton/auth` no `apps/auth`
+- W2 Timezone da sessão no MySQL/MariaDB (`DATETIME` sem fuso) [prisma/mysql/schema.prisma] — adiado: forçar UTC no driver e testar com sessão fora de UTC quando o serviço subir (2.2b) — **resolvido na 2.2b** (teste `+03:00` lendo o DATETIME cru, verde no CI)
+- W3 Teste do pacote empacotado (`pnpm pack`, instalação e import) e `allowBuilds` no workspace gerado [packages/auth] — adiado: Story 2.2b, que instala o `@tecton/auth` no `apps/auth` — **parcial na 2.2b:** lista do pacote por `pnpm pack --dry-run --json` e `allowBuilds` no template; instalação do pacote publicado segue no W2 da 2.2b
 - W4 `ß` e `SS` continuam logins diferentes (`toLowerCase` não faz case folding completo) [credential.ts] — adiado: decidir com o modelo de identidade da 4.3; trocar a normalização depois exige migrar logins
+
+## Deferred from: code review da Story 2.2b (2026-10-19)
+
+- W1 Login sem limite de taxa nem de concorrência no endpoint que roda Argon2id [packages/auth/src/service.ts] — adiado: bloqueio por identificador na Story 2.6 e rate limiting do Gateway na 3.7; o README passa a orientar o `UV_THREADPOOL_SIZE`
+- W2 Pacote publicado instalado e importado de verdade, e `allowBuilds` provado por comportamento [packages/auth, templates] — adiado: exige os `@tecton/*` publicados num registro; entra com o pipeline de publicação. Hoje a lista de arquivos do pacote é verificada

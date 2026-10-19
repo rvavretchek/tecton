@@ -22,7 +22,7 @@ describe('createAccessTokenIssuer (AC 1)', () => {
     const issued = await createAccessTokenIssuer({ keys, clock }).issue(credential);
 
     expect(issued).toMatchObject({ tokenType: 'Bearer', expiresIn: 900 });
-    expect(decodeProtectedHeader(issued.accessToken)).toEqual({ alg: 'EdDSA', kid: keys.current.kid, typ: 'JWT' });
+    expect(decodeProtectedHeader(issued.accessToken)).toEqual({ alg: 'EdDSA', kid: keys.current.kid, typ: 'at+jwt' });
     const { payload } = await jwtVerify(issued.accessToken, createLocalJWKSet({ keys: [...keys.publicJwks] }), {
       issuer: 'urn:tecton:auth',
       audience: 'urn:tecton:api',

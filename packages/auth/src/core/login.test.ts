@@ -31,6 +31,7 @@ async function setup(options: { status?: 'active' | 'disabled'; auth?: AuthProvi
     createIfEmpty: async () => false,
     updatePasswordHash: async (id, hash) => {
       updates.push({ id, hash });
+      return true;
     },
     close: async () => undefined,
   };

@@ -112,7 +112,7 @@ describe('Argon2id AuthProvider: verification (AC 3)', () => {
     }
   });
 
-  it('rejects a hash whose memory cost is above the ceiling without running Argon2id', async () => {
+  it('rejects a hash whose memory cost is above the ceiling without running Argon2id at that cost', async () => {
     const auth = provider();
     const good = await auth.hashPassword(PASSWORD);
     // Just above the 1 GiB ceiling: a value Argon2id would accept and actually try to allocate.

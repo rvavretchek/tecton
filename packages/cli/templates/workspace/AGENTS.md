@@ -12,6 +12,10 @@ Until then, these rules already apply and must never be removed or weakened:
 - Never edit the code of `@tecton/*` packages; they are versioned dependencies.
 - Never turn off token verification, in any environment.
 
+`apps/auth` is the framework's ready-made Auth service (`@tecton/auth`): configure it through its
+environment variables (see `node_modules/@tecton/auth/README.md`), never by editing its package.
+Domains you generate live in `apps/domains/` and must not be named like a ready-made service.
+
 <!-- tecton:domains:start -->
 ```yaml
 domains: []

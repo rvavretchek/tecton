@@ -177,6 +177,7 @@ describe('tecton-admin new — documentation seeds (AC 7, AC 8, AC 9)', () => {
       expect(seed).toMatch(/^[\x09\x0A\x0D\x20-\x7E]+$/);
     }
     expect(agents).toContain('<!-- tecton:domains:start -->');
+    expect(agents).toContain("`apps/auth` is the framework's ready-made Auth service");
     expect(readme).toContain('interview the developer');
     expect(readFileSync(join(root, 'CLAUDE.md'), 'utf8').trim()).toBe(
       'See [AGENTS.md](AGENTS.md). It is the single source of instructions for AI agents in this workspace.',

@@ -97,9 +97,10 @@ pnpm --filter ./apps/auth start     # startAuthServiceFromEnv(process.env)
 |---|---|
 | `TECTON_AUTH_DATABASE_URL` | the Auth database (Dev Services creates an `auth` database) |
 | `TECTON_AUTH_PEPPER`, `TECTON_AUTH_PEPPER_ID` | see `@tecton/providers` |
-| `TECTON_AUTH_SIGNING_KEY` | Ed25519 private key, PEM PKCS#8: `openssl genpkey -algorithm ed25519`. A PEM on one line with literal `
-` is accepted |
-| `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS` | optional: previous public keys (PEM SPKI blocks), published during a rotation |
+| `TECTON_AUTH_SIGNING_KEY` | Ed25519 private key, PEM PKCS#8: `openssl genpkey -algorithm ed25519`. A PEM written on one line with literal `\n` is accepted |
+| `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS` | optional: public keys of previous signing keys (PEM SPKI blocks), still verifying older tokens |
+| `TECTON_AUTH_NEXT_PUBLIC_KEYS` | optional: public key of the next signing key, published before it signs (rotation step 1) |
+| `TECTON_AUTH_PREVIOUS_PEPPERS` | optional: Peppers kept after a Pepper rotation, as JSON `{"<id>": "<value>"}`; their hashes keep verifying and are re-hashed at the next login |
 | `TECTON_AUTH_ISSUER` | `iss` claim; default `urn:tecton:auth` |
 | `TECTON_AUTH_AUDIENCE` | `aud` claim, one audience for the whole workspace; default `urn:tecton:api` |
 | `TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS` | access token lifetime, 60-3600; default 900 (15 minutes) |
@@ -130,11 +131,30 @@ and the `authorization` and `cookie` headers are redacted.
 ## JWKS and key rotation
 
 `GET /auth/.well-known/jwks.json` returns the public keys only (`kty: OKP`, `crv: Ed25519`, `x`,
-`kid`, `alg`, `use`), with `Cache-Control: public, max-age=300`. To rotate the signing key:
+`kid`, `alg`, `use`), with `Cache-Control: public, max-age=300`. Verifiers may keep it for 5 minutes,
+so a new key must be published before it signs. To rotate the signing key:
 
-1. Generate a new key and set it as `TECTON_AUTH_SIGNING_KEY`.
-2. Put the old public key (`openssl pkey -in old.pem -pubout`) in `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS`.
-3. After the old tokens have expired (the access token lifetime, 15 minutes by default) plus the
-   JWKS cache time, remove it.
+1. **Publish the next key.** Generate it and put its public key
+   (`openssl pkey -in next.pem -pubout`) in `TECTON_AUTH_NEXT_PUBLIC_KEYS`. Deploy, and wait at least
+   the JWKS cache time (5 minutes) so every verifier knows it.
+2. **Sign with it.** Set it as `TECTON_AUTH_SIGNING_KEY`, move the old public key to
+   `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS` and clear `TECTON_AUTH_NEXT_PUBLIC_KEYS`. Deploy.
+3. **Retire the old key.** Once the old tokens have expired (the access token lifetime, 15
+   minutes by default) plus the JWKS cache time, remove it from `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS`.
 
 No old private key is needed: tokens signed with it are verified with its public key.
+
+## Pepper rotation
+
+Set the new Pepper as `TECTON_AUTH_PEPPER` with a new `TECTON_AUTH_PEPPER_ID`, and keep the old one in
+`TECTON_AUTH_PREVIOUS_PEPPERS` (`{"<old id>": "<old value>"}`). Passwords hashed with the old Pepper
+keep working and are re-hashed with the new one at each user's next login. Remove the old Pepper only
+when no stored hash uses it any more.
+
+## Capacity
+
+Every login runs one Argon2id hash (about 19 MiB and tens of milliseconds), including failed and
+unknown logins, so the response never reveals which accounts exist. Argon2id runs on the libuv
+threadpool (4 threads by default): size it for the expected concurrent logins with
+`UV_THREADPOOL_SIZE`, and put rate limiting in front of the endpoint. The Gateway rate limit
+(Story 3.7) and the lockout per identifier (Story 2.6) cover that in Tecton.

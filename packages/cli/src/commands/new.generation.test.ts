@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -61,6 +62,32 @@ describe('tecton-admin generate domain — walking skeleton runs (Story 1.10, AC
     const lintIo = { cwd: workspace, stdout: { write: (text: string) => void (lintOutput += text) }, stderr: { write: (text: string) => void (lintOutput += text) } };
     expect(await run(['lint'], lintIo), lintOutput).toBe(0);
 
+    // apps/auth starts from the workspace .env, as its start script does (review P5 of 2.2b).
+    // The database is never reached: the JWKS needs none, and Prisma connects lazily.
+    const authPort = await freePort();
+    const signingKey = generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
+    writeFileSync(
+      join(workspace, '.env'),
+      [
+        'TECTON_AUTH_DATABASE_URL=postgresql://tecton:tecton@127.0.0.1:1/auth',
+        'TECTON_AUTH_PEPPER=generation-test-pepper-with-32-bytes!',
+        `TECTON_AUTH_SIGNING_KEY="${signingKey.trimEnd().split('\n').join('\\n')}"`,
+        `PORT=${authPort}`,
+        '',
+      ].join('\n'),
+    );
+    const authDir = join(workspace, 'apps', 'auth');
+    const authScripts = JSON.parse(readFileSync(join(authDir, 'package.json'), 'utf8')) as { scripts: { start: string } };
+    expect(authScripts.scripts.start).toBe('node --env-file-if-exists=../../.env dist/main.js');
+    const authService = spawn(process.execPath, ['--env-file-if-exists=../../.env', 'dist/main.js'], { cwd: authDir, env: { ...process.env } });
+    try {
+      const jwks = await waitForGet(`http://127.0.0.1:${authPort}/auth/.well-known/jwks.json`);
+      expect(jwks.status).toBe(200);
+      expect(((await jwks.json()) as { keys: unknown[] }).keys).toHaveLength(1);
+    } finally {
+      authService.kill();
+    }
+
     const port = await freePort();
     // Same command as the package "start" script, run directly so the test can stop it reliably.
     const service = spawn(process.execPath, ['dist/main.js'], { cwd: domainDir, env: { ...process.env, PORT: String(port) } });
@@ -97,6 +124,18 @@ async function waitForResponse(url: string, body: unknown): Promise<Response> {
   }
 }
 
+async function waitForGet(url: string): Promise<Response> {
+  const deadline = Date.now() + 30_000;
+  for (;;) {
+    try {
+      return await fetch(url);
+    } catch (error) {
+      if (Date.now() > deadline) throw error;
+      await new Promise((resolveDelay) => setTimeout(resolveDelay, 250));
+    }
+  }
+}
+
 describe('@tecton/auth packed for publishing (Story 2.2b, deferred W3 of 2.2a)', () => {
   it('ships the compiled generated clients, the Prisma schemas and migrations, and the manifest, but no source', () => {
     // The file list pnpm would publish (same rules as the real tarball), without extracting it.
@@ -107,7 +146,9 @@ describe('@tecton/auth packed for publishing (Story 2.2b, deferred W3 of 2.2a)',
       timeout: 300_000,
     });
     expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
-    const json = result.stdout.slice(result.stdout.indexOf('{'));
+    const start = result.stdout.indexOf('{');
+    expect(start, `no JSON in the pnpm pack output: ${result.stdout}`).toBeGreaterThanOrEqual(0);
+    const json = result.stdout.slice(start);
     const files = (JSON.parse(json) as { files: Array<{ path: string }> }).files.map((file) => file.path);
 
     for (const expected of [
@@ -118,6 +159,8 @@ describe('@tecton/auth packed for publishing (Story 2.2b, deferred W3 of 2.2a)',
       'prisma/postgresql/prisma.config.ts',
       'prisma/postgresql/migrations/0001_init/migration.sql',
       'prisma/mysql/migrations/0001_init/migration.sql',
+      'prisma/mysql/schema.prisma',
+      'prisma/mysql/prisma.config.ts',
       'tecton.yaml',
       'README.md',
     ]) {

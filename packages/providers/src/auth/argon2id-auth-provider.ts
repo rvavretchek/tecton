@@ -174,13 +174,20 @@ export function createArgon2idAuthProvider(options: Argon2idAuthProviderOptions)
     },
 
     async verifyPassword(password, storedHash) {
-      if (passwordProblem(password)) return invalid();
+      // Refusals that need no real verification (malformed input or hash, unknown Pepper, cost
+      // above the ceiling) still spend one Argon2id at the current parameters, so the time of a
+      // refusal never tells a stored hash apart from a real mismatch (login enumeration).
+      const refuse = async (): Promise<PasswordVerification> => {
+        await derive('', currentKey, randomBytes(SALT_BYTES), params, TAG_BYTES).catch(() => undefined);
+        return invalid();
+      };
+      if (passwordProblem(password)) return refuse();
       const parsed = typeof storedHash === 'string' ? parseHash(storedHash) : undefined;
-      if (!parsed) return invalid();
+      if (!parsed) return refuse();
       const key = keys.get(parsed.pepperId);
-      if (!key) return invalid();
+      if (!key) return refuse();
       const stored = parsed.params;
-      if (PARAM_KEYS.some((name) => stored[name] > ceiling[name])) return invalid();
+      if (PARAM_KEYS.some((name) => stored[name] > ceiling[name])) return refuse();
       let computed: Buffer;
       try {
         computed = await derive(password, key, parsed.salt, stored, parsed.tag.length);

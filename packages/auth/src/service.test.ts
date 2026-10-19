@@ -37,7 +37,7 @@ async function service(options: { previous?: number } = {}) {
     findByLogin: async (login) => (login === 'alice' ? credential : undefined),
     create: async () => undefined,
     createIfEmpty: async () => false,
-    updatePasswordHash: async () => undefined,
+    updatePasswordHash: async () => true,
     close: async () => {
       closed = true;
     },

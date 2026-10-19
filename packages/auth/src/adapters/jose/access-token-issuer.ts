@@ -18,7 +18,7 @@ export interface AccessTokenIssuerOptions {
 }
 
 /**
- * Signs user access tokens with EdDSA (Ed25519): header { alg, kid, typ }, claims iss, sub, aud,
+ * Signs user access tokens with EdDSA (Ed25519): header { alg, kid, typ: at+jwt }, claims iss, sub, aud,
  * iat, exp (seconds, from the Clock), jti (UUID v7), typ "user" and perms.
  */
 export function createAccessTokenIssuer({
@@ -37,7 +37,8 @@ export function createAccessTokenIssuer({
     async issue(credential) {
       const issuedAt = Math.floor(clock.now().getTime() / 1000);
       const accessToken = await new SignJWT({ typ: 'user', perms: [...credential.permissions] })
-        .setProtectedHeader({ alg: 'EdDSA', kid: keys.current.kid, typ: 'JWT' })
+        // at+jwt (RFC 9068): an access token can never be mistaken for another JWT of the same key.
+        .setProtectedHeader({ alg: 'EdDSA', kid: keys.current.kid, typ: 'at+jwt' })
         .setIssuer(issuer)
         .setSubject(credential.id)
         .setAudience(audience)

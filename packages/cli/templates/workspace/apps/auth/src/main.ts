@@ -4,6 +4,7 @@
 // Configuration (environment): TECTON_AUTH_DATABASE_URL, TECTON_AUTH_PEPPER, TECTON_AUTH_PEPPER_ID,
 // TECTON_AUTH_SIGNING_KEY, TECTON_AUTH_PREVIOUS_PUBLIC_KEYS, TECTON_AUTH_ISSUER,
 // TECTON_AUTH_AUDIENCE, TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS, PORT and HOST.
+// The start and migrate scripts load the workspace .env (copy of .env.example) when it exists.
 // Apply the database migrations first: pnpm --filter ./apps/auth migrate
 import { startAuthServiceFromEnv } from '@tecton/auth';
 

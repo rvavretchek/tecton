@@ -6,7 +6,13 @@ import { createArgon2idAuthProvider, pepperFromEnv, systemClock, type AuthProvid
 import type { AccessTokenIssuer } from './core/access-token.js';
 import type { CredentialStore } from './core/credential-store.js';
 import { InvalidCredentialsError, login } from './core/login.js';
-import { listenSettingsFromEnv, signingKeysFromEnv, tokenSettingsFromEnv } from './adapters/env/config-from-env.js';
+import {
+  AuthConfigError,
+  listenSettingsFromEnv,
+  previousPeppersFromEnv,
+  signingKeysFromEnv,
+  tokenSettingsFromEnv,
+} from './adapters/env/config-from-env.js';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
 import type { SigningKeys } from './adapters/jose/signing-keys.js';
 import { createPrismaCredentialStore } from './adapters/prisma/prisma-credential-store.js';
@@ -17,6 +23,14 @@ export type AuthServiceApp = ReturnType<typeof createTectonServer>;
 /** The Auth manifest ships at the package root (src/ in tests, dist/ when published: both one level below). */
 export const AUTH_MANIFEST_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'tecton.yaml');
 export const JWKS_PATH = '/auth/.well-known/jwks.json';
+export const LOGIN_PATH = '/auth/login';
+
+/** Name and code of an error, never its message, which may carry query or connection details. */
+function safeError(error: unknown): { name: string; code?: string } {
+  const name = error instanceof Error ? error.name : 'Error';
+  const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
+  return typeof code === 'string' ? { name, code } : { name };
+}
 
 /** Never logged: credentials and tokens travel in these headers. */
 export const LOG_REDACTION = ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'];
@@ -49,8 +63,8 @@ export async function createAuthService({ store, auth, issuer, keys, clock = sys
             issuer,
             clock,
             dummyHash,
-            onRehashFailure: (error) =>
-              app.log.warn({ err: { name: error instanceof Error ? error.name : 'Error' } }, 'password re-hash after login failed'),
+            onRehashFailure: (error) => app.log.warn({ err: safeError(error) }, 'password re-hash after login failed'),
+            onCorruptCredential: (error) => app.log.warn({ err: safeError(error) }, 'corrupt credential refused at login'),
           },
           { login: input['login'] as string, password: input['password'] as string },
         );
@@ -59,6 +73,10 @@ export async function createAuthService({ store, auth, issuer, keys, clock = sys
         throw error;
       }
     },
+  });
+  // Responses carrying tokens must never be cached (RFC 6749 5.1), success and failure alike.
+  app.addHook('onSend', async (request, reply) => {
+    if (request.routeOptions.url === LOGIN_PATH) reply.header('cache-control', 'no-store').header('pragma', 'no-cache');
   });
   const jwks = { keys: keys.publicJwks.map((jwk) => ({ ...jwk })) };
   app.get(JWKS_PATH, async (_request, reply) => {
@@ -73,21 +91,30 @@ export async function createAuthService({ store, auth, issuer, keys, clock = sys
 
 /**
  * Starts the Auth service from the environment, validating every setting before listening:
- * TECTON_AUTH_DATABASE_URL, TECTON_AUTH_PEPPER(_ID), TECTON_AUTH_SIGNING_KEY,
- * TECTON_AUTH_PREVIOUS_PUBLIC_KEYS, TECTON_AUTH_ISSUER, TECTON_AUTH_AUDIENCE,
- * TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS, PORT and HOST.
+ * TECTON_AUTH_DATABASE_URL, TECTON_AUTH_PEPPER(_ID), TECTON_AUTH_PREVIOUS_PEPPERS,
+ * TECTON_AUTH_SIGNING_KEY, TECTON_AUTH_PREVIOUS_PUBLIC_KEYS, TECTON_AUTH_NEXT_PUBLIC_KEYS,
+ * TECTON_AUTH_ISSUER, TECTON_AUTH_AUDIENCE, TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS, PORT and HOST.
+ * If anything fails after the database client is created, it is closed before the error propagates.
  */
 export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<AuthServiceApp> {
-  const databaseUrl = env['TECTON_AUTH_DATABASE_URL'];
-  if (!databaseUrl) throw new Error('TECTON_AUTH_DATABASE_URL is not set; point it to the Auth database');
+  const databaseUrl = env['TECTON_AUTH_DATABASE_URL']?.trim();
+  if (!databaseUrl) throw new AuthConfigError('TECTON_AUTH_DATABASE_URL is not set; point it to the Auth database');
   const pepper = pepperFromEnv(env);
+  const previousPeppers = previousPeppersFromEnv(env);
   const keys = await signingKeysFromEnv(env);
   const tokens = tokenSettingsFromEnv(env);
   const { port, host } = listenSettingsFromEnv(env);
-  const auth = createArgon2idAuthProvider({ peppers: [pepper], currentPepperId: pepper.id });
+  const auth = createArgon2idAuthProvider({ peppers: [pepper, ...previousPeppers], currentPepperId: pepper.id });
   const issuer = createAccessTokenIssuer({ keys, clock: systemClock, ...tokens });
   const store = createPrismaCredentialStore({ databaseUrl });
-  const app = await createAuthService({ store, auth, issuer, keys, logger: { level: 'info', redact: LOG_REDACTION } });
-  await app.listen({ port, host });
-  return app;
+  let app: AuthServiceApp | undefined;
+  try {
+    app = await createAuthService({ store, auth, issuer, keys, logger: { level: 'info', redact: LOG_REDACTION } });
+    await app.listen({ port, host });
+    return app;
+  } catch (error) {
+    // Closing the app closes the store; without an app, close the store itself.
+    await (app ? app.close() : store.close()).catch(() => undefined);
+    throw error;
+  }
 }

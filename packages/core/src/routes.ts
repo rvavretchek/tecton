@@ -30,6 +30,7 @@ function routeSchema(domain: string, action: ManifestAction) {
     response: {
       200: action.outputSchema,
       400: { description: 'Invalid or unreadable request body', ...ERROR_BODY_SCHEMA },
+      401: { description: 'Missing or invalid credentials', ...ERROR_BODY_SCHEMA },
       500: { description: 'Internal error', ...ERROR_BODY_SCHEMA },
       501: { description: 'Action not implemented yet', ...ERROR_BODY_SCHEMA },
     },

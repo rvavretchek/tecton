@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse } from 'yaml';
@@ -130,5 +130,21 @@ describe('Dev Services and the Auth service (Story 2.2b, AC 5)', () => {
     expect(env).toContain('# TECTON_AUTH_PEPPER=');
     expect(env).toContain('# TECTON_AUTH_SIGNING_KEY=');
     expect(env).not.toMatch(/^TECTON_AUTH_(PEPPER|SIGNING_KEY)=/m);
+  });
+});
+
+describe('Dev Services and an old apps/domains/auth (Story 2.2b review P7)', () => {
+  it('refuses a domain folder named like the Auth service instead of sharing its database', async () => {
+    const root = await workspace();
+    await cli(['generate', 'domain', 'finance'], root);
+    mkdirSync(join(root, 'apps', 'domains', 'auth'), { recursive: true });
+    writeFileSync(
+      join(root, 'apps', 'domains', 'auth', 'tecton.yaml'),
+      'manifestVersion: "0.1"\ndomain: auth\nversion: 0.1.0\ndescription: "Old auth domain."\n',
+    );
+    const result = await cli(['generate', 'domain', 'billing'], root);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('ready-made auth service');
   });
 });

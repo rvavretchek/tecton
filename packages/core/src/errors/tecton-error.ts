@@ -17,14 +17,24 @@ export class TectonError extends Error {
   /** i18n catalog key, namespaced `<domain>.<key>` (AD-10); framework errors use `tecton.*`. */
   readonly i18nKey: string;
   readonly details?: InvalidParam[];
+  /** Response headers the error requires (e.g. WWW-Authenticate on a 401); set by the serializer. */
+  readonly headers?: Readonly<Record<string, string>>;
 
-  constructor(options: { status: number; slug: string; i18nKey: string; message: string; details?: InvalidParam[] }) {
+  constructor(options: {
+    status: number;
+    slug: string;
+    i18nKey: string;
+    message: string;
+    details?: InvalidParam[];
+    headers?: Record<string, string>;
+  }) {
     super(options.message);
     this.name = 'TectonError';
     this.status = options.status;
     this.slug = options.slug;
     this.i18nKey = options.i18nKey;
     if (options.details) this.details = options.details;
+    if (options.headers) this.headers = { ...options.headers };
   }
 }
 
@@ -39,7 +49,14 @@ export const frameworkErrors = {
     }),
   /** Authentication failed. Deliberately generic: never says which part was wrong. */
   unauthorized: () =>
-    new TectonError({ status: 401, slug: 'unauthorized', i18nKey: 'tecton.error.unauthorized', message: 'invalid credentials' }),
+    new TectonError({
+      status: 401,
+      slug: 'unauthorized',
+      i18nKey: 'tecton.error.unauthorized',
+      message: 'invalid credentials',
+      // RFC 9110 15.5.2: a 401 names the authentication scheme it expects.
+      headers: { 'www-authenticate': 'Bearer' },
+    }),
   notFound: () =>
     new TectonError({ status: 404, slug: 'not-found', i18nKey: 'tecton.error.notFound', message: 'route not found' }),
   notImplemented: (domain: string, action: string) =>

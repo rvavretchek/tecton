@@ -4,7 +4,7 @@ baseline_commit: f890ecd6bc98897f5ca565eb52c66bb7be38dbb7
 
 # Story 2.2b: Serviço `@tecton/auth`, parte 2: login, access token EdDSA e JWKS
 
-Status: review
+Status: done
 
 ## Story
 
@@ -133,8 +133,31 @@ para que todo serviço consiga verificar a identidade por conta própria, sem co
     - rotação (como trocar a chave: a antiga vai para `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS` até os tokens dela expirarem, 15 minutos);
     - JWKS;
     - `apps/auth`.
-  - [x] Verificação completa: `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (local pelo túnel; os três bancos no CI) e `test:generation`.
-  - [ ] Code review por story antes da 2.3 (retro A1).
+  - [x] Verificação completa: `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (os três bancos no CI; o túnel ao Docker remoto não respondeu nesta sessão) e `test:generation`.
+  - [x] Code review por story antes da 2.3 (retro A1).
+
+### Review Findings (code review da Story 2.2b, 2026-10-19)
+
+- [x] [Review][Patch] P1 (alta) Rotação de Pepper: o serviço iniciado pelo ambiente só conhece o Pepper atual, então trocá-lo derruba todo login. E as saídas rápidas do provider (Pepper desconhecido, hash malformado, acima do teto) respondem em ~0,03 ms contra ~41 ms de um login inexistente, o que revela quais logins existem (confirmado). Correção: `TECTON_AUTH_PREVIOUS_PEPPERS`, e o provider passa a rodar um Argon2id fictício nos parâmetros atuais em todo caminho inválido [packages/auth/src/service.ts, packages/providers/src/auth/argon2id-auth-provider.ts]
+- [x] [Review][Patch] P2 (alta) Rotação de chave sem publicar antes: a chave nova assina antes de os verificadores (JWKS em cache por 5 min) conhecerem o `kid` dela. Correção: `TECTON_AUTH_NEXT_PUBLIC_KEYS`, publicada antes de assinar, e procedimento de rotação em dois passos [packages/auth/src/adapters/env/config-from-env.ts, README.md]
+- [x] [Review][Patch] P3 (média) Cabeçalho `typ: JWT` genérico; RFC 9068 e RFC 8725 recomendam `at+jwt` para o access token não ser confundido com outros JWTs da mesma chave [packages/auth/src/adapters/jose/access-token-issuer.ts]
+- [x] [Review][Patch] P4 (média) Resposta do login sem `Cache-Control: no-store` (RFC 6749 §5.1); 401 sem `WWW-Authenticate` (RFC 9110) e fora do OpenAPI [packages/auth/src/service.ts, packages/core/src/errors, routes.ts]
+- [x] [Review][Patch] P5 (média) `apps/auth` gerado nunca lê o `.env` que o `.env.example` manda criar; `start` e `migrate` falham com variável não definida [packages/cli/templates/workspace/apps/auth/package.json]
+- [x] [Review][Patch] P6 (média) Leitura de PEM pelo ambiente: forma numa linha com `\n` mais quebra real no fim é recusada; bloco truncado, lixo ou chave PRIVADA em `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS` some em silêncio (confirmado) [config-from-env.ts]
+- [x] [Review][Patch] P7 (média) Pasta `apps/domains/auth` antiga ao lado de `apps/auth` duplica o banco e a URL no Dev Services, e os dois serviços dividem o banco (confirmado) [packages/cli/src/dev-services.ts]
+- [x] [Review][Patch] P8 (média) Tabela de variáveis do README quebrada por uma quebra de linha real (confirmado) [packages/auth/README.md]
+- [x] [Review][Patch] P9 (média) Linha de credencial corrompida dá 500 rápido em vez do 401, revelando que o login existe [packages/auth/src/core/login.ts]
+- [x] [Review][Patch] P10 (baixa) TTL e PORT aceitam hexadecimal e expoente (`0x258`, `6e2`) (confirmado) [config-from-env.ts]
+- [x] [Review][Patch] P11 (baixa) `iss`/`aud` em branco ou com espaços: `RangeError` sem nome da variável, ou valor com espaços que nenhum verificador aceita (confirmado); `TECTON_AUTH_DATABASE_URL` ausente lança `Error` em vez de `AuthConfigError` [config-from-env.ts, service.ts]
+- [x] [Review][Patch] P12 (baixa) Rehash pode sobrescrever uma senha trocada no meio (update incondicional) [login.ts, prisma-credential-store.ts]
+- [x] [Review][Patch] P13 (baixa) Falha na subida depois de criar o store não fecha o cliente Prisma nem o app [service.ts]
+- [x] [Review][Patch] P14 (baixa) Teste de timezone compara ida e volta pelo mesmo adaptador (passaria com um deslocamento simétrico), não confere `updatedAt` nem restaura o `time_zone` global [prisma-credential-store.persistence.test.ts]
+- [x] [Review][Patch] P15 (baixa) Testes faltando ou frágeis: 401 idêntico via HTTP para credencial desativada e login malformado; 501 do `serviceToken`; tipo e mensagem do erro de subida; teste de persistência dependente da ordem; `indexOf("{")` sem guarda no teste de pack; schema e config do MySQL fora da lista do pack [testes]
+- [x] [Review][Patch] P16 (baixa) Registros: `deferred-work.md` sem a baixa dos itens fechados (W2 da 2.1; W2 e parte do W3 da 2.2a); W1 da 2.1 (`UV_THREADPOOL_SIZE`) sem destino; Dev Agent Record sem os desvios de layout (`signing-keys` e emissor em `adapters/jose`, `createAuthService` no lugar de `startAuthService`), com `server.ts` listado sem mudança e `bootstrap.test.ts` faltando; T9 marcado com persistência que só rodou no CI; README do workspace sem `apps/auth` [story, deferred-work.md]
+- [x] [Review][Defer] W1 Login sem limite de taxa nem de concorrência no endpoint que roda Argon2id [packages/auth/src/service.ts] — adiado: bloqueio por identificador na Story 2.6 e rate limiting do Gateway na 3.7; o README passa a orientar o `UV_THREADPOOL_SIZE` — adiado
+- [x] [Review][Defer] W2 Pacote publicado instalado e importado de verdade, e `allowBuilds` provado por comportamento [packages/auth, templates] — adiado: exige os `@tecton/*` publicados num registro; entra com o pipeline de publicação. Hoje a lista de arquivos do pacote é verificada — adiado
+- Descartados: um único `aud` por workspace (decisão do Boss no Create Story); hash legado com parâmetros mais fracos verifica mais rápido que o fictício (o `needsRehash` migra no primeiro login; documentado); login malformado pula a consulta ao banco (milissegundos contra ~40 ms do Argon2id); lint confia em todo `package.json` do workspace (a ordem raiz → domínios → demais é preservada; `node_modules` e pastas ocultas ficam de fora); troca do diretório-base do `link:` afeta todos os templates (só os `package.json` usam `{{tecton:...}}`; o teste de geração cobre os dois templates).
+- Nota: o Acceptance Auditor afirmou que o teste de timezone nunca rodou; ele rodou e passou no CI do `c7b6a1c` (persistência verde nos três bancos).
 
 ## Dev Notes
 
@@ -224,6 +247,12 @@ Claude Opus 5.5 (claude-opus-5-5)
   - aceitar RSA/EC na checagem de tipo: a segunda checagem, do formato do JWK publicado, recusa;
   - remover o `LOG_REDACTION`: o serializador de requisição do Fastify já descarta os headers. O teste agora documenta essa garantia, e a redação fica como segunda camada.
 
+- **Code review (2026-10-19), desvios de layout registrados:**
+  - a story previa as chaves e o emissor no núcleo; ficaram em `adapters/jose` (`signing-keys.ts`, `access-token-issuer.ts`), porque dependem do `jose`; o núcleo só conhece a porta `AccessTokenIssuer`;
+  - no lugar de um único `startAuthService`, há `createAuthService` (injeção de dependências, usado nos testes) e `startAuthServiceFromEnv` (leitura do ambiente, usado pelo `apps/auth`);
+  - o `server.ts` do `@tecton/core` não precisou mudar: o cabeçalho `WWW-Authenticate` saiu pelo campo `headers` do `TectonError` e pelo serializador.
+- **Fase vermelha das correções do review (A3):** cada patch de P1 a P15 foi verificado quebrando a correção e rodando o teste correspondente; todas as mutações foram pegas. A mutação da P6 sobreviveu na primeira tentativa (o `trim()` já removia a quebra final), o que levou ao teste de várias chaves de uma linha separadas por quebra real; agora é pega.
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
@@ -255,26 +284,33 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **Verificação:**
   - local: suíte rápida verde, `test:generation` 3/3, build, typecheck, `check:deps` (116 módulos), `lint:examples` e `validate:asyncapi`;
   - persistência nos três bancos: pelo CI (sem acesso ao Docker remoto nesta sessão).
-- **Pendente:** o code review (A1), próximo passo.
+- **Code review (A1):** 16 patches aplicados (P1 a P16), 2 itens adiados (W1 e W2 no `deferred-work.md`) e 5 descartados. Destaques:
+  - Argon2id fictício em toda recusa do provider (sem diferença de tempo entre login inexistente e hash inválido);
+  - rotação de Pepper (`TECTON_AUTH_PREVIOUS_PEPPERS`) e de chave em três passos (`TECTON_AUTH_NEXT_PUBLIC_KEYS`);
+  - `typ: at+jwt`, `Cache-Control: no-store` e `WWW-Authenticate: Bearer`;
+  - `apps/auth` lendo o `.env` do workspace;
+  - rehash condicional, credencial corrompida respondendo 401 e leitura de ambiente mais estrita.
 
 ### File List
 
-- `packages/core/src/errors/tecton-error.ts` (modificado: `unauthorized`)
+- `packages/core/src/errors/{tecton-error,serializer}.ts`, `src/routes.ts`, `src/openapi.test.ts` (modificados: `unauthorized`, `headers`, 401 no OpenAPI)
+- `packages/providers/src/auth/argon2id-auth-provider.ts`, `.test.ts` (modificados); `argon2id-refusal-cost.test.ts` (novo)
 - `packages/auth/package.json`, `tsconfig.json`, `README.md`, `src/index.ts` (modificados)
 - `packages/auth/src/core/{access-token,login}.ts`, `login.test.ts` (novos); `src/core/credential-store.ts` (modificado)
 - `packages/auth/src/adapters/jose/{signing-keys,access-token-issuer}.ts` e testes (novos)
 - `packages/auth/src/adapters/env/config-from-env.ts` e teste (novos)
 - `packages/auth/src/adapters/prisma/prisma-credential-store.ts`, `prisma-credential-store.persistence.test.ts` (modificados)
-- `packages/auth/src/service.ts`, `service.test.ts` (novos)
-- `packages/cli/templates/workspace/apps/auth/{package.json,tsconfig.json,src/main.ts,src/migrate.ts}` (novos); `templates/workspace/pnpm-workspace.yaml` (modificado)
+- `packages/auth/src/service.ts`, `service.test.ts`, `review-2-2b.test.ts` (novos); `src/core/bootstrap.test.ts` (modificado)
+- `packages/cli/templates/workspace/apps/auth/{package.json,tsconfig.json,src/main.ts,src/migrate.ts}` (novos); `templates/workspace/{pnpm-workspace.yaml,AGENTS.md}` (modificados)
 - `packages/cli/src/{templates,dev-services}.ts`, `src/commands/generate-domain.ts` (modificados)
 - `packages/cli/src/commands/{new,generate-domain,new.generation,auth-bootstrap}.test.ts`, `src/dev-services.test.ts` (modificados)
 - `packages/manifest/src/lint/lint-workspace.ts`, `lint-review-fixes.test.ts` (modificados)
 - `tests/support/keys.ts` (novo), `tests/support/index.ts` (modificado)
-- `pnpm-lock.yaml`, esta story, `sprint-status.yaml`
+- `pnpm-lock.yaml`, esta story, `sprint-status.yaml`, `deferred-work.md`
 
 ## Change Log
 
 - 2026-10-19: Story criada (Create Story), segunda metade da 2.2 dividida.
 - 2026-10-19: Aprovações do Boss (`jose`, padrões de `iss`/`aud`).
 - 2026-10-19: Story implementada (Dev Story); persistência nova a confirmar no CI; status → review.
+- 2026-10-19: Code review: P1 a P16 aplicados, W1 e W2 adiados; status → done.

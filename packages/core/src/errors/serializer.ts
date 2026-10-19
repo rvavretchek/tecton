@@ -69,6 +69,7 @@ export function installErrorSerializer(app: FastifyInstance): void {
     const tectonError = toTectonError(error);
     // Only unexpected failures are logged with their stack; a TectonError (e.g. 501) is deliberate.
     if (!(error instanceof TectonError) && tectonError.status >= 500) request.log.error({ err: error }, 'unhandled error');
+    if (tectonError.headers) reply.headers(tectonError.headers);
     return reply.code(tectonError.status).type('application/json').send(toErrorBody(tectonError));
   });
   app.setNotFoundHandler((_request, reply) => {

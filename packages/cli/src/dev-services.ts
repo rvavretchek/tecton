@@ -229,7 +229,14 @@ export function writeDevServices(root: string): void {
   const database = workspaceDatabase(root);
   // Ready-made services (apps/auth) first, then the generated domains (apps/domains/*).
   const services = BUILT_IN_SERVICES.filter((service) => existsSync(join(root, 'apps', service, 'package.json')));
-  const domains = [...services, ...workspaceDomains(root)];
+  const generated = workspaceDomains(root);
+  // A domain folder named like a ready-made service (e.g. apps/domains/auth from an older
+  // workspace) would share that service's database.
+  const clash = generated.find((domain) => BUILT_IN_SERVICES.includes(domain));
+  if (clash) {
+    throw new CliError(`apps/domains/${clash} has the name of the ready-made ${clash} service (apps/${clash}); rename the domain`);
+  }
+  const domains = [...services, ...generated];
   writeFileSync(join(root, COMPOSE_FILE), composeFile(safeWorkspaceName(pkg.name), database));
   mkdirSync(join(root, 'dev-services'), { recursive: true });
   writeFileSync(join(root, DATABASES_SQL), databasesSql(database, domains));

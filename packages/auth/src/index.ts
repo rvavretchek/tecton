@@ -32,5 +32,12 @@ export {
   DEFAULT_ISSUER,
   type AccessTokenIssuerOptions,
 } from './adapters/jose/access-token-issuer.js';
-export { AuthConfigError, listenSettingsFromEnv, signingKeysFromEnv, tokenSettingsFromEnv, type TokenSettings } from './adapters/env/config-from-env.js';
-export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOG_REDACTION, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';
+export {
+  AuthConfigError,
+  listenSettingsFromEnv,
+  previousPeppersFromEnv,
+  signingKeysFromEnv,
+  tokenSettingsFromEnv,
+  type TokenSettings,
+} from './adapters/env/config-from-env.js';
+export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOGIN_PATH, LOG_REDACTION, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';

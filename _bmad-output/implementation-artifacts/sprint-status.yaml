@@ -1,5 +1,5 @@
 # generated: 2026-10-08T15:08
-# last_updated: 2026-10-15
+# last_updated: 2026-10-19
 # project: Tecton
 # project_key: NOKEY
 # tracking_system: file-system
@@ -41,7 +41,7 @@
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
 
 generated: 2026-10-08T15:08
-last_updated: 2026-10-15
+last_updated: 2026-10-19
 project: Tecton
 project_key: NOKEY
 tracking_system: file-system
@@ -64,7 +64,7 @@ development_status:
   epic-2: in-progress
   2-1-authprovider-com-argon2id-e-pepper: done
   2-2a-servico-tecton-auth-credenciais-persistencia-e-bootstrap: done
-  2-2b-servico-tecton-auth-login-access-token-eddsa-e-jwks: review
+  2-2b-servico-tecton-auth-login-access-token-eddsa-e-jwks: done
   2-3-refresh-token-opaco-com-rotacao-e-logout: backlog
   2-4-verificacao-local-do-token-em-todo-servico: backlog
   2-5-tokenrevocationstore-com-valkey-e-fail-closed: backlog

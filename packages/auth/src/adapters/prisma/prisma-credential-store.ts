@@ -26,7 +26,7 @@ interface CredentialDelegate {
   count(): Promise<number>;
   findUnique(args: { where: { login: string } }): Promise<CredentialRow | null>;
   create(args: { data: CredentialRow }): Promise<unknown>;
-  update(args: { where: { id: string }; data: { passwordHash: string; updatedAt: Date } }): Promise<unknown>;
+  updateMany(args: { where: { id: string; passwordHash: string }; data: { passwordHash: string; updatedAt: Date } }): Promise<{ count: number }>;
 }
 
 interface TransactionClient {
@@ -139,8 +139,10 @@ export function createPrismaCredentialStore({ databaseUrl }: PrismaCredentialSto
         throw error;
       }
     },
-    async updatePasswordHash(id, passwordHash, updatedAt) {
-      await credentials.update({ where: { id }, data: { passwordHash, updatedAt } });
+    async updatePasswordHash(id, passwordHash, updatedAt, expectedHash) {
+      // Conditional: a password changed since the login was verified is never overwritten.
+      const { count } = await credentials.updateMany({ where: { id, passwordHash: expectedHash }, data: { passwordHash, updatedAt } });
+      return count === 1;
     },
     close: () => client.$disconnect(),
   };

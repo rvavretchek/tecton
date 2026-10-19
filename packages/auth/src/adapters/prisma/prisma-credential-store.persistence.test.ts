@@ -243,33 +243,42 @@ describe(`Auth login end to end on ${selectedDatabase()} (Story 2.2b)`, () => {
     }
   }, 120_000);
 
-  it('updates a password hash in place', async () => {
+  it('updates a password hash only while it is still the expected one (no lost update)', async () => {
     const store = createPrismaCredentialStore({ databaseUrl: database.url });
     try {
-      const before = await store.findByLogin('admin');
+      const own = credential({ id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e81', login: 'rehash-check', passwordHash: 'original-hash' });
+      await store.create(own);
       const at = new Date('2026-10-20T08:00:00.123Z');
-      await store.updatePasswordHash(before?.id ?? '', 'replaced-hash', at);
 
-      expect(await store.findByLogin('admin')).toMatchObject({ passwordHash: 'replaced-hash', updatedAt: at, createdAt: before?.createdAt });
+      expect(await store.updatePasswordHash(own.id, 'stale-hash', at, 'not-the-current-hash')).toBe(false);
+      expect((await store.findByLogin('rehash-check'))?.passwordHash).toBe('original-hash');
+      expect(await store.updatePasswordHash(own.id, 'replaced-hash', at, 'original-hash')).toBe(true);
+      expect(await store.findByLogin('rehash-check')).toMatchObject({ passwordHash: 'replaced-hash', updatedAt: at, createdAt: own.createdAt });
     } finally {
       await store.close();
     }
   });
 
-  it.runIf(selectedDatabase() !== 'postgres')('keeps timestamps in UTC when the server time zone is not UTC (W2 of 2.2a)', async () => {
+  it.runIf(selectedDatabase() !== 'postgres')('stores timestamps as UTC wall-clock values when the server time zone is not UTC (W2 of 2.2a)', async () => {
     const rootPassword = (database.container as unknown as { getRootPassword(): string }).getRootPassword();
     const client = selectedDatabase() === 'mariadb' ? 'mariadb' : 'mysql';
-    const result = await database.container.exec([client, '-u', 'root', '-e', "SET GLOBAL time_zone = '+03:00'"], { env: { MYSQL_PWD: rootPassword } });
-    expect(result.exitCode, result.output).toBe(0);
-
+    const sql = (statement: string) =>
+      database.container.exec([client, '-u', 'root', '-N', '-e', statement, new URL(database.url).pathname.slice(1)], { env: { MYSQL_PWD: rootPassword } });
+    expect((await sql("SET GLOBAL time_zone = '+03:00'")).exitCode).toBe(0);
     const store = createPrismaCredentialStore({ databaseUrl: database.url });
     try {
-      const at = new Date('2026-10-20T23:30:00.456Z');
-      await store.create(credential({ id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e80', login: 'tz-check', createdAt: at, updatedAt: at }));
+      const created = new Date('2026-10-20T23:30:00.456Z');
+      const updated = new Date('2026-10-21T01:15:00.789Z');
+      await store.create(credential({ id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e80', login: 'tz-check', createdAt: created, updatedAt: updated }));
 
-      expect((await store.findByLogin('tz-check'))?.createdAt.toISOString()).toBe(at.toISOString());
+      // The raw DATETIME values, read by another session: a symmetric shift on write and read
+      // would pass a round trip through the adapter, but not this.
+      const raw = await sql("SELECT CONCAT(CAST(created_at AS CHAR), '|', CAST(updated_at AS CHAR)) FROM credentials WHERE login = 'tz-check'");
+      expect(raw.output.trim()).toBe('2026-10-20 23:30:00.456|2026-10-21 01:15:00.789');
+      expect(await store.findByLogin('tz-check')).toMatchObject({ createdAt: created, updatedAt: updated });
     } finally {
       await store.close();
+      await sql("SET GLOBAL time_zone = 'SYSTEM'");
     }
   });
 });
