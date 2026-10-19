@@ -62,6 +62,22 @@ export function findManifests(root: string): string[] {
   return found;
 }
 
+/** Every directory under `root` with a package.json, skipping dependencies, build output and hidden directories. */
+function findPackageDirectories(root: string): string[] {
+  const found: string[] = [];
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.isDirectory()) {
+        if (!entry.name.startsWith('.') && !SKIPPED_DIRECTORIES.has(entry.name)) walk(join(dir, entry.name));
+      } else if (entry.name === 'package.json') {
+        found.push(dir);
+      }
+    }
+  };
+  walk(root);
+  return found;
+}
+
 function readJson(file: string): Record<string, unknown> | undefined {
   try {
     return JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
@@ -218,9 +234,10 @@ export function lintWorkspace({ cwd, paths }: LintOptions): LintResult {
     });
   }
 
-  // (3) Installed packages declared by the workspace root and by each linted domain package.
+  // (3) Installed packages declared by any package of the workspace: the root, each linted domain
+  // and every other workspace package (e.g. apps/auth, which installs @tecton/auth).
   const seenPackages = new Set<string>();
-  const searchDirs = [root, ...workspace.map((loaded) => dirname(loaded.file))];
+  const searchDirs = [...new Set([root, ...workspace.map((loaded) => dirname(loaded.file)), ...(existsSync(root) ? findPackageDirectories(root) : [])])];
   for (const dir of searchDirs) {
     for (const name of dependencyNames(readJson(join(dir, 'package.json')))) {
       const packageJson = findPackageJson(name, dir);

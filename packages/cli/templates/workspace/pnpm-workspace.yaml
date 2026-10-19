@@ -4,3 +4,9 @@ packages:
 
 # Fail installs on a Node version outside "engines" (>=24.19 <25).
 engineStrict: true
+
+# Install scripts allowed: Prisma (used by @tecton/auth) checks the Node version (prisma) and
+# downloads the schema engine its migrations need (@prisma/engines).
+allowBuilds:
+  prisma: true
+  '@prisma/engines': true

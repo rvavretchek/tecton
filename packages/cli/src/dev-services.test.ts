@@ -116,3 +116,19 @@ describe('generators', () => {
     expect(envExample('mariadb', ['finance'])).toContain('mysql://tecton:tecton@localhost:3306/finance');
   });
 });
+
+describe('Dev Services and the Auth service (Story 2.2b, AC 5)', () => {
+  it('gives apps/auth its own database and documents its secrets without writing any', async () => {
+    const root = await workspace();
+    await cli(['generate', 'domain', 'finance'], root);
+
+    const sql = read(root, 'dev-services/databases.sql');
+    expect(sql).toContain('-- auth');
+    expect(sql.indexOf('-- auth')).toBeLessThan(sql.indexOf('-- finance'));
+    const env = read(root, '.env.example');
+    expect(env).toContain('TECTON_AUTH_DATABASE_URL=postgresql://tecton:tecton@localhost:5432/auth');
+    expect(env).toContain('# TECTON_AUTH_PEPPER=');
+    expect(env).toContain('# TECTON_AUTH_SIGNING_KEY=');
+    expect(env).not.toMatch(/^TECTON_AUTH_(PEPPER|SIGNING_KEY)=/m);
+  });
+});

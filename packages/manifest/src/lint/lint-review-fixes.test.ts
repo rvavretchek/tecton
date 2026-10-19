@@ -158,3 +158,17 @@ describe('precedence (D3)', () => {
     expect(lintWorkspace({ cwd: join(cwd, 'app') }).problems).toEqual([]);
   });
 });
+
+describe('installed packages of any workspace package (Story 2.2b)', () => {
+  it('resolves a dependency installed by a sibling package without a manifest (apps/auth installing @tecton/auth)', () => {
+    const cwd = workspace({
+      'package.json': JSON.stringify({ name: 'acme' }),
+      'apps/auth/package.json': JSON.stringify({ name: '@acme/auth', dependencies: { 'auth-pkg': '1.0.0' } }),
+      'apps/auth/node_modules/auth-pkg/package.json': JSON.stringify({ name: 'auth-pkg', tecton: { manifests: ['./tecton.yaml'] } }),
+      'apps/auth/node_modules/auth-pkg/tecton.yaml': manifest('auth'),
+      'apps/domains/finance/tecton.yaml': manifest('finance', 'dependencies: [auth]\n'),
+    });
+
+    expect(lintWorkspace({ cwd }).problems).toEqual([]);
+  });
+});

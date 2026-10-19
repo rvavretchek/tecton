@@ -37,6 +37,9 @@ export const frameworkErrors = {
       message: 'request body does not match the action input',
       details,
     }),
+  /** Authentication failed. Deliberately generic: never says which part was wrong. */
+  unauthorized: () =>
+    new TectonError({ status: 401, slug: 'unauthorized', i18nKey: 'tecton.error.unauthorized', message: 'invalid credentials' }),
   notFound: () =>
     new TectonError({ status: 404, slug: 'not-found', i18nKey: 'tecton.error.notFound', message: 'route not found' }),
   notImplemented: (domain: string, action: string) =>

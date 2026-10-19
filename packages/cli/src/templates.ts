@@ -49,7 +49,9 @@ export function renderTemplate(template: string, target: string, variables: Reco
     const parts = relative(templateDir, source).split(sep).map((part) => RENAMED[part] ?? part);
     const destination = join(target, ...parts);
     const content = readFileSync(source, 'utf8')
-      .replace(/\{\{tecton:([a-z-]+)\}\}/g, (_match, pkg: string) => dependency(pkg, target))
+      // Relative to the file's own directory: a link: written in apps/auth/package.json must
+      // resolve from apps/auth, not from the workspace root.
+      .replace(/\{\{tecton:([a-z-]+)\}\}/g, (_match, pkg: string) => dependency(pkg, dirname(destination)))
       .replace(/\{\{([a-zA-Z]+)\}\}/g, (match, key: string) => variables[key] ?? match);
     mkdirSync(dirname(destination), { recursive: true });
     writeFileSync(destination, content);

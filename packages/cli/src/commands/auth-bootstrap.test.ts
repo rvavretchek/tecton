@@ -24,6 +24,7 @@ function memoryStore(initial: Credential[] = []) {
       rows.push(credential);
       return true;
     },
+    updatePasswordHash: async () => undefined,
     close: async () => {
       closed = true;
     },

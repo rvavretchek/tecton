@@ -20,5 +20,7 @@ export interface CredentialStore {
    * transaction): two concurrent calls never both succeed. Returns false when credentials exist.
    */
   createIfEmpty(credential: Credential): Promise<boolean>;
+  /** Replaces the password hash of credential `id` (re-hash after a successful login). */
+  updatePasswordHash(id: string, passwordHash: string, updatedAt: Date): Promise<void>;
   close(): Promise<void>;
 }

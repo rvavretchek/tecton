@@ -50,10 +50,16 @@ describe('tecton-admin generate domain — walking skeleton runs (Story 1.10, AC
       ),
     );
 
+    // The domain depends on the Auth service: the lint resolves it through apps/auth's @tecton/auth.
+    writeFileSync(manifestFile, readFileSync(manifestFile, 'utf8').replace('dependencies: []', 'dependencies: [auth]'));
+
     const install = pnpm(['install'], workspace);
     expect(install.status, install.output).toBe(0);
     const build = pnpm(['exec', 'turbo', 'run', 'build'], workspace);
     expect(build.status, build.output).toBe(0);
+    let lintOutput = '';
+    const lintIo = { cwd: workspace, stdout: { write: (text: string) => void (lintOutput += text) }, stderr: { write: (text: string) => void (lintOutput += text) } };
+    expect(await run(['lint'], lintIo), lintOutput).toBe(0);
 
     const port = await freePort();
     // Same command as the package "start" script, run directly so the test can stop it reliably.
@@ -90,3 +96,33 @@ async function waitForResponse(url: string, body: unknown): Promise<Response> {
     }
   }
 }
+
+describe('@tecton/auth packed for publishing (Story 2.2b, deferred W3 of 2.2a)', () => {
+  it('ships the compiled generated clients, the Prisma schemas and migrations, and the manifest, but no source', () => {
+    // The file list pnpm would publish (same rules as the real tarball), without extracting it.
+    const result = spawnSync('pnpm pack --dry-run --json', {
+      cwd: join(frameworkRoot, 'packages', 'auth'),
+      encoding: 'utf8',
+      shell: true,
+      timeout: 300_000,
+    });
+    expect(result.status, `${result.stdout}${result.stderr}`).toBe(0);
+    const json = result.stdout.slice(result.stdout.indexOf('{'));
+    const files = (JSON.parse(json) as { files: Array<{ path: string }> }).files.map((file) => file.path);
+
+    for (const expected of [
+      'dist/index.js',
+      'dist/generated/postgresql/client.js',
+      'dist/generated/mysql/client.js',
+      'prisma/postgresql/schema.prisma',
+      'prisma/postgresql/prisma.config.ts',
+      'prisma/postgresql/migrations/0001_init/migration.sql',
+      'prisma/mysql/migrations/0001_init/migration.sql',
+      'tecton.yaml',
+      'README.md',
+    ]) {
+      expect(files, expected).toContain(expected);
+    }
+    expect(files.filter((file) => file.startsWith('src/') || file.endsWith('.tsbuildinfo') || file.endsWith('.map'))).toEqual([]);
+  }, 300_000);
+});

@@ -1,10 +1,8 @@
 # @tecton/auth
 
-The ready-made Auth service of Tecton. It stores credentials in its own database and (from
-Story 2.2b) issues EdDSA access tokens that every service verifies on its own (AD-7).
-
-This first part provides credentials, persistence and the first administrator. Login, tokens and
-the JWKS endpoint come next.
+The ready-made Auth service of Tecton. It stores credentials in its own database and issues EdDSA
+(Ed25519) access tokens that every service verifies on its own through the public keys it
+publishes (AD-7). No service but Auth can sign a token.
 
 ## Credentials
 
@@ -84,3 +82,59 @@ The package ships its own `tecton.yaml` (actions `login`, `refresh`, `logout`, `
 declared in `package.json` under `"tecton": { "manifests": ["./tecton.yaml"] }`. A domain that
 lists `auth` in `dependencies` resolves through the installed package (`tecton-admin lint`). The
 JWKS endpoint is infrastructure, not an action, so it is not in the manifest.
+
+## Running the service
+
+A workspace created by `tecton-admin new` has `apps/auth`, a configured instance of this package:
+
+```bash
+pnpm --filter ./apps/auth build
+pnpm --filter ./apps/auth migrate   # applies the Auth database migrations
+pnpm --filter ./apps/auth start     # startAuthServiceFromEnv(process.env)
+```
+
+| Variable | Meaning |
+|---|---|
+| `TECTON_AUTH_DATABASE_URL` | the Auth database (Dev Services creates an `auth` database) |
+| `TECTON_AUTH_PEPPER`, `TECTON_AUTH_PEPPER_ID` | see `@tecton/providers` |
+| `TECTON_AUTH_SIGNING_KEY` | Ed25519 private key, PEM PKCS#8: `openssl genpkey -algorithm ed25519`. A PEM on one line with literal `
+` is accepted |
+| `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS` | optional: previous public keys (PEM SPKI blocks), published during a rotation |
+| `TECTON_AUTH_ISSUER` | `iss` claim; default `urn:tecton:auth` |
+| `TECTON_AUTH_AUDIENCE` | `aud` claim, one audience for the whole workspace; default `urn:tecton:api` |
+| `TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS` | access token lifetime, 60-3600; default 900 (15 minutes) |
+| `PORT`, `HOST` | default 3000 and `127.0.0.1` (loopback only; set `HOST=0.0.0.0` to expose it) |
+
+Every setting is validated before the service listens. A missing or invalid signing key (not
+Ed25519, or a public key instead of the private one) stops it with a message that never contains
+the key.
+
+## Login
+
+`POST /auth/login` with `{ "login": "...", "password": "..." }` returns
+`{ "accessToken": "...", "tokenType": "Bearer", "expiresIn": 900 }`. The access token is a JWT:
+
+- header: `alg: EdDSA`, `kid` (RFC 7638 thumbprint of the public key), `typ: JWT`;
+- claims: `iss`, `sub` (the credential id), `aud`, `iat`, `exp`, `jti` (UUID v7), `typ: user` and
+  `perms` (the credential permissions).
+
+An unknown login, a wrong password, a disabled credential and a malformed login all get the same
+401 response. Argon2id runs in every case, against a dummy hash made at startup when the login
+does not exist, so neither the response nor its cost tells which logins exist. When a stored hash
+needs re-hashing (weaker parameters, old Pepper), the login re-hashes it; if that fails, the
+login still succeeds and a warning is logged without secrets.
+
+Logs never contain passwords, hashes, the Pepper, keys or tokens: request bodies are not logged,
+and the `authorization` and `cookie` headers are redacted.
+
+## JWKS and key rotation
+
+`GET /auth/.well-known/jwks.json` returns the public keys only (`kty: OKP`, `crv: Ed25519`, `x`,
+`kid`, `alg`, `use`), with `Cache-Control: public, max-age=300`. To rotate the signing key:
+
+1. Generate a new key and set it as `TECTON_AUTH_SIGNING_KEY`.
+2. Put the old public key (`openssl pkey -in old.pem -pubout`) in `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS`.
+3. After the old tokens have expired (the access token lifetime, 15 minutes by default) plus the
+   JWKS cache time, remove it.
+
+No old private key is needed: tokens signed with it are verified with its public key.

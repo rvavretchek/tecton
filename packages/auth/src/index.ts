@@ -1,4 +1,5 @@
-// Public API of @tecton/auth, part 1 (Story 2.2a): credentials, persistence and bootstrap.
+// Public API of @tecton/auth: credentials, persistence and bootstrap (Story 2.2a); login,
+// access tokens, JWKS and the runnable service (Story 2.2b).
 export {
   assertValidCredential,
   assertValidPermissions,
@@ -21,3 +22,15 @@ export {
 export { dialectOf, UnsupportedDatabaseUrlError, type Dialect } from './adapters/prisma/dialect.js';
 export { applyAuthMigrations, type ApplyAuthMigrationsOptions } from './adapters/prisma/migrations.js';
 export { createPrismaCredentialStore, type PrismaCredentialStoreOptions } from './adapters/prisma/prisma-credential-store.js';
+export type { AccessTokenIssuer, IssuedAccessToken } from './core/access-token.js';
+export { InvalidCredentialsError, login, type LoginDependencies, type LoginRequest } from './core/login.js';
+export { buildSigningKeys, SigningKeyConfigError, type PublishedJwk, type SigningKeyMaterial, type SigningKeys } from './adapters/jose/signing-keys.js';
+export {
+  ACCESS_TOKEN_TTL,
+  createAccessTokenIssuer,
+  DEFAULT_AUDIENCE,
+  DEFAULT_ISSUER,
+  type AccessTokenIssuerOptions,
+} from './adapters/jose/access-token-issuer.js';
+export { AuthConfigError, listenSettingsFromEnv, signingKeysFromEnv, tokenSettingsFromEnv, type TokenSettings } from './adapters/env/config-from-env.js';
+export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOG_REDACTION, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';

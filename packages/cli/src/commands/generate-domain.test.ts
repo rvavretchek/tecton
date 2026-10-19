@@ -243,3 +243,14 @@ describe('tecton-admin generate domain — code review fixes', () => {
     expect(domains(root)).toEqual(['finance']);
   });
 });
+
+describe('tecton-admin generate domain — ready-made services (Story 2.2b)', () => {
+  it('refuses "auth", which the framework already provides as apps/auth', async () => {
+    const root = await workspace();
+    const result = await cli(['generate', 'domain', 'auth'], root);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain('ready-made service');
+    expect(domains(root)).toEqual([]);
+  });
+});

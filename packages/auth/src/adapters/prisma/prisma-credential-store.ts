@@ -26,6 +26,7 @@ interface CredentialDelegate {
   count(): Promise<number>;
   findUnique(args: { where: { login: string } }): Promise<CredentialRow | null>;
   create(args: { data: CredentialRow }): Promise<unknown>;
+  update(args: { where: { id: string }; data: { passwordHash: string; updatedAt: Date } }): Promise<unknown>;
 }
 
 interface TransactionClient {
@@ -137,6 +138,9 @@ export function createPrismaCredentialStore({ databaseUrl }: PrismaCredentialSto
         if (isWriteConflict(error) || error instanceof LoginTakenError) return false;
         throw error;
       }
+    },
+    async updatePasswordHash(id, passwordHash, updatedAt) {
+      await credentials.update({ where: { id }, data: { passwordHash, updatedAt } });
     },
     close: () => client.$disconnect(),
   };

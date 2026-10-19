@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { DOMAIN_NAME_MAX_LENGTH, DOMAIN_NAME_PATTERN, SUPPORTED_MANIFEST_VERSIONS } from '@tecton/manifest';
-import { databaseName, RESERVED_DATABASE_NAMES, writeDevServices } from '../dev-services.js';
+import { BUILT_IN_SERVICES, databaseName, RESERVED_DATABASE_NAMES, writeDevServices } from '../dev-services.js';
 import type { CliIo } from '../io.js';
 import { renderTemplate } from '../templates.js';
 import { findWorkspace } from '../workspace.js';
@@ -56,7 +56,9 @@ export function generateDomainCommand(names: string[], options: GenerateDomainOp
   const seen = new Set<string>();
   for (const name of requested) {
     if (!NAME.test(name) || name.length > DOMAIN_NAME_MAX_LENGTH) problems.push(`"${name}" is not kebab-case (e.g. "finance", "leave-requests")`);
-    else if (RESERVED_DATABASE_NAMES.includes(databaseName(name))) {
+    else if (BUILT_IN_SERVICES.includes(name)) {
+      problems.push(`"${name}" is a ready-made service of the framework (apps/${name}); choose another name`);
+    } else if (RESERVED_DATABASE_NAMES.includes(databaseName(name))) {
       problems.push(`"${name}" would use the reserved database name "${databaseName(name)}"; choose another name`);
     } else if (seen.has(name)) problems.push(`"${name}" is listed more than once`);
     else if (existsSync(join(domainsDir, name))) problems.push(`"${name}" already exists in apps/domains`);

@@ -1,10 +1,14 @@
 import { createArgon2idAuthProvider } from '@tecton/providers';
-import { assertNoSecretsLeaked, createTestClock, selectedDatabase, startDatabase, type StartedDatabase } from '#test-support';
+import { assertNoSecretsLeaked, createTestClock, ed25519KeyPairPem, selectedDatabase, startDatabase, type StartedDatabase } from '#test-support';
+import { createLocalJWKSet, jwtVerify } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AlreadyBootstrappedError, bootstrapAdmin } from '../../core/bootstrap.js';
 import { InvalidCredentialError, type Credential } from '../../core/credential.js';
 import { LoginTakenError, type CredentialStore } from '../../core/credential-store.js';
 import { applyAuthMigrations } from './migrations.js';
+import { createAccessTokenIssuer } from '../jose/access-token-issuer.js';
+import { buildSigningKeys } from '../jose/signing-keys.js';
+import { createAuthService, JWKS_PATH } from '../../service.js';
 import { createPrismaCredentialStore } from './prisma-credential-store.js';
 
 const auth = createArgon2idAuthProvider({
@@ -192,4 +196,80 @@ describe(`Auth store review fixes on ${selectedDatabase()}`, () => {
       await scopedStore.close();
     }
   }, 120_000);
+});
+
+describe(`Auth login end to end on ${selectedDatabase()} (Story 2.2b)`, () => {
+  let database: StartedDatabase;
+
+  beforeAll(async () => {
+    database = await startDatabase();
+    await applyAuthMigrations({ databaseUrl: database.url });
+  }, 240_000);
+
+  afterAll(async () => {
+    await database?.stop();
+  });
+
+  it('logs in a bootstrapped administrator and issues a token verifiable through the JWKS', async () => {
+    const keys = await buildSigningKeys({ privateKeyPem: ed25519KeyPairPem().privatePem });
+    const clock = createTestClock(new Date('2026-10-19T12:00:00.000Z'));
+    const setup = createPrismaCredentialStore({ databaseUrl: database.url });
+    await bootstrapAdmin({ store: setup, auth, clock, login: 'Admin', password: 'admin-password-123' });
+    await setup.close();
+
+    const app = await createAuthService({
+      store: createPrismaCredentialStore({ databaseUrl: database.url }),
+      auth,
+      issuer: createAccessTokenIssuer({ keys, clock }),
+      keys,
+      clock,
+    });
+    try {
+      const ok = await app.inject({ method: 'POST', url: '/auth/login', payload: { login: 'admin', password: 'admin-password-123' } });
+      expect(ok.statusCode).toBe(200);
+      const jwks = (await app.inject({ method: 'GET', url: JWKS_PATH })).json() as { keys: never[] };
+      const { payload } = await jwtVerify((ok.json() as { accessToken: string }).accessToken, createLocalJWKSet(jwks), {
+        algorithms: ['EdDSA'],
+        currentDate: clock.now(),
+      });
+      expect(payload['perms']).toEqual(['auth:service:register', 'auth:credential:create']);
+
+      const wrong = await app.inject({ method: 'POST', url: '/auth/login', payload: { login: 'admin', password: 'not-the-password' } });
+      const unknown = await app.inject({ method: 'POST', url: '/auth/login', payload: { login: 'ghost', password: 'not-the-password' } });
+      expect(wrong.statusCode).toBe(401);
+      expect(unknown.body).toBe(wrong.body);
+    } finally {
+      await app.close();
+    }
+  }, 120_000);
+
+  it('updates a password hash in place', async () => {
+    const store = createPrismaCredentialStore({ databaseUrl: database.url });
+    try {
+      const before = await store.findByLogin('admin');
+      const at = new Date('2026-10-20T08:00:00.123Z');
+      await store.updatePasswordHash(before?.id ?? '', 'replaced-hash', at);
+
+      expect(await store.findByLogin('admin')).toMatchObject({ passwordHash: 'replaced-hash', updatedAt: at, createdAt: before?.createdAt });
+    } finally {
+      await store.close();
+    }
+  });
+
+  it.runIf(selectedDatabase() !== 'postgres')('keeps timestamps in UTC when the server time zone is not UTC (W2 of 2.2a)', async () => {
+    const rootPassword = (database.container as unknown as { getRootPassword(): string }).getRootPassword();
+    const client = selectedDatabase() === 'mariadb' ? 'mariadb' : 'mysql';
+    const result = await database.container.exec([client, '-u', 'root', '-e', "SET GLOBAL time_zone = '+03:00'"], { env: { MYSQL_PWD: rootPassword } });
+    expect(result.exitCode, result.output).toBe(0);
+
+    const store = createPrismaCredentialStore({ databaseUrl: database.url });
+    try {
+      const at = new Date('2026-10-20T23:30:00.456Z');
+      await store.create(credential({ id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e80', login: 'tz-check', createdAt: at, updatedAt: at }));
+
+      expect((await store.findByLogin('tz-check'))?.createdAt.toISOString()).toBe(at.toISOString());
+    } finally {
+      await store.close();
+    }
+  });
 });

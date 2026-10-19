@@ -58,6 +58,10 @@ describe('tecton-admin new — workspace (AC 1, AC 2)', () => {
         'AGENTS.md',
         'CLAUDE.md',
         'README.md',
+        'apps/auth/package.json',
+        'apps/auth/src/main.ts',
+        'apps/auth/src/migrate.ts',
+        'apps/auth/tsconfig.json',
         'apps/domains/.gitkeep',
         'package.json',
         'pnpm-workspace.yaml',
@@ -81,7 +85,18 @@ describe('tecton-admin new — workspace (AC 1, AC 2)', () => {
     expect(pkg['name']).toBe('acme');
     expect(pkg['devDependencies']['@tecton/cli']).toBe(`^${cliVersion}`);
     expect(pkg['devDependencies']['turbo']).toMatch(/^\^2\./);
-    expect(filesUnder(root).filter((file) => file.endsWith('.ts') || file.startsWith('packages/'))).toEqual([]);
+    // The only TypeScript is the entry point of the Auth instance (apps/auth): no framework source.
+    expect(filesUnder(root).filter((file) => file.endsWith('.ts') || file.startsWith('packages/'))).toEqual([
+      'apps/auth/src/main.ts',
+      'apps/auth/src/migrate.ts',
+    ]);
+    const authPkg = readJson(join(root, 'apps', 'auth', 'package.json'));
+    expect(authPkg['name']).toBe('@acme/auth');
+    expect(authPkg['dependencies']['@tecton/auth']).toBe(`^${cliVersion}`);
+    const workspaceYaml = readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8');
+    expect(workspaceYaml).toContain('allowBuilds:');
+    expect(workspaceYaml).toContain('  prisma: true');
+    expect(workspaceYaml).toContain("  '@prisma/engines': true");
     expect(filesUnder(root).join('\n')).not.toContain('{{');
   });
 });
