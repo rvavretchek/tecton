@@ -1,7 +1,7 @@
 import { assertNoSecretsLeaked, ed25519KeyPairPem } from '#test-support';
 import { describe, expect, it } from 'vitest';
 import { SigningKeyConfigError } from '../jose/signing-keys.js';
-import { AuthConfigError, listenSettingsFromEnv, signingKeysFromEnv, tokenSettingsFromEnv } from './config-from-env.js';
+import { AuthConfigError, listenSettingsFromEnv, refreshTokenTtlFromEnv, signingKeysFromEnv, tokenSettingsFromEnv } from './config-from-env.js';
 
 describe('signingKeysFromEnv (AC 4)', () => {
   it('fails clearly when TECTON_AUTH_SIGNING_KEY is missing', async () => {
@@ -56,5 +56,20 @@ describe('tokenSettingsFromEnv and listenSettingsFromEnv', () => {
     expect(listenSettingsFromEnv({})).toEqual({ port: 3000, host: '127.0.0.1' });
     expect(listenSettingsFromEnv({ PORT: '0', HOST: '0.0.0.0' })).toEqual({ port: 0, host: '0.0.0.0' });
     expect(() => listenSettingsFromEnv({ PORT: 'abc' })).toThrow(AuthConfigError);
+  });
+});
+
+describe('refreshTokenTtlFromEnv (Story 2.3, AC 2)', () => {
+  it('defaults to 7 days and accepts decimal integers from 1 hour to 90 days', () => {
+    expect(refreshTokenTtlFromEnv({})).toBe(604_800);
+    expect(refreshTokenTtlFromEnv({ TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS: '  ' })).toBe(604_800);
+    expect(refreshTokenTtlFromEnv({ TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS: '3600' })).toBe(3600);
+    expect(refreshTokenTtlFromEnv({ TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS: ' 7776000 ' })).toBe(7_776_000);
+  });
+
+  it.each(['3599', '7776001', '0x15180', '6e5', '86400.5', '-3600', 'week'])('refuses %s, naming the variable', (value) => {
+    expect(() => refreshTokenTtlFromEnv({ TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS: value })).toThrow(
+      /^TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS must be a decimal integer between 3600 and 7776000$/,
+    );
   });
 });

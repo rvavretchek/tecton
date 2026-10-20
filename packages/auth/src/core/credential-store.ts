@@ -13,6 +13,8 @@ export interface CredentialStore {
   count(): Promise<number>;
   /** `login` must already be normalized. Throws InvalidCredentialError on a corrupt row. */
   findByLogin(login: string): Promise<Credential | undefined>;
+  /** Throws InvalidCredentialError on a corrupt row. */
+  findById(id: string): Promise<Credential | undefined>;
   /** Throws LoginTakenError when the login is already used. */
   create(credential: Credential): Promise<void>;
   /**

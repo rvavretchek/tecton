@@ -159,6 +159,8 @@ describe('@tecton/auth packed for publishing (Story 2.2b, deferred W3 of 2.2a)',
       'prisma/postgresql/prisma.config.ts',
       'prisma/postgresql/migrations/0001_init/migration.sql',
       'prisma/mysql/migrations/0001_init/migration.sql',
+      'prisma/postgresql/migrations/0002_refresh_tokens/migration.sql',
+      'prisma/mysql/migrations/0002_refresh_tokens/migration.sql',
       'prisma/mysql/schema.prisma',
       'prisma/mysql/prisma.config.ts',
       'tecton.yaml',
@@ -166,6 +168,6 @@ describe('@tecton/auth packed for publishing (Story 2.2b, deferred W3 of 2.2a)',
     ]) {
       expect(files, expected).toContain(expected);
     }
-    expect(files.filter((file) => file.startsWith('src/') || file.endsWith('.tsbuildinfo') || file.endsWith('.map'))).toEqual([]);
+    expect(files.filter((file) => file.startsWith('src/') || file.endsWith('.tsbuildinfo') || file.endsWith('.map') || file.includes('test-helper'))).toEqual([]);
   }, 300_000);
 });

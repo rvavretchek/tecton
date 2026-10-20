@@ -78,6 +78,20 @@ describe('registerActionRoutes (AC 1)', () => {
 
     expect(handler).toHaveBeenCalledWith(VALID_INPUT, expect.objectContaining({ action: 'createTenant' }));
   });
+
+  it('Given a handler, When it sets a header through the context reply, Then the header goes out with the output (Story 2.3)', async () => {
+    const app = await serve({
+      createTenant: async (_input, context) => {
+        context.reply.header('x-handler', 'set');
+        return { id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5f' };
+      },
+    });
+    const response = await app.inject({ method: 'POST', url: '/tenant/create-tenant', payload: VALID_INPUT });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['x-handler']).toBe('set');
+    expect(response.json()).toEqual({ id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5f' });
+  });
 });
 
 describe('input validation (AC 2)', () => {

@@ -30,6 +30,17 @@ describe('@tecton/auth manifest', () => {
     expect(parsed.ok && parsed.manifest.actions.map((action) => action.name)).toEqual(['login', 'refresh', 'logout', 'serviceToken']);
   });
 
+  it('never declares a refresh token in an output: the response serializer drops it from bodies (Story 2.3, AC 1, AC 7)', () => {
+    const outputs = parsed.ok ? Object.fromEntries(parsed.manifest.actions.map((action) => [action.name, Object.keys(action.output).sort()])) : {};
+
+    expect(outputs).toEqual({
+      login: ['accessToken', 'expiresIn', 'tokenType'],
+      refresh: ['accessToken', 'expiresIn', 'tokenType'],
+      logout: [],
+      serviceToken: ['accessToken', 'expiresIn', 'tokenType'],
+    });
+  });
+
   it('is published and declared for the lint through "tecton.manifests"', () => {
     expect(packageJson.tecton.manifests).toEqual(['./tecton.yaml']);
     expect(packageJson.files).toEqual(expect.arrayContaining(['tecton.yaml', 'prisma']));

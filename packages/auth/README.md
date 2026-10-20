@@ -2,7 +2,8 @@
 
 The ready-made Auth service of Tecton. It stores credentials in its own database and issues EdDSA
 (Ed25519) access tokens that every service verifies on its own through the public keys it
-publishes (AD-7). No service but Auth can sign a token.
+publishes (AD-7). No service but Auth can sign a token. Sessions continue through an opaque refresh
+token that only the Auth service ever receives.
 
 ## Credentials
 
@@ -104,6 +105,7 @@ pnpm --filter ./apps/auth start     # startAuthServiceFromEnv(process.env)
 | `TECTON_AUTH_ISSUER` | `iss` claim; default `urn:tecton:auth` |
 | `TECTON_AUTH_AUDIENCE` | `aud` claim, one audience for the whole workspace; default `urn:tecton:api` |
 | `TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS` | access token lifetime, 60-3600; default 900 (15 minutes) |
+| `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` | fixed lifetime of a session (refresh token family), 3600-7776000; default 604800 (7 days) |
 | `PORT`, `HOST` | default 3000 and `127.0.0.1` (loopback only; set `HOST=0.0.0.0` to expose it) |
 
 Every setting is validated before the service listens. A missing or invalid signing key (not
@@ -113,9 +115,10 @@ the key.
 ## Login
 
 `POST /auth/login` with `{ "login": "...", "password": "..." }` returns
-`{ "accessToken": "...", "tokenType": "Bearer", "expiresIn": 900 }`. The access token is a JWT:
+`{ "accessToken": "...", "tokenType": "Bearer", "expiresIn": 900 }` and sets the refresh cookie
+(see below). The access token is a JWT:
 
-- header: `alg: EdDSA`, `kid` (RFC 7638 thumbprint of the public key), `typ: JWT`;
+- header: `alg: EdDSA`, `kid` (RFC 7638 thumbprint of the public key), `typ: at+jwt` (RFC 9068);
 - claims: `iss`, `sub` (the credential id), `aud`, `iat`, `exp`, `jti` (UUID v7), `typ: user` and
   `perms` (the credential permissions).
 
@@ -126,7 +129,41 @@ needs re-hashing (weaker parameters, old Pepper), the login re-hashes it; if tha
 login still succeeds and a warning is logged without secrets.
 
 Logs never contain passwords, hashes, the Pepper, keys or tokens: request bodies are not logged,
-and the `authorization` and `cookie` headers are redacted.
+and the `authorization`, `cookie` and `set-cookie` headers are redacted.
+
+## Refresh and logout
+
+The login also opens a session: a family of opaque refresh tokens. The token is 256 random bits
+and travels only in a cookie, never in a response body:
+
+```
+Set-Cookie: tecton_refresh=<43 base64url characters>; Max-Age=<seconds left>; Path=/auth; HttpOnly; Secure; SameSite=Strict
+```
+
+- `Path=/auth` sends it to the Auth routes only, so no domain service ever receives it (FR-12).
+  The Gateway (Story 3.6) routes `/auth/*` to this service without touching the cookie.
+- The database stores only the SHA-256 of each token, with its family.
+- The family expires a fixed time after the login (7 days by default). Refreshing never extends
+  it: after that, the user logs in again.
+
+`POST /auth/refresh` (body `{}`; a body with fields is a 400) returns a new access token and a new
+cookie, and marks the presented token as used. Presenting a used token again revokes the whole
+family, the newest token included, and logs a security event
+(`event: "auth.refresh_token.reuse"`, with the family id and the subject, never the token). Every
+refusal (unknown, malformed, expired, revoked or reused token, inactive credential) is the same
+401, and it clears the cookie.
+
+`POST /auth/logout` (body `{}`) revokes the family of the cookie and clears it. It always answers
+200 `{}`, with or without a valid cookie, so it works even after the access token expired.
+Login, refresh and logout responses carry `Cache-Control: no-store`.
+
+Two refreshes with the same cookie at the same time count as a reuse: one succeeds, the other
+revokes the family, and the user is logged out. A client must send a single refresh at a time and
+make other requests wait for it (single flight; the Directory admin SPA does this, Story 4.7).
+
+`SameSite=Strict` keeps other sites from triggering refresh or logout with the cookie. `Secure`
+requires `https`; Chrome and Firefox also accept it on `http://localhost`, but not every browser
+does.
 
 ## JWKS and key rotation
 

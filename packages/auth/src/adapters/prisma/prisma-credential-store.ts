@@ -1,15 +1,12 @@
-import { PrismaMariaDb } from '@prisma/adapter-mariadb';
-import { PrismaPg } from '@prisma/adapter-pg';
 import { assertValidCredential, InvalidCredentialError, type Credential, type CredentialStatus } from '../../core/credential.js';
 import { LoginTakenError, type CredentialStore } from '../../core/credential-store.js';
-import { PrismaClient as MysqlClient } from '../../generated/mysql/client.js';
-import { PrismaClient as PostgresqlClient } from '../../generated/postgresql/client.js';
-import { dialectOf, withScheme } from './dialect.js';
+import { createAuthPrismaClient, errorCode, isWriteConflict, type AuthPrismaClient } from './client.js';
 
-export interface PrismaCredentialStoreOptions {
+export type PrismaCredentialStoreOptions =
   /** TECTON_AUTH_DATABASE_URL: postgresql://, mysql:// or mariadb:// (MariaDB and MySQL share a dialect). */
-  databaseUrl: string;
-}
+  | { databaseUrl: string }
+  /** A client shared with other stores (Story 2.3); closing the store closes it. */
+  | { client: AuthPrismaClient };
 
 interface CredentialRow {
   id: string;
@@ -24,19 +21,9 @@ interface CredentialRow {
 /** The operations this adapter uses; both generated clients satisfy it. */
 interface CredentialDelegate {
   count(): Promise<number>;
-  findUnique(args: { where: { login: string } }): Promise<CredentialRow | null>;
+  findUnique(args: { where: { login: string } | { id: string } }): Promise<CredentialRow | null>;
   create(args: { data: CredentialRow }): Promise<unknown>;
   updateMany(args: { where: { id: string; passwordHash: string }; data: { passwordHash: string; updatedAt: Date } }): Promise<{ count: number }>;
-}
-
-interface TransactionClient {
-  credential: CredentialDelegate;
-}
-
-interface Client {
-  credential: unknown;
-  $transaction<T>(run: (tx: TransactionClient) => Promise<T>, options: { isolationLevel: 'Serializable' }): Promise<T>;
-  $disconnect(): Promise<void>;
 }
 
 /** Validates a row read back from the database (fail closed on a corrupt or hand-edited row). */
@@ -63,25 +50,6 @@ function toCredential(row: CredentialRow): Credential {
   return credential;
 }
 
-function errorCode(error: unknown): string | undefined {
-  const code = typeof error === 'object' && error !== null ? (error as { code?: unknown }).code : undefined;
-  return typeof code === 'string' ? code : undefined;
-}
-
-/**
- * A serialization failure or deadlock: Prisma reports P2034, or the driver adapter error itself
- * surfaces with kind TransactionWriteConflict (PostgreSQL SQLSTATE 40001 / 40P01).
- */
-function isWriteConflict(error: unknown): boolean {
-  if (errorCode(error) === 'P2034') return true;
-  for (let current: unknown = error, depth = 0; current && typeof current === 'object' && depth < 4; depth += 1) {
-    const { kind, originalCode, cause } = current as { kind?: unknown; originalCode?: unknown; cause?: unknown };
-    if (kind === 'TransactionWriteConflict' || originalCode === '40001' || originalCode === '40P01') return true;
-    current = cause;
-  }
-  return false;
-}
-
 /** A unique violation on the login column (and not, say, a repeated id). */
 function isLoginTaken(error: unknown): boolean {
   if (errorCode(error) !== 'P2002') return false;
@@ -89,22 +57,10 @@ function isLoginTaken(error: unknown): boolean {
   return /login/.test(meta);
 }
 
-/** The PostgreSQL schema named in the URL (?schema=...); PrismaPg does not read it from the URL. */
-function postgresqlSchema(databaseUrl: string): string | undefined {
-  return new URL(databaseUrl.trim()).searchParams.get('schema') ?? undefined;
-}
-
 /** CredentialStore backed by the Auth database through Prisma 7, picking the dialect from the URL. */
-export function createPrismaCredentialStore({ databaseUrl }: PrismaCredentialStoreOptions): CredentialStore {
-  let client: Client;
-  if (dialectOf(databaseUrl) === 'postgresql') {
-    const schema = postgresqlSchema(databaseUrl);
-    const adapter = new PrismaPg({ connectionString: databaseUrl.trim() }, schema ? { schema } : undefined);
-    client = new PostgresqlClient({ adapter }) as unknown as Client;
-  } else {
-    client = new MysqlClient({ adapter: new PrismaMariaDb(withScheme(databaseUrl, 'mariadb:')) }) as unknown as Client;
-  }
-  const credentials = client.credential as CredentialDelegate;
+export function createPrismaCredentialStore(options: PrismaCredentialStoreOptions): CredentialStore {
+  const client = 'client' in options ? options.client : createAuthPrismaClient(options.databaseUrl);
+  const credentials = client.delegates.credential as CredentialDelegate;
   const insert = async (delegate: CredentialDelegate, credential: Credential) => {
     assertValidCredential(credential);
     try {
@@ -121,13 +77,18 @@ export function createPrismaCredentialStore({ databaseUrl }: PrismaCredentialSto
       const row = await credentials.findUnique({ where: { login } });
       return row ? toCredential(row) : undefined;
     },
+    async findById(id) {
+      const row = await credentials.findUnique({ where: { id } });
+      return row ? toCredential(row) : undefined;
+    },
     create: (credential) => insert(credentials, credential),
     async createIfEmpty(credential) {
       try {
-        return await client.$transaction(
+        return await client.transaction(
           async (tx) => {
-            if ((await tx.credential.count()) > 0) return false;
-            await insert(tx.credential, credential);
+            const delegate = tx.credential as CredentialDelegate;
+            if ((await delegate.count()) > 0) return false;
+            await insert(delegate, credential);
             return true;
           },
           { isolationLevel: 'Serializable' },
@@ -144,6 +105,6 @@ export function createPrismaCredentialStore({ databaseUrl }: PrismaCredentialSto
       const { count } = await credentials.updateMany({ where: { id, passwordHash: expectedHash }, data: { passwordHash, updatedAt } });
       return count === 1;
     },
-    close: () => client.$disconnect(),
+    close: () => client.close(),
   };
 }

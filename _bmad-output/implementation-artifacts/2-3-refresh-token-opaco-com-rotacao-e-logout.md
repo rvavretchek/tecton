@@ -1,6 +1,10 @@
+---
+baseline_commit: fd5659cf7727a424604b06571128c5eb62197810
+---
+
 # Story 2.3: Refresh token opaco com rotação e logout
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -35,73 +39,73 @@ para usar o sistema sem interrupção e sem que um refresh token roubado sirva p
 
 ## Tasks / Subtasks
 
-- [ ] **T1. Schema e migration (AC: 1, 2)**
-  - [ ] Nos dois `schema.prisma` (idênticos, salvo os `@db.*`; o `schema-parity.test.ts` compara), dois models novos:
+- [x] **T1. Schema e migration (AC: 1, 2)**
+  - [x] Nos dois `schema.prisma` (idênticos, salvo os `@db.*`; o `schema-parity.test.ts` compara), dois models novos:
     - `RefreshFamily` (`refresh_families`): `id` (UUID v7, `Char(36)`), `credentialId` (`credential_id`, relação com `Credential`, `onDelete: Cascade`), `createdAt`, `expiresAt`, `revokedAt` (opcional), `revokedReason` (opcional, `VarChar(16)`: `logout`, `reuse`, `inactive`);
     - `RefreshToken` (`refresh_tokens`): `id` (UUID v7), `familyId` (`family_id`, relação com `RefreshFamily`, `onDelete: Cascade`), `tokenHash` (`token_hash`, `Char(64)`, `@unique`, SHA-256 em hexadecimal minúsculo), `createdAt`, `usedAt` (opcional).
     - Índice em `credential_id` da família (a revogação por sujeito da 2.5 vai usar).
     - Timestamps vêm da porta `Clock`, nunca de default do banco (padrão da 2.2a). Tipos: `Timestamptz(3)` no PostgreSQL, `DateTime(3)` no MySQL.
-  - [ ] Migration `0002_refresh_tokens` por dialeto, gerada sem banco: `prisma migrate diff --config prisma/<dialeto>/prisma.config.ts --from-schema <schema da 0001> --to-schema prisma/<dialeto>/schema.prisma --script`. O schema anterior sai de `git show HEAD:packages/auth/prisma/<dialeto>/schema.prisma` para um arquivo temporário. Confirmar os flags com `pnpm exec prisma migrate diff --help`.
+  - [x] Migration `0002_refresh_tokens` por dialeto, gerada sem banco: `prisma migrate diff --config prisma/<dialeto>/prisma.config.ts --from-schema <schema da 0001> --to-schema prisma/<dialeto>/schema.prisma --script`. O schema anterior sai de `git show HEAD:packages/auth/prisma/<dialeto>/schema.prisma` para um arquivo temporário. Confirmar os flags com `pnpm exec prisma migrate diff --help`.
     - Conferir no SQL do PostgreSQL que não aparece `CREATE SCHEMA` (P16 da 2.2a).
-  - [ ] `schema-parity.test.ts`: lista de models passa a `['Credential', 'RefreshFamily', 'RefreshToken']`.
-  - [ ] `pnpm generate` regenera os dois clientes.
-- [ ] **T2. Portas e regras no núcleo (AC: 1 a 6)**
-  - [ ] `src/core/refresh-token.ts`:
+  - [x] `schema-parity.test.ts`: lista de models passa a `['Credential', 'RefreshFamily', 'RefreshToken']`.
+  - [x] `pnpm generate` regenera os dois clientes.
+- [x] **T2. Portas e regras no núcleo (AC: 1 a 6)**
+  - [x] `src/core/refresh-token.ts`:
     - `generateRefreshToken()`: 32 bytes de `randomBytes` em base64url;
     - `hashRefreshToken(token)`: SHA-256 em hexadecimal; não precisa de Argon2id nem de Pepper, porque o valor tem 256 bits de entropia;
     - `isWellFormedRefreshToken(value)`: `/^[A-Za-z0-9_-]{43}$/`; um valor malformado vira "desconhecido", sem consulta ao banco.
-  - [ ] `src/core/refresh-token-store.ts`, porta `RefreshTokenStore` (o núcleo nunca importa Prisma, AD-1):
+  - [x] `src/core/refresh-token-store.ts`, porta `RefreshTokenStore` (o núcleo nunca importa Prisma, AD-1):
     - `openFamily({ family, token })`: cria a família e o primeiro token numa transação;
     - `rotate(tokenHash, newToken, now)`: atômico. Devolve `{ kind: 'rotated', family }`, `{ kind: 'reused', family }` (e revoga a família com `reuse` na mesma transação), `{ kind: 'expired' }`, `{ kind: 'revoked' }` ou `{ kind: 'unknown' }`;
       - marcar como usado é condicional (`usedAt` nulo): de duas rotações simultâneas do mesmo token, uma ganha e a outra vira `reused`;
       - a validade é conferida contra `now` (da `Clock`), nunca contra `NOW()` do banco;
     - `revokeFamilyOf(tokenHash, now, reason)`: revoga a família de um token em qualquer estado; devolve se achou;
     - `close()`.
-  - [ ] `CredentialStore.findById(id)` (porta e adaptador), com a mesma validação de linha de `findByLogin` (`InvalidCredentialError` em linha corrompida).
-  - [ ] `src/core/session.ts` (ou nome equivalente):
+  - [x] `CredentialStore.findById(id)` (porta e adaptador), com a mesma validação de linha de `findByLogin` (`InvalidCredentialError` em linha corrompida).
+  - [x] `src/core/session.ts` (ou nome equivalente):
     - `openSession`: chamado pelo login depois de autenticar; gera o token, abre a família com validade `now + ttl` e devolve `{ refreshToken, expiresAt }`;
     - `refreshSession`: valida o formato, chama `rotate`, lê a credencial por `findById`, revoga a família (`inactive`) se ela não estiver `active` ou não existir, emite o access token e devolve o novo refresh;
     - `endSession` (logout): revoga a família se o token for bem formado e conhecido; nunca falha por token desconhecido.
-  - [ ] Um único `InvalidRefreshTokenError` para todo 401 do refresh (desconhecido, malformado, expirado, revogado, reusado, credencial inativa ou corrompida). Credencial corrompida se comporta como no login (`onCorruptCredential`).
-  - [ ] Reuso: callback `onReuseDetected({ familyId, subject })`, que o serviço liga ao log de segurança.
-  - [ ] `login` (núcleo) passa a abrir a sessão e devolve o access token mais o refresh. Preservar tudo da 2.2b: um Argon2id em todo caso, `dummyHash`, rehash condicional, `InvalidCredentialsError` único.
-- [ ] **T3. Adaptador Prisma (AC: 1 a 6)**
-  - [ ] Um único cliente Prisma por processo para as duas portas. Extrair a criação do cliente (escolha de dialeto, `PrismaPg` com `schema`, `PrismaMariaDb` com `withScheme`) para `adapters/prisma/client.ts`, e criar `createPrismaRefreshTokenStore` sobre esse cliente. O `createPrismaCredentialStore({ databaseUrl })` continua funcionando como hoje, porque o `tecton-admin auth bootstrap` o usa.
-  - [ ] `rotate` numa transação interativa (`$transaction(async (tx) => ...)`):
+  - [x] Um único `InvalidRefreshTokenError` para todo 401 do refresh (desconhecido, malformado, expirado, revogado, reusado, credencial inativa ou corrompida). Credencial corrompida se comporta como no login (`onCorruptCredential`).
+  - [x] Reuso: callback `onReuseDetected({ familyId, subject })`, que o serviço liga ao log de segurança.
+  - [x] `login` (núcleo) passa a abrir a sessão e devolve o access token mais o refresh. Preservar tudo da 2.2b: um Argon2id em todo caso, `dummyHash`, rehash condicional, `InvalidCredentialsError` único.
+- [x] **T3. Adaptador Prisma (AC: 1 a 6)**
+  - [x] Um único cliente Prisma por processo para as duas portas. Extrair a criação do cliente (escolha de dialeto, `PrismaPg` com `schema`, `PrismaMariaDb` com `withScheme`) para `adapters/prisma/client.ts`, e criar `createPrismaRefreshTokenStore` sobre esse cliente. O `createPrismaCredentialStore({ databaseUrl })` continua funcionando como hoje, porque o `tecton-admin auth bootstrap` o usa.
+  - [x] `rotate` numa transação interativa (`$transaction(async (tx) => ...)`):
     - acha o token pelo hash, com a família;
     - ordem das checagens: desconhecido → família revogada → família expirada → já usado (reuso: revoga a família) → `updateMany` condicional em `usedAt: null`; contagem 0 é reuso concorrente (revoga a família) → cria o token novo.
     - Token já usado de família já revogada devolve `revoked`, mas o núcleo registra o mesmo evento de segurança (replay depois da revogação), sem revogar de novo.
     - O resultado `reused` precisa sobreviver ao commit (a revogação é gravada mesmo com a resposta 401).
-  - [ ] Conflito de escrita ou deadlock na rotação simultânea (`isWriteConflict` da 2.2a) conta como reuso concorrente, nunca como 500. Confirmar o comportamento nos três bancos (T7).
-  - [ ] Linha de família ou token inválida (datas ausentes, motivo fora da lista) é tratada como desconhecida, sem lançar 500 (fail closed).
-- [ ] **T4. Cookie e `ActionContext` (AC: 1, 6, 7)**
-  - [ ] `@tecton/core`: `ActionContext` ganha `reply: FastifyReply` (aditivo; preservar `domain`, `action`, `request` e os testes de rotas).
-  - [ ] `src/adapters/http/refresh-cookie.ts` (ou nome equivalente), sem dependência nova:
+  - [x] Conflito de escrita ou deadlock na rotação simultânea (`isWriteConflict` da 2.2a) conta como reuso concorrente, nunca como 500. Confirmar o comportamento nos três bancos (T7).
+  - [x] Linha de família ou token inválida (datas ausentes, motivo fora da lista) é tratada como desconhecida, sem lançar 500 (fail closed).
+- [x] **T4. Cookie e `ActionContext` (AC: 1, 6, 7)**
+  - [x] `@tecton/core`: `ActionContext` ganha `reply: FastifyReply` (aditivo; preservar `domain`, `action`, `request` e os testes de rotas).
+  - [x] `src/adapters/http/refresh-cookie.ts` (ou nome equivalente), sem dependência nova:
     - `REFRESH_COOKIE = 'tecton_refresh'` e `REFRESH_COOKIE_PATH = '/auth'`;
     - `serializeRefreshCookie(token, maxAgeSeconds)` e `clearRefreshCookie()`;
     - `readRefreshCookie(cookieHeader)`: lê só `tecton_refresh`; vários valores com esse nome ou valor malformado contam como desconhecido.
-  - [ ] Nada de `@fastify/cookie`: é dependência nova e o parsing necessário é mínimo. Se o dev achar indispensável, HALT e pedir aprovação.
-- [ ] **T5. Serviço (AC: 1 a 8)**
-  - [ ] `createAuthService` recebe `refreshTokens: RefreshTokenStore` e `refreshTtlSeconds`, e implementa os handlers `refresh` e `logout` do manifest. O `serviceToken` continua em 501 (Story 2.7).
-  - [ ] Login: além do corpo atual, `Set-Cookie` com o refresh.
-  - [ ] Refresh: lê o cookie, chama `refreshSession`, devolve o access token e o novo cookie. `InvalidRefreshTokenError` vira `frameworkErrors.unauthorized()` e apaga o cookie na mesma resposta.
-  - [ ] Logout: 200 `{}` sempre, com o cookie apagado.
-  - [ ] Corpo das actions sem input: o manifest declara `input: {}`. Testar o que acontece com corpo vazio, sem `content-type`, e com `{}`. Documentar no README o que o cliente deve mandar; se o corpo vazio der 400, o cliente manda `{}`.
-  - [ ] `Cache-Control: no-store` e `Pragma: no-cache` em login, refresh e logout (hoje só no login).
-  - [ ] Log de segurança do reuso: `app.log.warn({ event: 'auth.refresh_token.reuse', familyId, subject }, 'refresh token reuse detected; family revoked')`.
-  - [ ] `onClose` fecha o cliente Prisma uma vez só.
-  - [ ] `startAuthServiceFromEnv`: lê `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` (`integerFromEnv`, AuthConfigError com o nome da variável) e cria as duas portas sobre o mesmo cliente. Preservar a limpeza na falha de subida (P13 da 2.2b).
-  - [ ] Manifest (`tecton.yaml`): ajustar as descrições de `refresh` e `logout` (cookie `tecton_refresh` em `Path=/auth`; o logout sempre responde 200). Contratos de input e output não mudam.
-- [ ] **T6. Exportações e README (AC: todos)**
-  - [ ] `src/index.ts`: portas, erros, funções de sessão, helpers do cookie e `createPrismaRefreshTokenStore`.
-  - [ ] README do `@tecton/auth` (inglês):
+  - [x] Nada de `@fastify/cookie`: é dependência nova e o parsing necessário é mínimo. Se o dev achar indispensável, HALT e pedir aprovação.
+- [x] **T5. Serviço (AC: 1 a 8)**
+  - [x] `createAuthService` recebe `refreshTokens: RefreshTokenStore` e `refreshTtlSeconds`, e implementa os handlers `refresh` e `logout` do manifest. O `serviceToken` continua em 501 (Story 2.7).
+  - [x] Login: além do corpo atual, `Set-Cookie` com o refresh.
+  - [x] Refresh: lê o cookie, chama `refreshSession`, devolve o access token e o novo cookie. `InvalidRefreshTokenError` vira `frameworkErrors.unauthorized()` e apaga o cookie na mesma resposta.
+  - [x] Logout: 200 `{}` sempre, com o cookie apagado.
+  - [x] Corpo das actions sem input: o manifest declara `input: {}`. Testar o que acontece com corpo vazio, sem `content-type`, e com `{}`. Documentar no README o que o cliente deve mandar; se o corpo vazio der 400, o cliente manda `{}`.
+  - [x] `Cache-Control: no-store` e `Pragma: no-cache` em login, refresh e logout (hoje só no login).
+  - [x] Log de segurança do reuso: `app.log.warn({ event: 'auth.refresh_token.reuse', familyId, subject }, 'refresh token reuse detected; family revoked')`.
+  - [x] `onClose` fecha o cliente Prisma uma vez só.
+  - [x] `startAuthServiceFromEnv`: lê `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` (`integerFromEnv`, AuthConfigError com o nome da variável) e cria as duas portas sobre o mesmo cliente. Preservar a limpeza na falha de subida (P13 da 2.2b).
+  - [x] Manifest (`tecton.yaml`): ajustar as descrições de `refresh` e `logout` (cookie `tecton_refresh` em `Path=/auth`; o logout sempre responde 200). Contratos de input e output não mudam.
+- [x] **T6. Exportações e README (AC: todos)**
+  - [x] `src/index.ts`: portas, erros, funções de sessão, helpers do cookie e `createPrismaRefreshTokenStore`.
+  - [x] README do `@tecton/auth` (inglês):
     - refresh e logout: cookie, atributos, rotação, validade fixa da família, reuso revoga a família;
     - o Gateway (Story 3.6) roteia `/auth/*` para o Auth sem mexer no cookie;
     - refresh concorrente: duas chamadas com o mesmo cookie contam como reuso e derrubam a sessão; a SPA precisa de single-flight (Story 4.7, R-16);
     - a variável nova na tabela;
     - `Secure` em desenvolvimento: Chrome e Firefox aceitam cookie `Secure` em `http://localhost`, mas não é garantido em todo navegador; fora de `localhost`, só `https`.
-- [ ] **T7. Testes (AC: todos)** — Test Design P0-008 (8), P0-009 (1), P1-010 (2), com a `clock` injetável.
-  - [ ] Núcleo (`session.test.ts`, com store em memória que segue o contrato da porta):
+- [x] **T7. Testes (AC: todos)** — Test Design P0-008 (8), P0-009 (1), P1-010 (2), com a `clock` injetável.
+  - [x] Núcleo (`session.test.ts`, com store em memória que segue o contrato da porta):
     - rotação devolve token novo e marca o anterior;
     - reuso revoga a família, inclusive o token mais novo, e chama `onReuseDetected` uma vez;
     - expirado pela `clock` (avançar 7 dias) dá 401 sem revogar;
@@ -109,7 +113,7 @@ para usar o sistema sem interrupção e sem que um refresh token roubado sirva p
     - credencial desativada ou removida dá 401 e revoga a família;
     - `perms` lidas da credencial atual;
     - malformado não consulta o store.
-  - [ ] HTTP (`app.inject`):
+  - [x] HTTP (`app.inject`):
     - atributos exatos do `Set-Cookie` (P0-008), sem `Domain`;
     - o token não aparece em nenhum corpo de login, refresh ou logout (P0-009);
     - 401 idêntico byte a byte para desconhecido, malformado, expirado, revogado, reusado e credencial inativa;
@@ -117,16 +121,16 @@ para usar o sistema sem interrupção e sem que um refresh token roubado sirva p
     - `Cache-Control: no-store` nas três rotas;
     - log capturado: evento de reuso presente, em inglês, e `assertNoSecretsLeaked` com o token, o hash e o cookie;
     - refresh concorrente (P1-010): duas chamadas em paralelo com o mesmo cookie dão um 200 e um 401, e depois o cookie do 200 também é recusado. Comportamento documentado no README.
-  - [ ] Persistência (`*.persistence.test.ts`, nos três bancos pelo `TECTON_TEST_DB`):
+  - [x] Persistência (`*.persistence.test.ts`, nos três bancos pelo `TECTON_TEST_DB`):
     - migrations `0001` + `0002` aplicadas;
     - `openFamily`, `rotate` nos cinco resultados e `revokeFamilyOf`;
     - rotação simultânea real (`Promise.all`) com exatamente um `rotated`;
     - cascata: apagar a credencial apaga famílias e tokens;
     - fluxo completo pelo serviço: login, refresh, reuso e logout contra o banco real.
-  - [ ] Config: `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` aceita o padrão e os limites e recusa hexadecimal, expoente e fora da faixa, com o nome da variável na mensagem.
-  - [ ] Fase vermelha por mutação (retro A3), registrada no Debug Log. No mínimo: marcar como usado sem condição; reuso sem revogar a família; rotação estendendo a validade; cookie sem `HttpOnly`; token no corpo da resposta; refresh com credencial desativada aceito.
-- [ ] **T8. Verificação final**
-  - [ ] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (local pelo túnel se o ubt-host02 responder; os três bancos no CI) e `test:generation`.
+  - [x] Config: `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` aceita o padrão e os limites e recusa hexadecimal, expoente e fora da faixa, com o nome da variável na mensagem.
+  - [x] Fase vermelha por mutação (retro A3), registrada no Debug Log. No mínimo: marcar como usado sem condição; reuso sem revogar a família; rotação estendendo a validade; cookie sem `HttpOnly`; token no corpo da resposta; refresh com credencial desativada aceito.
+- [x] **T8. Verificação final**
+  - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (local pelo túnel se o ubt-host02 responder; os três bancos no CI) e `test:generation`.
   - [ ] Code review por story antes da 2.4 (retro A1).
 
 ## Dev Notes
@@ -191,14 +195,78 @@ O CLI (`auth bootstrap`) e o template `apps/auth` não precisam mudar: o `main.t
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5)
+
 ### Debug Log References
+
+- **Desvio, `findById` na porta `CredentialStore`:** previsto na T2, mas quebrou os stores falsos de cinco arquivos de teste (`bootstrap`, `login`, `service`, `review-2-2b` e `auth-bootstrap` do CLI). Todos ganharam `findById`.
+- **Desvio, retorno do `login`:** o núcleo passou de `IssuedAccessToken` para `SessionTokens { access, refresh }`. O handler HTTP devolve só `access` no corpo; o refresh vai para o cookie.
+- **Store em memória só para testes:** `core/memory-refresh-token-store.test-helper.ts`, fora do build (`tsconfig.json` exclui `*.test-helper.ts`). O teste de empacotamento confere que ele não sai no pacote.
+- **Cliente Prisma compartilhado:** `adapters/prisma/client.ts` (`createAuthPrismaClient`), com `close` que desconecta uma vez só. O `isWriteConflict` saiu do store de credenciais para esse módulo e passou a reconhecer também o deadlock 1213 do MySQL/MariaDB.
+- **Corpo das actions sem input:** com `input: {}`, o schema é um objeto fechado. `{}` passa e `{ "extra": 1 }` dá 400 (teste). Documentado no README: o cliente manda `{}`.
+- **Mensagem de log trocada sem querer:** a primeira versão unificou o log de credencial corrompida e quebrou um teste da 2.2b (`corrupt credential refused at login`). Agora há uma mensagem por caminho (`at login`, `at refresh`).
+- **README do `@tecton/auth` com `typ: JWT`:** sobra de antes da P3 da 2.2b; corrigido para `typ: at+jwt`.
+- **Docker remoto inacessível de novo:** o ubt-host02 não respondeu. Os testes de persistência novos (store de refresh nos cinco resultados, rotação simultânea real, cascata e fluxo completo) rodam no CI nos três bancos.
+- **Fase vermelha por mutação (A3),** cada uma restaurada:
+
+  | Mutação | Testes que falharam |
+  |---|---|
+  | reuso aceito (sem checar `usedAt`) | 4 |
+  | reuso sem revogar a família | 3 |
+  | rotação estendendo a validade | 2 |
+  | cookie sem `HttpOnly` | 13 |
+  | cookie com `Path=/` | 13 |
+  | credencial desativada aceita no refresh | 2 |
+  | reuso sem evento de segurança | 3 |
+  | refresh recusado sem apagar o cookie | 1 |
+  | logout sem revogar | 2 |
+  | `no-store` só no login | 1 |
+  | cookie duplicado aceito | 1 |
+  | TTL do refresh sem limite | 1 |
+  | formato do token não validado | 2 |
+
+  Uma mutação sobreviveu por ser equivalente: devolver o refresh no corpo do login. O serializador de resposta descarta todo campo fora do `output` do manifest. O mecanismo real ficou protegido por um teste novo (`manifest.test.ts`): nenhum `output` do Auth declara campo de refresh.
+
+  O "marcar como usado" condicional do adaptador Prisma só se exercita contra banco real; o teste de rotação simultânea (cinco chamadas, exatamente uma `rotated`) roda no CI.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- **Schema:** `refresh_families` e `refresh_tokens` nos dois dialetos, com cascata a partir da credencial e índice único no hash. Migration `0002_refresh_tokens` gerada sem banco, sem `CREATE SCHEMA` (teste novo cobre todas as migrations).
+- **Núcleo:**
+  - token de 256 bits em base64url, guardado como SHA-256;
+  - porta `RefreshTokenStore` com `openFamily`, `rotate` (cinco resultados), `revokeFamily` e `revokeFamilyOf`;
+  - `openSession`, `refreshSession` e `endSession`, com `InvalidRefreshTokenError` único;
+  - reuso revoga a família e gera evento; replay em família já revogada também gera evento, sem revogar de novo;
+  - credencial inativa, removida ou corrompida revoga a família;
+  - validade fixa da família, 7 dias por padrão (3600 a 7776000).
+- **Adaptador Prisma:** rotação numa transação interativa, com "marcar como usado" condicional; conflito de escrita conta como reuso, nunca 500; linha inválida conta como desconhecida.
+- **HTTP:**
+  - cookie `tecton_refresh` (`Path=/auth`, `HttpOnly`, `Secure`, `SameSite=Strict`, `Max-Age` até a família expirar, sem `Domain`), escrito e lido sem dependência nova; cookie duplicado conta como ausente;
+  - `ActionContext.reply` no `@tecton/core`;
+  - refresh devolve o access token e o cookie novo; toda recusa é o mesmo 401 e apaga o cookie;
+  - logout sempre 200 `{}`, revoga e apaga o cookie;
+  - `no-store` em login, refresh e logout.
+- **Configuração:** `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS`; um único cliente Prisma no `startAuthServiceFromEnv`.
+- **Testes:** núcleo (15), cookie (4), HTTP (12), config (8), manifest (1), paridade (1), rotas do core (1), pacote (migration `0002`, sem helper de teste). Persistência: store de refresh (7) e fluxo completo (1), nos três bancos pelo CI.
+- **Verificação local:** build, typecheck, `check:deps` (129 módulos), `lint:examples`, `validate:asyncapi`, `test` (622) e `test:generation` (3). Persistência: pelo CI.
+- **Pendente:** o code review (A1), próximo passo.
 
 ### File List
+
+- `packages/core/src/routes.ts`, `routes.test.ts` (modificados: `reply` no `ActionContext`)
+- `packages/auth/prisma/{postgresql,mysql}/schema.prisma` (modificados); `prisma/{postgresql,mysql}/migrations/0002_refresh_tokens/migration.sql` (novos)
+- `packages/auth/src/core/{refresh-token,refresh-token-store,session}.ts`, `session.test.ts`, `memory-refresh-token-store.test-helper.ts` (novos)
+- `packages/auth/src/core/{login,credential-store}.ts`, `login.test.ts`, `bootstrap.test.ts` (modificados)
+- `packages/auth/src/adapters/http/refresh-cookie.ts` e teste (novos)
+- `packages/auth/src/adapters/prisma/{client,prisma-refresh-token-store}.ts`, `prisma-refresh-token-store.persistence.test.ts` (novos); `prisma-credential-store.ts`, `prisma-credential-store.persistence.test.ts` (modificados)
+- `packages/auth/src/adapters/env/config-from-env.ts` e teste (modificados)
+- `packages/auth/src/service.ts`, `service.test.ts`, `review-2-2b.test.ts`, `manifest.test.ts`, `schema-parity.test.ts`, `index.ts` (modificados); `src/refresh-http.test.ts` (novo)
+- `packages/auth/tecton.yaml`, `README.md`, `tsconfig.json` (modificados)
+- `packages/cli/src/commands/{auth-bootstrap.test,new.generation.test}.ts` (modificados)
+- `_bmad-output/planning-artifacts/epics.md` (emenda do `Path`), esta story, `sprint-status.yaml`, `deferred-work.md`
 
 ## Change Log
 
 - 2026-10-20: Story criada (Create Story), com as decisões do Boss sobre `Path=/auth` e validade fixa da família.
+- 2026-10-20: Story implementada (Dev Story); persistência nova a confirmar no CI; status → review.

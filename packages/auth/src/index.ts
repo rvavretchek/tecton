@@ -1,5 +1,5 @@
 // Public API of @tecton/auth: credentials, persistence and bootstrap (Story 2.2a); login,
-// access tokens, JWKS and the runnable service (Story 2.2b).
+// access tokens, JWKS and the runnable service (Story 2.2b); refresh tokens and logout (Story 2.3).
 export {
   assertValidCredential,
   assertValidPermissions,
@@ -21,9 +21,34 @@ export {
 } from './core/bootstrap.js';
 export { dialectOf, UnsupportedDatabaseUrlError, type Dialect } from './adapters/prisma/dialect.js';
 export { applyAuthMigrations, type ApplyAuthMigrationsOptions } from './adapters/prisma/migrations.js';
+export { createAuthPrismaClient, type AuthPrismaClient } from './adapters/prisma/client.js';
 export { createPrismaCredentialStore, type PrismaCredentialStoreOptions } from './adapters/prisma/prisma-credential-store.js';
+export { createPrismaRefreshTokenStore, type PrismaRefreshTokenStoreOptions } from './adapters/prisma/prisma-refresh-token-store.js';
 export type { AccessTokenIssuer, IssuedAccessToken } from './core/access-token.js';
 export { InvalidCredentialsError, login, type LoginDependencies, type LoginRequest } from './core/login.js';
+export { generateRefreshToken, hashRefreshToken, isWellFormedRefreshToken, REFRESH_TOKEN_BYTES } from './core/refresh-token.js';
+export {
+  REFRESH_REVOCATION_REASONS,
+  type NewRefreshToken,
+  type RefreshFamily,
+  type RefreshRevocationReason,
+  type RefreshRotation,
+  type RefreshTokenStore,
+} from './core/refresh-token-store.js';
+export {
+  assertRefreshTokenTtl,
+  endSession,
+  InvalidRefreshTokenError,
+  openSession,
+  REFRESH_TOKEN_TTL,
+  refreshSession,
+  type IssuedRefreshToken,
+  type OpenSessionDependencies,
+  type RefreshReuseEvent,
+  type SessionDependencies,
+  type SessionTokens,
+} from './core/session.js';
+export { clearRefreshCookie, readRefreshCookie, REFRESH_COOKIE, REFRESH_COOKIE_PATH, serializeRefreshCookie } from './adapters/http/refresh-cookie.js';
 export { buildSigningKeys, SigningKeyConfigError, type PublishedJwk, type SigningKeyMaterial, type SigningKeys } from './adapters/jose/signing-keys.js';
 export {
   ACCESS_TOKEN_TTL,
@@ -36,8 +61,9 @@ export {
   AuthConfigError,
   listenSettingsFromEnv,
   previousPeppersFromEnv,
+  refreshTokenTtlFromEnv,
   signingKeysFromEnv,
   tokenSettingsFromEnv,
   type TokenSettings,
 } from './adapters/env/config-from-env.js';
-export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOGIN_PATH, LOG_REDACTION, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';
+export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOGIN_PATH, LOGOUT_PATH, LOG_REDACTION, REFRESH_PATH, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';

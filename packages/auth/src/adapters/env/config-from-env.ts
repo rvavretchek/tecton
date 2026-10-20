@@ -1,6 +1,7 @@
 import type { Pepper } from '@tecton/providers';
 import { buildSigningKeys, SigningKeyConfigError, type SigningKeys } from '../jose/signing-keys.js';
 import { ACCESS_TOKEN_TTL, DEFAULT_AUDIENCE, DEFAULT_ISSUER } from '../jose/access-token-issuer.js';
+import { REFRESH_TOKEN_TTL } from '../../core/session.js';
 
 // Minimal environment reading of the Auth service, like pepperFromEnv: the ConfigProvider
 // (Story 3.1) will take it over. Every error message names the variable, never its value.
@@ -117,6 +118,17 @@ export function tokenSettingsFromEnv(env: NodeJS.ProcessEnv): TokenSettings {
       ACCESS_TOKEN_TTL.max,
     ),
   };
+}
+
+/** TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS: fixed lifetime of a refresh token family (default 7 days). */
+export function refreshTokenTtlFromEnv(env: NodeJS.ProcessEnv): number {
+  return integerFromEnv(
+    'TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS',
+    env['TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS'],
+    REFRESH_TOKEN_TTL.default,
+    REFRESH_TOKEN_TTL.min,
+    REFRESH_TOKEN_TTL.max,
+  );
 }
 
 /** PORT (default 3000; 0 picks a free port) and HOST (default 127.0.0.1, loopback only). */

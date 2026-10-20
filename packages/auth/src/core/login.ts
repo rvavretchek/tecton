@@ -1,7 +1,9 @@
 import type { AuthProvider, Clock } from '@tecton/providers';
-import type { AccessTokenIssuer, IssuedAccessToken } from './access-token.js';
+import type { AccessTokenIssuer } from './access-token.js';
 import { InvalidCredentialError, InvalidLoginError, normalizeLogin, type Credential } from './credential.js';
 import type { CredentialStore } from './credential-store.js';
+import type { RefreshTokenStore } from './refresh-token-store.js';
+import { openSession, type SessionTokens } from './session.js';
 
 /**
  * Login refused. One error for every reason (unknown login, wrong password, disabled credential,
@@ -19,6 +21,10 @@ export interface LoginDependencies {
   auth: AuthProvider;
   issuer: AccessTokenIssuer;
   clock: Clock;
+  /** Where the login opens its refresh token family (Story 2.3). */
+  refreshTokens: RefreshTokenStore;
+  /** Fixed lifetime of the family opened by this login. */
+  refreshTtlSeconds: number;
   /**
    * A hash made at startup with the current AuthProvider, verified when the login does not exist,
    * so Argon2id costs the same whether the account exists or not.
@@ -44,8 +50,11 @@ function normalizedOrUndefined(login: string): string | undefined {
   }
 }
 
-/** Authenticates by login and password and issues an access token (Story 2.2b). */
-export async function login(dependencies: LoginDependencies, request: LoginRequest): Promise<IssuedAccessToken> {
+/**
+ * Authenticates by login and password, issues an access token (Story 2.2b) and opens a refresh
+ * token family (Story 2.3).
+ */
+export async function login(dependencies: LoginDependencies, request: LoginRequest): Promise<SessionTokens> {
   const { store, auth, issuer, clock, dummyHash } = dependencies;
   const normalized = normalizedOrUndefined(request.login);
   let credential: Credential | undefined;
@@ -69,5 +78,6 @@ export async function login(dependencies: LoginDependencies, request: LoginReque
       dependencies.onRehashFailure?.(error);
     }
   }
-  return issuer.issue(credential);
+  const access = await issuer.issue(credential);
+  return { access, refresh: await openSession(dependencies, credential) };
 }

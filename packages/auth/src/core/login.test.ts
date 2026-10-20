@@ -5,6 +5,7 @@ import type { AccessTokenIssuer } from './access-token.js';
 import type { Credential } from './credential.js';
 import type { CredentialStore } from './credential-store.js';
 import { InvalidCredentialsError, login } from './login.js';
+import { createMemoryRefreshTokenStore } from './memory-refresh-token-store.test-helper.js';
 
 const PASSWORD = 'alice-password-123';
 const realAuth = createArgon2idAuthProvider({
@@ -27,6 +28,7 @@ async function setup(options: { status?: 'active' | 'disabled'; auth?: AuthProvi
   const store: CredentialStore = {
     count: async () => 1,
     findByLogin: async (value) => (value === credential.login ? credential : undefined),
+    findById: async (id) => (id === credential.id ? credential : undefined),
     create: async () => undefined,
     createIfEmpty: async () => false,
     updatePasswordHash: async (id, hash) => {
@@ -39,18 +41,30 @@ async function setup(options: { status?: 'active' | 'disabled'; auth?: AuthProvi
     issue: async (issuedFor) => ({ accessToken: `token-for-${issuedFor.id}`, tokenType: 'Bearer', expiresIn: 900 }),
   };
   const dummyHash = await realAuth.hashPassword('dummy-password-value');
-  return { deps: { store, auth, issuer, clock: createTestClock(), dummyHash }, updates, credential };
+  const refresh = createMemoryRefreshTokenStore();
+  const deps = { store, auth, issuer, clock: createTestClock(), dummyHash, refreshTokens: refresh.store, refreshTtlSeconds: 604_800 };
+  return { deps, updates, credential, refresh };
 }
 
 describe('login (AC 1, AC 2)', () => {
-  it('issues a token for the right password, normalizing the login', async () => {
-    const { deps } = await setup();
+  it('issues a token for the right password, normalizing the login, and opens a refresh family (Story 2.3)', async () => {
+    const { deps, refresh } = await setup();
 
-    expect(await login(deps, { login: '  ALICE ', password: PASSWORD })).toEqual({
+    const result = await login(deps, { login: '  ALICE ', password: PASSWORD });
+    expect(result.access).toEqual({
       accessToken: 'token-for-0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5f',
       tokenType: 'Bearer',
       expiresIn: 900,
     });
+    expect(result.refresh.refreshToken).toMatch(/^[A-Za-z0-9_-]{43}$/);
+    expect(refresh.families()).toEqual([expect.objectContaining({ credentialId: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5f', expiresAt: result.refresh.expiresAt })]);
+  });
+
+  it('opens no refresh family when the login is refused', async () => {
+    const { deps, refresh } = await setup();
+
+    await login(deps, { login: 'alice', password: 'wrong-password-123' }).catch(() => undefined);
+    expect(refresh.families()).toEqual([]);
   });
 
   it.each([
@@ -90,7 +104,7 @@ describe('login (AC 1, AC 2)', () => {
     deps.store.updatePasswordHash = async () => {
       throw new Error('database down');
     };
-    await expect(login({ ...deps, onRehashFailure }, { login: 'alice', password: PASSWORD })).resolves.toMatchObject({ tokenType: 'Bearer' });
+    await expect(login({ ...deps, onRehashFailure }, { login: 'alice', password: PASSWORD })).resolves.toMatchObject({ access: { tokenType: 'Bearer' } });
     expect(onRehashFailure).toHaveBeenCalledOnce();
   });
 

@@ -10,6 +10,8 @@ import { createAccessTokenIssuer } from '../jose/access-token-issuer.js';
 import { buildSigningKeys } from '../jose/signing-keys.js';
 import { createAuthService, JWKS_PATH } from '../../service.js';
 import { createPrismaCredentialStore } from './prisma-credential-store.js';
+import { createAuthPrismaClient } from './client.js';
+import { createPrismaRefreshTokenStore } from './prisma-refresh-token-store.js';
 
 const auth = createArgon2idAuthProvider({
   peppers: [{ id: '1', key: Buffer.from('persistence-test-pepper-32-bytes-ok', 'utf8') }],
@@ -217,8 +219,10 @@ describe(`Auth login end to end on ${selectedDatabase()} (Story 2.2b)`, () => {
     await bootstrapAdmin({ store: setup, auth, clock, login: 'Admin', password: 'admin-password-123' });
     await setup.close();
 
+    const client = createAuthPrismaClient(database.url);
     const app = await createAuthService({
-      store: createPrismaCredentialStore({ databaseUrl: database.url }),
+      store: createPrismaCredentialStore({ client }),
+      refreshTokens: createPrismaRefreshTokenStore({ client }),
       auth,
       issuer: createAccessTokenIssuer({ keys, clock }),
       keys,

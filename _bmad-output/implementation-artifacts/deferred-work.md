@@ -30,3 +30,7 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 
 - W1 Login sem limite de taxa nem de concorrência no endpoint que roda Argon2id [packages/auth/src/service.ts] — adiado: bloqueio por identificador na Story 2.6 e rate limiting do Gateway na 3.7; o README passa a orientar o `UV_THREADPOOL_SIZE`
 - W2 Pacote publicado instalado e importado de verdade, e `allowBuilds` provado por comportamento [packages/auth, templates] — adiado: exige os `@tecton/*` publicados num registro; entra com o pipeline de publicação. Hoje a lista de arquivos do pacote é verificada
+
+## Deferred from: Dev Story da 2.3 (2026-10-20)
+
+- W1 Famílias e tokens de refresh vencidos ou revogados ficam no banco para sempre [packages/auth/prisma] — adiado: limpeza periódica (job ou comando do `tecton-admin`) junto com a operação do Auth; a revogação por sujeito da 2.5 já usa o índice em `credential_id`

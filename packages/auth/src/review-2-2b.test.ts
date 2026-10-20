@@ -8,6 +8,7 @@ import { buildSigningKeys, SigningKeyConfigError } from './adapters/jose/signing
 import { InvalidCredentialError, type Credential } from './core/credential.js';
 import type { CredentialStore } from './core/credential-store.js';
 import { login } from './core/login.js';
+import { createMemoryRefreshTokenStore } from './core/memory-refresh-token-store.test-helper.js';
 import { createAuthService, startAuthServiceFromEnv } from './service.js';
 
 // Regression tests for the code review of Story 2.2b (2026-10-19), one block per finding.
@@ -38,6 +39,7 @@ function storeWith(rows: Record<string, Credential | Error>): CredentialStore {
       if (row instanceof Error) throw row;
       return row;
     },
+    findById: async () => undefined,
     create: async () => undefined,
     createIfEmpty: async () => false,
     updatePasswordHash: async () => true,
@@ -55,7 +57,7 @@ async function serviceWith(rows: Record<string, Credential | Error>) {
       done();
     },
   });
-  const app = await createAuthService({ store: storeWith(rows), auth, issuer: createAccessTokenIssuer({ keys, clock }), keys, clock, logger: { level: 'info', stream } });
+  const app = await createAuthService({ store: storeWith(rows), refreshTokens: createMemoryRefreshTokenStore().store, auth, issuer: createAccessTokenIssuer({ keys, clock }), keys, clock, logger: { level: 'info', stream } });
   return { app, logs: () => lines.join('') };
 }
 
@@ -164,7 +166,7 @@ describe('P1: previous Peppers from the environment', () => {
     };
     const issuer = { issue: async () => ({ accessToken: 't', tokenType: 'Bearer' as const, expiresIn: 900 }) };
 
-    await login({ store, auth: rotated, issuer, clock: createTestClock(), dummyHash: await rotated.hashPassword('dummy-123') }, { login: 'alice', password: PASSWORD });
+    await login({ store, auth: rotated, issuer, clock: createTestClock(), dummyHash: await rotated.hashPassword('dummy-123'), refreshTokens: createMemoryRefreshTokenStore().store, refreshTtlSeconds: 604_800 }, { login: 'alice', password: PASSWORD });
     expect(updates).toHaveLength(1);
     expect(updates[0]).toContain('keyid=Mg');
   });
@@ -223,7 +225,7 @@ describe('P12: conditional re-hash', () => {
     const store: CredentialStore = { ...storeWith({ alice: credential }), updatePasswordHash: update };
     const issuer = { issue: async () => ({ accessToken: 't', tokenType: 'Bearer' as const, expiresIn: 900 }) };
 
-    await login({ store, auth: needsRehash, issuer, clock: createTestClock(), dummyHash: 'd' }, { login: 'alice', password: PASSWORD });
+    await login({ store, auth: needsRehash, issuer, clock: createTestClock(), dummyHash: 'd', refreshTokens: createMemoryRefreshTokenStore().store, refreshTtlSeconds: 604_800 }, { login: 'alice', password: PASSWORD });
     expect(update).toHaveBeenCalledWith(credential.id, 'new-hash', expect.any(Date), credential.passwordHash);
   });
 });

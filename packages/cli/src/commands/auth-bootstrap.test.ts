@@ -16,6 +16,7 @@ function memoryStore(initial: Credential[] = []) {
   const store: CredentialStore = {
     count: async () => rows.length,
     findByLogin: async (login) => rows.find((row) => row.login === login),
+    findById: async (id) => rows.find((row) => row.id === id),
     create: async (credential) => {
       rows.push(credential);
     },

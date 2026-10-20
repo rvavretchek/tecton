@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -24,7 +24,7 @@ describe('Prisma schema parity', () => {
   it('declares the same models, fields, types and attributes in PostgreSQL and MySQL', () => {
     const postgresql = models('postgresql');
 
-    expect(Object.keys(postgresql)).toEqual(['Credential']);
+    expect(Object.keys(postgresql)).toEqual(['Credential', 'RefreshFamily', 'RefreshToken']);
     expect(models('mysql')).toEqual(postgresql);
   });
 
@@ -32,5 +32,20 @@ describe('Prisma schema parity', () => {
     const sql = readFileSync(join(prismaDir, 'mysql', 'migrations', '0001_init', 'migration.sql'), 'utf8');
 
     expect(sql).toMatch(/`login` VARCHAR\(320\) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL/);
+  });
+
+  it('ships the same migrations for both dialects, none creating a PostgreSQL schema (least privilege)', () => {
+    const names = (dialect: string) =>
+      readdirSync(join(prismaDir, dialect, 'migrations'), { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+        .sort();
+
+    expect(names('postgresql')).toEqual(['0001_init', '0002_refresh_tokens']);
+    expect(names('mysql')).toEqual(names('postgresql'));
+    for (const name of names('postgresql')) {
+      const sql = readFileSync(join(prismaDir, 'postgresql', 'migrations', name, 'migration.sql'), 'utf8');
+      expect(sql.replace(/^--.*$/gm, ''), name).not.toMatch(/CREATE SCHEMA/i);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { toKebabCase, type ManifestAction, type TectonManifest } from '@tecton/manifest';
 import { ERROR_BODY_SCHEMA } from './errors/serializer.js';
 import { frameworkErrors } from './errors/tecton-error.js';
@@ -7,6 +7,8 @@ export interface ActionContext {
   domain: string;
   action: string;
   request: FastifyRequest;
+  /** For response headers an action needs, such as a cookie (Story 2.3). The body is the returned output. */
+  reply: FastifyReply;
 }
 
 /** Implementation of one action: receives the validated input, returns the output. */
@@ -54,9 +56,9 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
   for (const action of manifest.actions) {
     // Own properties only: an action named "constructor" must not pick up Object.prototype.constructor.
     const handler = Object.hasOwn(handlers, action.name) ? handlers[action.name] : undefined;
-    app.post(actionRoutePath(manifest.domain, action.name), { schema: routeSchema(manifest.domain, action) }, async (request) => {
+    app.post(actionRoutePath(manifest.domain, action.name), { schema: routeSchema(manifest.domain, action) }, async (request, reply) => {
       if (!handler) throw frameworkErrors.notImplemented(manifest.domain, action.name);
-      return handler(request.body as Record<string, unknown>, { domain: manifest.domain, action: action.name, request });
+      return handler(request.body as Record<string, unknown>, { domain: manifest.domain, action: action.name, request, reply });
     });
   }
 }

@@ -7,6 +7,7 @@ import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js'
 import { buildSigningKeys } from './adapters/jose/signing-keys.js';
 import type { Credential } from './core/credential.js';
 import type { CredentialStore } from './core/credential-store.js';
+import { createMemoryRefreshTokenStore } from './core/memory-refresh-token-store.test-helper.js';
 import { createAuthService, JWKS_PATH, LOG_REDACTION, startAuthServiceFromEnv, type AuthServiceApp } from './service.js';
 
 const PEPPER = 'service-test-pepper-with-32-bytes!!';
@@ -35,6 +36,7 @@ async function service(options: { previous?: number } = {}) {
   const store: CredentialStore = {
     count: async () => 1,
     findByLogin: async (login) => (login === 'alice' ? credential : undefined),
+    findById: async (id) => (id === credential.id ? credential : undefined),
     create: async () => undefined,
     createIfEmpty: async () => false,
     updatePasswordHash: async () => true,
@@ -52,6 +54,7 @@ async function service(options: { previous?: number } = {}) {
   const clock = createTestClock(new Date('2026-10-19T12:00:00.000Z'));
   const app = await createAuthService({
     store,
+    refreshTokens: createMemoryRefreshTokenStore().store,
     auth,
     issuer: createAccessTokenIssuer({ keys, clock }),
     keys,
@@ -112,14 +115,6 @@ describe('Auth service (AC 1, AC 2, AC 3)', () => {
     expect(jwks.keys.map((key) => key['kid'])).toEqual(keys.publicJwks.map((key) => key.kid));
     expect(jwks.keys).toHaveLength(2);
     for (const key of jwks.keys) expect(key).not.toHaveProperty('d');
-  });
-
-  it('answers 501 for the actions of later stories', async () => {
-    const { app } = await service();
-
-    for (const url of ['/auth/refresh', '/auth/logout']) {
-      expect((await app.inject({ method: 'POST', url, payload: {} })).statusCode).toBe(501);
-    }
   });
 
   it('closes the credential store when the service closes', async () => {
