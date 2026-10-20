@@ -700,7 +700,7 @@ para usar o sistema sem interrupção e sem que um refresh token roubado sirva p
 
 **Dado** um login bem-sucedido
 **Quando** a resposta é enviada
-**Então** ela traz um cookie de refresh com valor aleatório opaco de pelo menos 256 bits, com os atributos `HttpOnly`, `Secure`, `SameSite=Strict` e `Path=/auth/refresh`
+**Então** ela traz um cookie de refresh com valor aleatório opaco de pelo menos 256 bits, com os atributos `HttpOnly`, `Secure`, `SameSite=Strict` e `Path=/auth` (emenda de 2026-10-20: com `Path=/auth/refresh`, o `POST /auth/logout` não receberia o cookie)
 **E** o corpo da resposta nunca contém o refresh token
 **E** o banco do Auth guarda só o hash do refresh, com identificador de família e validade (padrão de 7 dias, configurável)
 
@@ -1128,7 +1128,7 @@ para ter um ponto de entrada único sem que ele acumule lógica de negócio (FR-
 **Então** o `traceparent` é propagado ou criado
 **E** corpo e resposta passam sem transformação, sem retry, sem cache e sem agregação de serviços (FR-19)
 
-**Dado** o cookie de refresh com `Path=/auth/refresh` (Story 2.3)
+**Dado** o cookie de refresh com `Path=/auth` (Story 2.3, emenda de 2026-10-20)
 **Quando** o navegador chama o refresh pelo Gateway
 **Então** o cookie chega ao Auth e a resposta volta sem alteração
 
