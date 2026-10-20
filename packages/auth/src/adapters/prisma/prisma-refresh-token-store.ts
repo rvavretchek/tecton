@@ -5,6 +5,7 @@ import {
   type RefreshRevocationReason,
   type RefreshRotation,
   type RefreshTokenStore,
+  type RotationAuthorizer,
 } from '../../core/refresh-token-store.js';
 import { createAuthPrismaClient, isWriteConflict, type AuthPrismaClient } from './client.js';
 
@@ -56,6 +57,13 @@ function toFamily(row: FamilyRow): RefreshFamily | undefined {
   return { ...family, revokedAt: row.revokedAt, revokedReason: reason };
 }
 
+/** A token row with its family, or undefined when either row is invalid (fail closed: unknown). */
+function toToken(row: TokenRow): { used: boolean; family: RefreshFamily } | undefined {
+  const family = toFamily(row.family);
+  if (!family || !isDate(row.createdAt) || (row.usedAt !== null && !isDate(row.usedAt))) return undefined;
+  return { used: row.usedAt !== null, family };
+}
+
 /** RefreshTokenStore backed by the Auth database through Prisma 7 (Story 2.3). */
 export function createPrismaRefreshTokenStore(options: PrismaRefreshTokenStoreOptions): RefreshTokenStore {
   const client = 'client' in options ? options.client : createAuthPrismaClient(options.databaseUrl);
@@ -71,6 +79,44 @@ export function createPrismaRefreshTokenStore(options: PrismaRefreshTokenStoreOp
     return { kind: 'reused', family: (row && toFamily(row)) ?? { ...family, revokedAt: now, revokedReason: 'reuse' } };
   };
 
+  /**
+   * The outcome decided by the stored state alone, in the port's order (unknown, revoked, used,
+   * expired), or `fresh` when the token may be rotated. A used token is a reuse even after expiry,
+   * so a late replay of a stolen token is still reported.
+   */
+  const classify = async (
+    delegates: AuthPrismaClient['delegates'],
+    tokenHash: string,
+    now: Date,
+  ): Promise<RefreshRotation | { kind: 'fresh'; tokenId: string; family: RefreshFamily }> => {
+    const row = await tokens(delegates).findUnique({ where: { tokenHash }, include: { family: true } });
+    const token = row ? toToken(row) : undefined;
+    if (!row || !token) return { kind: 'unknown' };
+    const { family } = token;
+    if (family.revokedAt) return { kind: 'revoked', family, tokenWasUsed: token.used };
+    if (token.used) return reused(delegates, family, now);
+    if (family.expiresAt.getTime() <= now.getTime()) return { kind: 'expired' };
+    return { kind: 'fresh', tokenId: row.id, family };
+  };
+
+  const attempt = (tokenHash: string, next: NewRefreshToken, now: Date, authorize: RotationAuthorizer) =>
+    client.transaction(async (tx): Promise<RefreshRotation> => {
+      const state = await classify(tx, tokenHash, now);
+      if (state.kind !== 'fresh') return state;
+      const { family } = state;
+      // Conditional: of two concurrent rotations of the same token, only one marks it.
+      const { count } = await tokens(tx).updateMany({ where: { id: state.tokenId, usedAt: null }, data: { usedAt: now } });
+      if (count !== 1) return reused(tx, family, now);
+      // Inside the transaction: if the credential lookup or the token issuance throws, the
+      // rotation rolls back and the presented token stays usable for a retry.
+      if (!(await authorize(family))) {
+        await revoke(tx, family.id, now, 'inactive');
+        return { kind: 'inactive', family };
+      }
+      await tokens(tx).create({ data: { ...next, familyId: family.id } });
+      return { kind: 'rotated', family };
+    });
+
   return {
     async openFamily(family, token) {
       await client.transaction(async (tx) => {
@@ -81,34 +127,21 @@ export function createPrismaRefreshTokenStore(options: PrismaRefreshTokenStoreOp
       });
     },
 
-    async rotate(tokenHash, next, now) {
-      try {
-        return await client.transaction(async (tx): Promise<RefreshRotation> => {
-          const row = await tokens(tx).findUnique({ where: { tokenHash }, include: { family: true } });
-          const family = row ? toFamily(row.family) : undefined;
-          if (!row || !family) return { kind: 'unknown' };
-          if (family.revokedAt) return { kind: 'revoked', family, tokenWasUsed: row.usedAt !== null };
-          if (family.expiresAt.getTime() <= now.getTime()) return { kind: 'expired' };
-          if (row.usedAt !== null) return reused(tx, family, now);
-          // Conditional: of two concurrent rotations of the same token, only one marks it.
-          const { count } = await tokens(tx).updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: now } });
-          if (count !== 1) return reused(tx, family, now);
-          await tokens(tx).create({ data: { ...next, familyId: family.id } });
-          return { kind: 'rotated', family };
-        });
-      } catch (error) {
-        if (!isWriteConflict(error)) throw error;
-        // A concurrent rotation of the same token won the write: this one is a reuse, as with
-        // count 0 above. The transaction rolled back, so the family is revoked on its own.
-        const row = await tokens(client.delegates).findUnique({ where: { tokenHash }, include: { family: true } });
-        const family = row ? toFamily(row.family) : undefined;
-        if (!family) return { kind: 'unknown' };
-        return reused(client.delegates, family, now);
+    async rotate(tokenHash, next, now, authorize) {
+      for (let retried = false; ; retried = true) {
+        try {
+          return await attempt(tokenHash, next, now, authorize);
+        } catch (error) {
+          if (!isWriteConflict(error)) throw error;
+          // The transaction rolled back. Decide again from what is stored now: a concurrent
+          // rotation of the same token that won makes this one a reuse. A conflict with something
+          // else (a logout, another session) leaves the token unused: try once more, then refuse
+          // without revoking anything.
+          const state = await classify(client.delegates, tokenHash, now);
+          if (state.kind !== 'fresh') return state;
+          if (retried) return { kind: 'unknown' };
+        }
       }
-    },
-
-    async revokeFamily(familyId, now, reason) {
-      await revoke(client.delegates, familyId, now, reason);
     },
 
     async revokeFamilyOf(tokenHash, now, reason) {

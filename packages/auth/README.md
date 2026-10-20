@@ -146,15 +146,20 @@ Set-Cookie: tecton_refresh=<43 base64url characters>; Max-Age=<seconds left>; Pa
 - The family expires a fixed time after the login (7 days by default). Refreshing never extends
   it: after that, the user logs in again.
 
-`POST /auth/refresh` (body `{}`; a body with fields is a 400) returns a new access token and a new
+`POST /auth/refresh` (no body, or `{}`; a body with fields is a 400) returns a new access token and a new
 cookie, and marks the presented token as used. Presenting a used token again revokes the whole
 family, the newest token included, and logs a security event
 (`event: "auth.refresh_token.reuse"`, with the family id and the subject, never the token). Every
 refusal (unknown, malformed, expired, revoked or reused token, inactive credential) is the same
 401, and it clears the cookie.
 
-`POST /auth/logout` (body `{}`) revokes the family of the cookie and clears it. It always answers
-200 `{}`, with or without a valid cookie, so it works even after the access token expired.
+`POST /auth/logout` (no body, or `{}`) revokes the family of the cookie and clears it. It answers
+200 `{}` with or without a valid cookie, so it works even after the access token expired. With
+several `tecton_refresh` cookies (one planted next to the real one), it revokes the family of each.
+If the database fails, the answer is 500 but the cookie is cleared anyway.
+
+A refresh whose credential lookup or token signing fails answers 500 and does not use up the
+cookie: retrying with it works.
 Login, refresh and logout responses carry `Cache-Control: no-store`.
 
 Two refreshes with the same cookie at the same time count as a reuse: one succeeds, the other

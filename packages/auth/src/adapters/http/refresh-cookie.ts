@@ -25,13 +25,22 @@ export function clearRefreshCookie(): string {
  * planted with another Path) is ambiguous and counts as none.
  */
 export function readRefreshCookie(cookieHeader: string | readonly string[] | undefined): string | undefined {
+  const values = readRefreshCookies(cookieHeader);
+  return values.length === 1 ? values[0] : undefined;
+}
+
+/**
+ * Every value of a cookie named tecton_refresh in a Cookie header. Logout revokes them all, so a
+ * cookie planted next to the real one cannot turn a logout into a no-op on the server.
+ */
+export function readRefreshCookies(cookieHeader: string | readonly string[] | undefined): string[] {
   const header = Array.isArray(cookieHeader) ? cookieHeader.join('; ') : cookieHeader;
-  if (typeof header !== 'string') return undefined;
+  if (typeof header !== 'string') return [];
   const values: string[] = [];
   for (const pair of header.split(';')) {
     const separator = pair.indexOf('=');
     if (separator === -1) continue;
     if (pair.slice(0, separator).trim() === REFRESH_COOKIE) values.push(pair.slice(separator + 1).trim());
   }
-  return values.length === 1 ? values[0] : undefined;
+  return values;
 }

@@ -24,7 +24,7 @@ import {
   signingKeysFromEnv,
   tokenSettingsFromEnv,
 } from './adapters/env/config-from-env.js';
-import { clearRefreshCookie, readRefreshCookie, serializeRefreshCookie } from './adapters/http/refresh-cookie.js';
+import { clearRefreshCookie, readRefreshCookie, readRefreshCookies, serializeRefreshCookie } from './adapters/http/refresh-cookie.js';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
 import type { SigningKeys } from './adapters/jose/signing-keys.js';
 import { createAuthPrismaClient } from './adapters/prisma/client.js';
@@ -140,8 +140,9 @@ export async function createAuthService({
       }
     },
     logout: async (_input, { request, reply }) => {
-      await endSession(sessions, readRefreshCookie(request.headers.cookie));
+      // Cleared first: even when the revocation fails (a 500), the browser drops the cookie.
       reply.header('set-cookie', clearRefreshCookie());
+      await endSession(sessions, readRefreshCookies(request.headers.cookie));
       return {};
     },
   });

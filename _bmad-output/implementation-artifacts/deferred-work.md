@@ -34,3 +34,8 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 ## Deferred from: Dev Story da 2.3 (2026-10-20)
 
 - W1 Famílias e tokens de refresh vencidos ou revogados ficam no banco para sempre [packages/auth/prisma] — adiado: limpeza periódica (job ou comando do `tecton-admin`) junto com a operação do Auth; a revogação por sujeito da 2.5 já usa o índice em `credential_id`
+
+## Deferred from: code review da Story 2.3 (2026-10-20)
+
+- W1 Replay repetido de um refresh token roubado grava um `warn` por tentativa, sem limite [packages/auth/src/core/session.ts] — adiado: limite de taxa do Gateway (3.7) e bloqueio por identificador (2.6)
+- W2 Linha de família de refresh corrompida é recusada como desconhecida, sem log [packages/auth/src/adapters/prisma/prisma-refresh-token-store.ts] — adiado: observabilidade (3.3), junto com métricas de recusa

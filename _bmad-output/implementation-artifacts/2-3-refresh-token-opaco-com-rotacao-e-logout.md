@@ -133,6 +133,32 @@ para usar o sistema sem interrupção e sem que um refresh token roubado sirva p
   - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (local pelo túnel se o ubt-host02 responder; os três bancos no CI) e `test:generation`.
   - [ ] Code review por story antes da 2.4 (retro A1).
 
+### Review Findings (code review da Story 2.3, 2026-10-20)
+
+> Camadas: Edge Case Hunter e Acceptance Auditor. O Blind Hunter não rodou: o verificador de permissões do ambiente falhou em todas as tentativas de iniciá-lo.
+
+- [ ] [Review][Patch] P1 (alta) Falha depois da rotação confirmada vira logout: se `findById` (erro de banco) ou `issuer.issue` falham depois do commit do `rotate`, o cliente recebe 500 sem cookie novo, e o retry com o cookie antigo conta como reuso e revoga a família, com evento falso. Correção: a checagem da credencial e a emissão do access token rodam dentro da transação da rotação; se falharem, a transação desfaz e o token antigo continua válido [packages/auth/src/core/session.ts, adapters/prisma/prisma-refresh-token-store.ts]
+- [ ] [Review][Patch] P2 (média) O caminho de conflito de escrita declara reuso sem conferir o estado: revoga como `reuse` um token que nem foi usado (deadlock com logout ou revogação concorrente) e uma família expirada ou já revogada. Correção: reclassificar fora da transação na mesma ordem e tentar a rotação de novo uma vez quando o token ainda não foi usado [prisma-refresh-token-store.ts]
+- [ ] [Review][Patch] P3 (média) Logout com o banco fora do ar dá 500 sem apagar o cookie. Correção: apagar o cookie antes de revogar; o erro continua 500 (a revogação não aconteceu) e o README explica [packages/auth/src/service.ts, README.md]
+- [ ] [Review][Patch] P4 (média) `POST /auth/refresh` e `/auth/logout` sem corpo (o `fetch` de uma SPA sem `body`) dão 400, e o logout nem revoga nem apaga o cookie; a T5 pedia testar corpo vazio e sem `content-type`, e só `{}` e `{ extra: 1 }` foram testados. Correção: no `@tecton/core`, uma action com `input: {}` aceita requisição sem corpo; testes dos três casos [packages/core/src/routes.ts, refresh-http.test.ts]
+- [ ] [Review][Patch] P5 (média) Cookie `tecton_refresh` duplicado (plantado com outro `Path` ou domínio pai) deixa o logout sem efeito no servidor, embora responda 200. Correção: o logout revoga a família de cada valor bem formado presente (até 4); o refresh continua recusando a ambiguidade [refresh-cookie.ts, service.ts, session.ts]
+- [ ] [Review][Patch] P6 (baixa) Replay de token usado depois de a família expirar não gera o evento de reuso (a validade é conferida antes do `usedAt`). Correção: conferir `usedAt` antes da validade, nos dois stores [prisma-refresh-token-store.ts, memory-refresh-token-store.test-helper.ts]
+- [ ] [Review][Patch] P7 (baixa) Linha de token inválida (`usedAt` ou `createdAt` que não é data) não é tratada como desconhecida, como a T3 pede; só a família é validada [prisma-refresh-token-store.ts]
+- [ ] [Review][Patch] P8 (baixa) `openSession` e `login`, exportados, não validam `refreshTtlSeconds` (só o `createAuthService` valida); `NaN` gera data inválida [packages/auth/src/core/session.ts]
+- [ ] [Review][Patch] P9 (baixa) O último recurso do `isWriteConflict` só reconhece `PrismaClientKnownRequestError`, não `PrismaClientUnknownRequestError` [adapters/prisma/client.ts]
+- [ ] [Review][Patch] P10 (baixa) O AD-7 da Architecture Spine ainda diz que o cookie é restrito ao caminho do endpoint de refresh; só o `epics.md` foi emendado [ARCHITECTURE-SPINE.md]
+- [ ] [Review][Patch] P11 (baixa) O teste ponta a ponta de persistência não captura logs nem confere o corpo do logout [prisma-refresh-token-store.persistence.test.ts]
+- [ ] [Review][Patch] P12 (baixa) Registros: desvios da porta não anotados (`openFamily(family, token)` posicional e `revokeFamily` público, além do previsto na T2); mutação "marcar como usado sem condição" do adaptador Prisma não executada (só há o teste de rotação simultânea no CI) [story]
+- [x] [Review][Defer] W1 Replay repetido de um token roubado grava um `warn` por tentativa, sem limite [packages/auth/src/core/session.ts] — adiado: limite de taxa do Gateway (3.7) e bloqueio por identificador (2.6)
+- [x] [Review][Defer] W2 Linha de família corrompida é recusada como desconhecida, sem log (diferente da credencial corrompida) [prisma-refresh-token-store.ts] — adiado: entra com a observabilidade (3.3), junto com métricas de recusa
+- Descartados:
+  - resposta 200 perdida no caminho faz o retry contar como reuso (decisão da story: reuso estrito, sem janela de tolerância; single-flight na 4.7);
+  - tabelas crescem sem limite (já registrado como W1 da Dev Story);
+  - o login emite o access token antes de abrir a sessão (uma falha dá 500 e o cliente refaz o login; nada fica meio aberto);
+  - fechar um store fecha o cliente compartilhado (documentado na opção `client`);
+  - P0-009 coberto pelo atributo `Path` e pela ausência do token no corpo (a travessia do Gateway é testada na 3.6);
+  - mutação equivalente do token no corpo (já aceita e registrada no Debug Log, com o teste do manifest).
+
 ## Dev Notes
 
 ### Decisões desta story

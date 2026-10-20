@@ -9,6 +9,7 @@ import {
   assertRefreshTokenTtl,
   endSession,
   InvalidRefreshTokenError,
+  MAX_LOGOUT_TOKENS,
   openSession,
   REFRESH_TOKEN_TTL,
   refreshSession,
@@ -170,6 +171,17 @@ describe('session rotation (Story 2.3, AC 2 to 5)', () => {
     expect(memory.families()[0]?.revokedAt).toBeUndefined();
   });
 
+  it('still reports a used token replayed after the family expired as a reuse (review P6)', async () => {
+    const { deps, clock, onReuseDetected } = setup();
+    const first = await openSession(deps, credentialOf());
+    await refreshSession(deps, first.refreshToken);
+
+    clock.advance(WEEK * 1000);
+
+    await refuse(refreshSession(deps, first.refreshToken));
+    expect(onReuseDetected).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     ['disabled', credentialOf({ status: 'disabled' })],
     ['removed', undefined],
@@ -190,6 +202,36 @@ describe('session rotation (Story 2.3, AC 2 to 5)', () => {
     await refuse(refreshSession(deps, first.refreshToken));
     expect(onCorruptCredential).toHaveBeenCalledWith(expect.any(InvalidCredentialError));
     expect(memory.families()[0]?.revokedReason).toBe('inactive');
+  });
+
+  it('keeps the presented token usable when the credential lookup fails mid-rotation (review P1)', async () => {
+    const { deps, onReuseDetected, memory } = setup();
+    const first = await openSession(deps, credentialOf());
+    const findById = deps.credentials.findById;
+    deps.credentials.findById = async () => {
+      throw new Error('database blip');
+    };
+
+    await expect(refreshSession(deps, first.refreshToken)).rejects.toThrow('database blip');
+    deps.credentials.findById = findById;
+
+    await expect(refreshSession(deps, first.refreshToken)).resolves.toMatchObject({ access: { tokenType: 'Bearer' } });
+    expect(onReuseDetected).not.toHaveBeenCalled();
+    expect(memory.families()[0]?.revokedAt).toBeUndefined();
+  });
+
+  it('keeps the presented token usable when signing the access token fails (review P1)', async () => {
+    const { deps } = setup();
+    const first = await openSession(deps, credentialOf());
+    const issue = deps.issuer.issue;
+    deps.issuer.issue = async () => {
+      throw new Error('signing failed');
+    };
+
+    await expect(refreshSession(deps, first.refreshToken)).rejects.toThrow('signing failed');
+    deps.issuer.issue = issue;
+
+    await expect(refreshSession(deps, first.refreshToken)).resolves.toMatchObject({ access: { tokenType: 'Bearer' } });
   });
 
   it('refuses unknown and malformed tokens, never querying the store for a malformed one', async () => {
@@ -220,6 +262,29 @@ describe('logout (Story 2.3, AC 6)', () => {
     await endSession(deps, first.refreshToken);
 
     expect(memory.families()[0]).toMatchObject({ revokedReason: 'logout' });
+  });
+
+  it('revokes every well-formed token presented, so a planted duplicate cannot hide the real one (review P5)', async () => {
+    const { deps, memory } = setup();
+    const real = await openSession(deps, credentialOf());
+
+    await endSession(deps, [generateRefreshToken(), 'bad', real.refreshToken]);
+
+    expect(memory.families()[0]).toMatchObject({ revokedReason: 'logout' });
+  });
+
+  it('acts on at most MAX_LOGOUT_TOKENS tokens', async () => {
+    const { deps } = setup();
+    const revoke = vi.spyOn(deps.refreshTokens, 'revokeFamilyOf');
+
+    await endSession(deps, Array.from({ length: MAX_LOGOUT_TOKENS + 3 }, () => generateRefreshToken()));
+    expect(revoke).toHaveBeenCalledTimes(MAX_LOGOUT_TOKENS);
+  });
+
+  it('refuses an invalid family lifetime when opening a session directly (review P8)', async () => {
+    const { deps } = setup();
+
+    await expect(openSession({ ...deps, refreshTtlSeconds: Number.NaN }, credentialOf())).rejects.toThrow(RangeError);
   });
 
   it('never fails for a missing, malformed, unknown or already revoked token', async () => {

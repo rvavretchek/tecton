@@ -2,7 +2,7 @@ import { Writable } from 'node:stream';
 import { createArgon2idAuthProvider } from '@tecton/providers';
 import { assertNoSecretsLeaked, createTestClock, ed25519KeyPairPem } from '#test-support';
 import { decodeJwt } from 'jose';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
 import { buildSigningKeys } from './adapters/jose/signing-keys.js';
 import type { Credential } from './core/credential.js';
@@ -82,6 +82,7 @@ async function service() {
     app,
     clock,
     memory,
+    store,
     cookieOf,
     tokenOf,
     doLogin,
@@ -210,6 +211,19 @@ describe('POST /auth/refresh (Story 2.3, AC 2 to 5)', () => {
     expect((await refresh(tokenOf(winner as NonNullable<typeof winner>))).statusCode).toBe(401);
   });
 
+  it('answers 500 without burning the token when the credential lookup fails, so a retry works (review P1)', async () => {
+    const { doLogin, refresh, tokenOf, store, logs } = await service();
+    const token = tokenOf(await doLogin());
+    vi.spyOn(store, 'findById').mockRejectedValueOnce(new Error('database blip'));
+
+    const failed = await refresh(token);
+    expect(failed.statusCode).toBe(500);
+    expect(failed.headers['set-cookie']).toBeUndefined();
+
+    expect((await refresh(token)).statusCode).toBe(200);
+    expect(logs()).not.toContain('auth.refresh_token.reuse');
+  });
+
   it('accepts an empty JSON object and refuses a body with fields (input: {})', async () => {
     const { app, doLogin, tokenOf } = await service();
     const token = tokenOf(await doLogin());
@@ -232,6 +246,48 @@ describe('POST /auth/logout (Story 2.3, AC 6)', () => {
     expect(response.headers['set-cookie']).toBe(CLEARED);
     expect(memory.families()[0]?.revokedReason).toBe('logout');
     expect((await refresh(token)).statusCode).toBe(401);
+  });
+
+  it('clears the cookie even when the revocation fails, answering 500 (review P3)', async () => {
+    const { doLogin, logout, tokenOf, memory } = await service();
+    const token = tokenOf(await doLogin());
+    vi.spyOn(memory.store, 'revokeFamilyOf').mockRejectedValueOnce(new Error('database down'));
+
+    const response = await logout(token);
+
+    expect(response.statusCode).toBe(500);
+    expect(response.headers['set-cookie']).toBe(CLEARED);
+    expect(response.body).not.toContain('database down');
+  });
+
+  it('revokes the real session when a planted cookie with the same name comes along (review P5)', async () => {
+    const { app, doLogin, refresh, tokenOf, memory } = await service();
+    const token = tokenOf(await doLogin());
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/auth/logout',
+      headers: { cookie: `tecton_refresh=${'P'.repeat(43)}; tecton_refresh=${token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(memory.families()[0]?.revokedReason).toBe('logout');
+    expect((await refresh(token)).statusCode).toBe(401);
+  });
+
+  it('accepts refresh and logout with no body and no content-type, as a bare fetch sends them (review P4)', async () => {
+    const { app, doLogin, tokenOf, memory } = await service();
+    const token = tokenOf(await doLogin());
+    const headers = { cookie: `tecton_refresh=${token}` };
+
+    const refreshed = await app.inject({ method: 'POST', url: '/auth/refresh', headers });
+    expect(refreshed.statusCode).toBe(200);
+    const next = tokenOf(refreshed);
+
+    const loggedOut = await app.inject({ method: 'POST', url: '/auth/logout', headers: { cookie: `tecton_refresh=${next}` } });
+    expect(loggedOut.statusCode).toBe(200);
+    expect(loggedOut.headers['set-cookie']).toBe(CLEARED);
+    expect(memory.families()[0]?.revokedReason).toBe('logout');
   });
 
   it('answers the same 200 for no cookie, an unknown or malformed one and an already revoked session', async () => {

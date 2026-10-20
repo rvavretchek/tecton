@@ -56,7 +56,13 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
   for (const action of manifest.actions) {
     // Own properties only: an action named "constructor" must not pick up Object.prototype.constructor.
     const handler = Object.hasOwn(handlers, action.name) ? handlers[action.name] : undefined;
-    app.post(actionRoutePath(manifest.domain, action.name), { schema: routeSchema(manifest.domain, action) }, async (request, reply) => {
+    // An action without input fields also accepts a request with no body at all (a bare
+    // `fetch(url, { method: 'POST' })`), validated as {}. A body with fields is still a 400.
+    const takesNoInput = Object.keys(action.inputSchema.properties).length === 0;
+    const preValidation = async (request: FastifyRequest) => {
+      if (takesNoInput && request.body === undefined) request.body = {};
+    };
+    app.post(actionRoutePath(manifest.domain, action.name), { schema: routeSchema(manifest.domain, action), preValidation }, async (request, reply) => {
       if (!handler) throw frameworkErrors.notImplemented(manifest.domain, action.name);
       return handler(request.body as Record<string, unknown>, { domain: manifest.domain, action: action.name, request, reply });
     });

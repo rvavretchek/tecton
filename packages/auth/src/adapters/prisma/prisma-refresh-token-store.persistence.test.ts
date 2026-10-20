@@ -1,3 +1,4 @@
+import { Writable } from 'node:stream';
 import { createArgon2idAuthProvider } from '@tecton/providers';
 import { assertNoSecretsLeaked, createTestClock, ed25519KeyPairPem, selectedDatabase, startDatabase, type StartedDatabase } from '#test-support';
 import { v7 as uuidv7 } from 'uuid';
@@ -6,8 +7,8 @@ import { bootstrapAdmin } from '../../core/bootstrap.js';
 import type { Credential } from '../../core/credential.js';
 import type { CredentialStore } from '../../core/credential-store.js';
 import { generateRefreshToken, hashRefreshToken } from '../../core/refresh-token.js';
-import type { NewRefreshToken, RefreshFamily, RefreshTokenStore } from '../../core/refresh-token-store.js';
-import { createAuthService } from '../../service.js';
+import type { NewRefreshToken, RefreshFamily, RefreshTokenStore, RotationAuthorizer } from '../../core/refresh-token-store.js';
+import { createAuthService, LOG_REDACTION } from '../../service.js';
 import { createAccessTokenIssuer } from '../jose/access-token-issuer.js';
 import { buildSigningKeys } from '../jose/signing-keys.js';
 import { createAuthPrismaClient, type AuthPrismaClient } from './client.js';
@@ -59,6 +60,9 @@ describe(`Refresh token store on ${selectedDatabase()} (Story 2.3)`, () => {
     await database?.stop();
   });
 
+  const allow: RotationAuthorizer = async () => true;
+  const rotate = (tokenHash: string, next: NewRefreshToken, now: Date, authorize: RotationAuthorizer = allow) => store.rotate(tokenHash, next, now, authorize);
+
   async function openFor(login: string, expiresAt = new Date(AT.getTime() + WEEK_MS)) {
     const credential = credentialOf(login);
     await credentials.create(credential);
@@ -79,48 +83,74 @@ describe(`Refresh token store on ${selectedDatabase()} (Story 2.3)`, () => {
     const { family, first } = await openFor('rotate');
     const second = newToken(new Date(AT.getTime() + 1000));
 
-    const result = await store.rotate(first.stored.tokenHash, second.stored, new Date(AT.getTime() + 1000));
+    const result = await rotate(first.stored.tokenHash, second.stored, new Date(AT.getTime() + 1000));
 
     expect(result).toEqual({ kind: 'rotated', family });
-    expect(await store.rotate(second.stored.tokenHash, newToken().stored, new Date(AT.getTime() + 2000))).toMatchObject({ kind: 'rotated' });
+    expect(await rotate(second.stored.tokenHash, newToken().stored, new Date(AT.getTime() + 2000))).toMatchObject({ kind: 'rotated' });
   });
 
   it('on reuse, revokes the family in the same transaction, so its newest token is refused too', async () => {
     const { family, first } = await openFor('reuse');
     const second = newToken();
-    await store.rotate(first.stored.tokenHash, second.stored, AT);
+    await rotate(first.stored.tokenHash, second.stored, AT);
 
-    const reuse = await store.rotate(first.stored.tokenHash, newToken().stored, AT);
+    const reuse = await rotate(first.stored.tokenHash, newToken().stored, AT);
     expect(reuse).toMatchObject({ kind: 'reused', family: { id: family.id, revokedReason: 'reuse', revokedAt: AT } });
-    expect(await store.rotate(second.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', tokenWasUsed: false });
-    expect(await store.rotate(first.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', tokenWasUsed: true });
+    expect(await rotate(second.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', tokenWasUsed: false });
+    expect(await rotate(first.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', tokenWasUsed: true });
+  });
+
+  it('rolls the rotation back when the authorizer throws: the token stays usable (review P1)', async () => {
+    const { family, first } = await openFor('rollback');
+    const failing: RotationAuthorizer = async () => {
+      throw new Error('database blip');
+    };
+
+    await expect(rotate(first.stored.tokenHash, newToken().stored, AT, failing)).rejects.toThrow('database blip');
+    expect(await rotate(first.stored.tokenHash, newToken().stored, AT)).toEqual({ kind: 'rotated', family });
+  });
+
+  it('revokes the family as inactive when the authorizer refuses, storing no new token', async () => {
+    const { family, first } = await openFor('inactive');
+    const next = newToken();
+
+    expect(await rotate(first.stored.tokenHash, next.stored, AT, async () => false)).toMatchObject({ kind: 'inactive', family: { id: family.id } });
+    expect(await rotate(next.stored.tokenHash, newToken().stored, AT)).toEqual({ kind: 'unknown' });
+    expect(await rotate(first.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', family: { revokedReason: 'inactive' } });
+  });
+
+  it('reports a used token presented after the family expired as a reuse (review P6)', async () => {
+    const { first } = await openFor('late-replay', new Date(AT.getTime() + 60_000));
+    await rotate(first.stored.tokenHash, newToken().stored, AT);
+
+    expect(await rotate(first.stored.tokenHash, newToken().stored, new Date(AT.getTime() + 120_000))).toMatchObject({ kind: 'reused' });
   });
 
   it('refuses an expired family without revoking it, and an unknown token', async () => {
     const { family, first } = await openFor('expired', new Date(AT.getTime() + 60_000));
 
-    expect(await store.rotate(first.stored.tokenHash, newToken().stored, new Date(AT.getTime() + 60_000))).toEqual({ kind: 'expired' });
-    expect(await store.rotate(hashRefreshToken(generateRefreshToken()), newToken().stored, AT)).toEqual({ kind: 'unknown' });
-    expect(await store.rotate(first.stored.tokenHash, newToken().stored, new Date(AT.getTime() + 59_999))).toEqual({ kind: 'rotated', family });
+    expect(await rotate(first.stored.tokenHash, newToken().stored, new Date(AT.getTime() + 60_000))).toEqual({ kind: 'expired' });
+    expect(await rotate(hashRefreshToken(generateRefreshToken()), newToken().stored, AT)).toEqual({ kind: 'unknown' });
+    expect(await rotate(first.stored.tokenHash, newToken().stored, new Date(AT.getTime() + 59_999))).toEqual({ kind: 'rotated', family });
   });
 
   it('revokes the family of a token in any state (logout), and reports an unknown token', async () => {
     const { first } = await openFor('logout');
     const second = newToken();
-    await store.rotate(first.stored.tokenHash, second.stored, AT);
+    await rotate(first.stored.tokenHash, second.stored, AT);
 
     expect(await store.revokeFamilyOf(first.stored.tokenHash, AT, 'logout')).toBe(true);
-    expect(await store.rotate(second.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', family: { revokedReason: 'logout' } });
+    expect(await rotate(second.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', family: { revokedReason: 'logout' } });
     expect(await store.revokeFamilyOf(hashRefreshToken(generateRefreshToken()), AT, 'logout')).toBe(false);
     // A second revocation keeps the first reason and instant.
-    await store.revokeFamily((await store.rotate(second.stored.tokenHash, newToken().stored, AT) as { family: RefreshFamily }).family.id, new Date(AT.getTime() + 5000), 'inactive');
-    expect(await store.rotate(second.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', family: { revokedReason: 'logout', revokedAt: AT } });
+    await store.revokeFamilyOf(second.stored.tokenHash, new Date(AT.getTime() + 5000), 'inactive');
+    expect(await rotate(second.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', family: { revokedReason: 'logout', revokedAt: AT } });
   });
 
   it('lets exactly one of several concurrent rotations of the same token win; the family ends revoked', async () => {
     const { first } = await openFor('concurrent');
 
-    const results = await Promise.all(Array.from({ length: 5 }, () => store.rotate(first.stored.tokenHash, newToken().stored, AT)));
+    const results = await Promise.all(Array.from({ length: 5 }, () => rotate(first.stored.tokenHash, newToken().stored, AT)));
 
     expect(results.filter((result) => result.kind === 'rotated')).toHaveLength(1);
     // The first loser revokes the family; losers that read it afterwards find it already revoked.
@@ -130,7 +160,7 @@ describe(`Refresh token store on ${selectedDatabase()} (Story 2.3)`, () => {
     for (const loser of losers) {
       expect(loser.kind === 'reused' || (loser.kind === 'revoked' && loser.tokenWasUsed), JSON.stringify(loser)).toBe(true);
     }
-    expect(await store.rotate(first.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', family: { revokedReason: 'reuse' } });
+    expect(await rotate(first.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', family: { revokedReason: 'reuse' } });
   }, 60_000);
 
   it('deletes the families and tokens of a deleted credential (cascade)', async () => {
@@ -138,7 +168,7 @@ describe(`Refresh token store on ${selectedDatabase()} (Story 2.3)`, () => {
 
     await (client.delegates.credential as { delete(args: { where: { id: string } }): Promise<unknown> }).delete({ where: { id: credential.id } });
 
-    expect(await store.rotate(first.stored.tokenHash, newToken().stored, AT)).toEqual({ kind: 'unknown' });
+    expect(await rotate(first.stored.tokenHash, newToken().stored, AT)).toEqual({ kind: 'unknown' });
   });
 });
 
@@ -160,7 +190,22 @@ describe(`Refresh end to end on ${selectedDatabase()} (Story 2.3)`, () => {
     const client = createAuthPrismaClient(database.url);
     const store = createPrismaCredentialStore({ client });
     await bootstrapAdmin({ store, auth, clock, login: 'admin', password: 'admin-password-123' });
-    const app = await createAuthService({ store, refreshTokens: createPrismaRefreshTokenStore({ client }), auth, issuer: createAccessTokenIssuer({ keys, clock }), keys, clock });
+    const lines: string[] = [];
+    const stream = new Writable({
+      write(chunk, _encoding, done) {
+        lines.push(chunk.toString());
+        done();
+      },
+    });
+    const app = await createAuthService({
+      store,
+      refreshTokens: createPrismaRefreshTokenStore({ client }),
+      auth,
+      issuer: createAccessTokenIssuer({ keys, clock }),
+      keys,
+      clock,
+      logger: { level: 'trace', redact: LOG_REDACTION, stream },
+    });
     const tokenOf = (response: { headers: Record<string, unknown> }) => /^tecton_refresh=([A-Za-z0-9_-]{43});/.exec(String(response.headers['set-cookie']))?.[1] ?? '';
     const call = (url: string, token: string) => app.inject({ method: 'POST', url, payload: {}, headers: { cookie: `tecton_refresh=${token}` } });
     try {
@@ -176,9 +221,14 @@ describe(`Refresh end to end on ${selectedDatabase()} (Story 2.3)`, () => {
       expect((await call('/auth/refresh', second)).statusCode).toBe(401);
 
       const again = tokenOf(await app.inject({ method: 'POST', url: '/auth/login', payload: { login: 'admin', password: 'admin-password-123' } }));
-      expect((await call('/auth/logout', again)).statusCode).toBe(200);
+      const logout = await call('/auth/logout', again);
+      expect(logout.statusCode).toBe(200);
       expect((await call('/auth/refresh', again)).statusCode).toBe(401);
-      assertNoSecretsLeaked(JSON.stringify([login.body, refreshed.body]), { first, second });
+      const logs = lines.join('');
+      expect(logs).toContain('auth.refresh_token.reuse');
+      const secrets = { first, second, again, firstHash: hashRefreshToken(first), password: 'admin-password-123' };
+      assertNoSecretsLeaked(JSON.stringify([login.body, refreshed.body, logout.body]), secrets);
+      assertNoSecretsLeaked(logs, secrets);
     } finally {
       await app.close();
     }

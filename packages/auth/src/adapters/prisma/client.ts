@@ -54,6 +54,7 @@ export function errorCode(error: unknown): string | undefined {
 // PostgreSQL SQLSTATE 40001 (serialization) and 40P01 (deadlock); MySQL/MariaDB 1213 (deadlock) and
 // 1020 (MariaDB 11.8+ innodb_snapshot_isolation: "Record has changed since last read").
 const CONFLICT_CODES = new Set(['40001', '40P01', '1213', '1020']);
+const PRISMA_REQUEST_ERRORS = new Set(['PrismaClientKnownRequestError', 'PrismaClientUnknownRequestError']);
 
 /**
  * A serialization failure, deadlock or snapshot conflict: Prisma reports P2034, or the driver
@@ -74,7 +75,7 @@ export function isWriteConflict(error: unknown): boolean {
     for (const next of [cause, meta, driverAdapterError]) pending.push({ value: next, depth: depth + 1 });
   }
   // Last resort: a Prisma request error whose message carries the database code ("Code: `1020`").
-  if (error instanceof Error && error.name === 'PrismaClientKnownRequestError') {
+  if (error instanceof Error && PRISMA_REQUEST_ERRORS.has(error.name)) {
     const match = /Code: `([0-9A-Z]+)`/.exec(error.message);
     if (match?.[1] && CONFLICT_CODES.has(match[1])) return true;
   }

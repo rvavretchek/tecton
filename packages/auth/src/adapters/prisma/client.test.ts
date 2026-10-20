@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { isWriteConflict } from './client.js';
 
-function prismaError(message: string, extra: Record<string, unknown> = {}): Error {
+function prismaError(message: string, extra: Record<string, unknown> = {}, name = 'PrismaClientKnownRequestError'): Error {
   const error = new Error(message);
-  Object.defineProperty(error, 'name', { value: 'PrismaClientKnownRequestError' });
+  Object.defineProperty(error, 'name', { value: name });
   return Object.assign(error, extra);
 }
 
@@ -23,6 +23,8 @@ describe('isWriteConflict (Story 2.3, concurrent rotation)', () => {
     const message = "Invalid `tokens(tx).updateMany()` invocation:\n\nDatabase error. Code: `1020`. Message: `Record has changed since last read in table 'refresh_tokens'; try restarting transaction`";
 
     expect(isWriteConflict(prismaError(message))).toBe(true);
+    expect(isWriteConflict(prismaError(message, {}, 'PrismaClientUnknownRequestError'))).toBe(true);
+    expect(isWriteConflict(prismaError(message, {}, 'PrismaClientValidationError'))).toBe(false);
   });
 
   it.each([

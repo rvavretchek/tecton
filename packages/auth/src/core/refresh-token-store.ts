@@ -21,10 +21,19 @@ export interface NewRefreshToken {
   createdAt: Date;
 }
 
+/**
+ * Called inside the rotation, after the presented token is marked used and before `next` is stored.
+ * Returns whether the family's credential may continue (false revokes the family as `inactive`).
+ * If it throws, the rotation is undone: the presented token stays unused, so a retry still works.
+ */
+export type RotationAuthorizer = (family: RefreshFamily) => Promise<boolean>;
+
 /** Outcome of presenting a refresh token for rotation. */
 export type RefreshRotation =
   /** The token was valid: it is now used, and `next` was stored in the same family. */
   | { kind: 'rotated'; family: RefreshFamily }
+  /** The authorizer refused the credential: the token is used and the family is revoked (`inactive`). */
+  | { kind: 'inactive'; family: RefreshFamily }
   /** The token had already been used (or lost a concurrent rotation): the family is now revoked. */
   | { kind: 'reused'; family: RefreshFamily }
   /** The family was revoked before; `tokenWasUsed` tells a replay of a used token apart. */
@@ -37,14 +46,13 @@ export interface RefreshTokenStore {
   /** Stores a new family and its first token, atomically. */
   openFamily(family: RefreshFamily, token: NewRefreshToken): Promise<void>;
   /**
-   * Atomically marks the token with `tokenHash` as used and stores `next` in its family. Marking is
-   * conditional on the token being unused, so of two concurrent rotations of the same token only
-   * one is `rotated`; the other is `reused`, and the family is revoked in the same transaction.
-   * Expiry is checked against `now` (from the Clock), never against the database clock.
+   * Atomically marks the token with `tokenHash` as used, asks `authorize`, and stores `next` in its
+   * family. Checks run in this order: unknown, revoked, already used (reuse: the family is revoked),
+   * expired. Marking is conditional on the token being unused, so of two concurrent rotations of
+   * the same token only one is `rotated`; the other is `reused`. Expiry is checked against `now`
+   * (from the Clock), never against the database clock.
    */
-  rotate(tokenHash: string, next: NewRefreshToken, now: Date): Promise<RefreshRotation>;
-  /** Revokes a family (a no-op when it is already revoked or does not exist). */
-  revokeFamily(familyId: string, now: Date, reason: RefreshRevocationReason): Promise<void>;
+  rotate(tokenHash: string, next: NewRefreshToken, now: Date, authorize: RotationAuthorizer): Promise<RefreshRotation>;
   /** Revokes the family of the token with `tokenHash`, whatever its state. Returns whether a token was found. */
   revokeFamilyOf(tokenHash: string, now: Date, reason: RefreshRevocationReason): Promise<boolean>;
   close(): Promise<void>;

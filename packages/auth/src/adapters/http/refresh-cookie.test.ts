@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clearRefreshCookie, readRefreshCookie, REFRESH_COOKIE, REFRESH_COOKIE_PATH, serializeRefreshCookie } from './refresh-cookie.js';
+import { clearRefreshCookie, readRefreshCookie, readRefreshCookies, REFRESH_COOKIE, REFRESH_COOKIE_PATH, serializeRefreshCookie } from './refresh-cookie.js';
 
 const TOKEN = 'a'.repeat(43);
 
@@ -28,5 +28,12 @@ describe('refresh cookie (Story 2.3, AC 1, AC 6, AC 7)', () => {
     expect(readRefreshCookie('theme=dark')).toBeUndefined();
     expect(readRefreshCookie('xtecton_refresh=abc; tecton_refresh_old=def')).toBeUndefined();
     expect(readRefreshCookie(`tecton_refresh=${TOKEN}; tecton_refresh=${'b'.repeat(43)}`)).toBeUndefined();
+  });
+
+  it('lists every value of the name for logout, which revokes them all (review P5)', () => {
+    expect(readRefreshCookies(`tecton_refresh=${TOKEN}; theme=dark; tecton_refresh=${'b'.repeat(43)}`)).toEqual([TOKEN, 'b'.repeat(43)]);
+    expect(readRefreshCookies(['theme=dark', `tecton_refresh=${TOKEN}`])).toEqual([TOKEN]);
+    expect(readRefreshCookies(undefined)).toEqual([]);
+    expect(readRefreshCookies('xtecton_refresh=abc')).toEqual([]);
   });
 });

@@ -23,22 +23,32 @@ export function createMemoryRefreshTokenStore() {
       families.set(family.id, copy(family));
       tokens.set(token.tokenHash, { ...token, familyId: family.id });
     },
-    async rotate(tokenHash, next, now): Promise<RefreshRotation> {
+    async rotate(tokenHash, next, now, authorize): Promise<RefreshRotation> {
       const token = tokens.get(tokenHash);
       const family = token ? families.get(token.familyId) : undefined;
       if (!token || !family) return { kind: 'unknown' };
       if (family.revokedAt) return { kind: 'revoked', family: copy(family), tokenWasUsed: token.usedAt !== undefined };
-      if (family.expiresAt.getTime() <= now.getTime()) return { kind: 'expired' };
       if (token.usedAt) {
         revoke(family.id, now, 'reuse');
         return { kind: 'reused', family: copy(families.get(family.id) as RefreshFamily) };
       }
+      if (family.expiresAt.getTime() <= now.getTime()) return { kind: 'expired' };
+      // Marked before awaiting the authorizer, so a concurrent rotation sees it used; a throwing
+      // authorizer undoes the mark, like the rolled-back transaction of the Prisma adapter.
       tokens.set(tokenHash, { ...token, usedAt: now });
+      let allowed: boolean;
+      try {
+        allowed = await authorize(copy(family));
+      } catch (error) {
+        tokens.set(tokenHash, token);
+        throw error;
+      }
+      if (!allowed) {
+        revoke(family.id, now, 'inactive');
+        return { kind: 'inactive', family: copy(families.get(family.id) as RefreshFamily) };
+      }
       tokens.set(next.tokenHash, { ...next, familyId: family.id });
       return { kind: 'rotated', family: copy(family) };
-    },
-    async revokeFamily(familyId, now, reason) {
-      revoke(familyId, now, reason);
     },
     async revokeFamilyOf(tokenHash, now, reason) {
       const token = tokens.get(tokenHash);

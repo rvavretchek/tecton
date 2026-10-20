@@ -94,6 +94,54 @@ describe('registerActionRoutes (AC 1)', () => {
   });
 });
 
+describe('actions without input (Story 2.3 review P4)', () => {
+  const PING = manifestOf(`manifestVersion: "0.1"
+domain: ping
+version: 1.0.0
+description: "Ping."
+actions:
+  - name: ping
+    description: "Answers."
+    input: {}
+    output: { ok: boolean }
+    auth: { public: true }
+  - name: echo
+    description: "Echoes."
+    input: { value: string }
+    output: { ok: boolean }
+    auth: { public: true }
+`);
+
+  async function ping() {
+    const app = createTectonServer();
+    servers.push(app);
+    registerActionRoutes(app, PING, { ping: async () => ({ ok: true }), echo: async () => ({ ok: true }) });
+    await app.ready();
+    return app;
+  }
+
+  it('Given an action with input {}, When called with no body and no content-type, Then the handler runs with {}', async () => {
+    const app = await ping();
+    const response = await app.inject({ method: 'POST', url: '/ping/ping' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+  });
+
+  it('Given an action with input {}, When called with {} or with a field, Then {} is 200 and the field is 400', async () => {
+    const app = await ping();
+
+    expect((await app.inject({ method: 'POST', url: '/ping/ping', payload: {} })).statusCode).toBe(200);
+    expect((await app.inject({ method: 'POST', url: '/ping/ping', payload: { extra: 1 } })).statusCode).toBe(400);
+  });
+
+  it('Given an action with input fields, When called with no body, Then it is still 400', async () => {
+    const app = await ping();
+
+    expect((await app.inject({ method: 'POST', url: '/ping/echo' })).statusCode).toBe(400);
+  });
+});
+
 describe('input validation (AC 2)', () => {
   it.each([
     ['a missing field', { displayName: 'Acme', ownerId: VALID_INPUT.ownerId }],

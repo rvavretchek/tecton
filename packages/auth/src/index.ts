@@ -34,11 +34,13 @@ export {
   type RefreshRevocationReason,
   type RefreshRotation,
   type RefreshTokenStore,
+  type RotationAuthorizer,
 } from './core/refresh-token-store.js';
 export {
   assertRefreshTokenTtl,
   endSession,
   InvalidRefreshTokenError,
+  MAX_LOGOUT_TOKENS,
   openSession,
   REFRESH_TOKEN_TTL,
   refreshSession,
@@ -48,7 +50,7 @@ export {
   type SessionDependencies,
   type SessionTokens,
 } from './core/session.js';
-export { clearRefreshCookie, readRefreshCookie, REFRESH_COOKIE, REFRESH_COOKIE_PATH, serializeRefreshCookie } from './adapters/http/refresh-cookie.js';
+export { clearRefreshCookie, readRefreshCookie, readRefreshCookies, REFRESH_COOKIE, REFRESH_COOKIE_PATH, serializeRefreshCookie } from './adapters/http/refresh-cookie.js';
 export { buildSigningKeys, SigningKeyConfigError, type PublishedJwk, type SigningKeyMaterial, type SigningKeys } from './adapters/jose/signing-keys.js';
 export {
   ACCESS_TOKEN_TTL,
