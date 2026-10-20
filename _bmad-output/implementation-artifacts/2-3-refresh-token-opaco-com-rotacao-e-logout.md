@@ -207,6 +207,7 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **Mensagem de log trocada sem querer:** a primeira versão unificou o log de credencial corrompida e quebrou um teste da 2.2b (`corrupt credential refused at login`). Agora há uma mensagem por caminho (`at login`, `at refresh`).
 - **README do `@tecton/auth` com `typ: JWT`:** sobra de antes da P3 da 2.2b; corrigido para `typ: at+jwt`.
 - **Primeiro CI (`d745c65`), teste de rotação simultânea errado:** no PostgreSQL e no MariaDB, exatamente uma rotação venceu, como esperado, mas só uma perdedora deu `reused`. As que leram a família depois de revogada deram `revoked` com `tokenWasUsed`, que também é 401 e também gera o evento. O teste esperava quatro `reused`; agora aceita os dois resultados. O código não mudou.
+- **Segundo CI, MariaDB com erro 1020:** o MariaDB 11.8 (`innodb_snapshot_isolation` ligado) recusa o `updateMany` da perdedora com "Record has changed since last read" (código 1020), e o `isWriteConflict` não reconhecia esse código: a rotação simultânea dava 500. Agora o 1020 conta como conflito (portanto como reuso), a busca percorre `cause`, `meta` e `driverAdapterError`, e a mensagem do `PrismaClientKnownRequestError` serve de último recurso. Teste unitário novo (`client.test.ts`, 13 casos). O `createIfEmpty` da 2.2a ganha a mesma detecção.
 - **Docker remoto inacessível de novo:** o ubt-host02 não respondeu. Os testes de persistência novos (store de refresh nos cinco resultados, rotação simultânea real, cascata e fluxo completo) rodam no CI nos três bancos.
 - **Fase vermelha por mutação (A3),** cada uma restaurada:
 
@@ -260,7 +261,7 @@ Claude Opus 5.5 (claude-opus-5-5)
 - `packages/auth/src/core/{refresh-token,refresh-token-store,session}.ts`, `session.test.ts`, `memory-refresh-token-store.test-helper.ts` (novos)
 - `packages/auth/src/core/{login,credential-store}.ts`, `login.test.ts`, `bootstrap.test.ts` (modificados)
 - `packages/auth/src/adapters/http/refresh-cookie.ts` e teste (novos)
-- `packages/auth/src/adapters/prisma/{client,prisma-refresh-token-store}.ts`, `prisma-refresh-token-store.persistence.test.ts` (novos); `prisma-credential-store.ts`, `prisma-credential-store.persistence.test.ts` (modificados)
+- `packages/auth/src/adapters/prisma/{client,prisma-refresh-token-store}.ts`, `client.test.ts`, `prisma-refresh-token-store.persistence.test.ts` (novos); `prisma-credential-store.ts`, `prisma-credential-store.persistence.test.ts` (modificados)
 - `packages/auth/src/adapters/env/config-from-env.ts` e teste (modificados)
 - `packages/auth/src/service.ts`, `service.test.ts`, `review-2-2b.test.ts`, `manifest.test.ts`, `schema-parity.test.ts`, `index.ts` (modificados); `src/refresh-http.test.ts` (novo)
 - `packages/auth/tecton.yaml`, `README.md`, `tsconfig.json` (modificados)

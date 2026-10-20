@@ -51,17 +51,32 @@ export function errorCode(error: unknown): string | undefined {
   return typeof code === 'string' ? code : undefined;
 }
 
+// PostgreSQL SQLSTATE 40001 (serialization) and 40P01 (deadlock); MySQL/MariaDB 1213 (deadlock) and
+// 1020 (MariaDB 11.8+ innodb_snapshot_isolation: "Record has changed since last read").
+const CONFLICT_CODES = new Set(['40001', '40P01', '1213', '1020']);
+
 /**
- * A serialization failure or deadlock: Prisma reports P2034, or the driver adapter error itself
- * surfaces with kind TransactionWriteConflict (PostgreSQL SQLSTATE 40001 / 40P01; MySQL and
- * MariaDB deadlock 1213).
+ * A serialization failure, deadlock or snapshot conflict: Prisma reports P2034, or the driver
+ * adapter error surfaces, nested in `cause`, `meta` or `driverAdapterError`, with kind
+ * TransactionWriteConflict or one of CONFLICT_CODES.
  */
 export function isWriteConflict(error: unknown): boolean {
   if (errorCode(error) === 'P2034') return true;
-  for (let current: unknown = error, depth = 0; current && typeof current === 'object' && depth < 4; depth += 1) {
-    const { kind, originalCode, cause } = current as { kind?: unknown; originalCode?: unknown; cause?: unknown };
-    if (kind === 'TransactionWriteConflict' || originalCode === '40001' || originalCode === '40P01' || originalCode === '1213') return true;
-    current = cause;
+  const pending: Array<{ value: unknown; depth: number }> = [{ value: error, depth: 0 }];
+  while (pending.length > 0) {
+    const { value, depth } = pending.pop() as { value: unknown; depth: number };
+    if (!value || typeof value !== 'object' || depth > 5) continue;
+    const { kind, originalCode, code, cause, meta, driverAdapterError } = value as Record<string, unknown>;
+    if (kind === 'TransactionWriteConflict') return true;
+    for (const candidate of [originalCode, kind === 'mysql' || kind === 'postgres' ? code : undefined]) {
+      if ((typeof candidate === 'string' || typeof candidate === 'number') && CONFLICT_CODES.has(String(candidate))) return true;
+    }
+    for (const next of [cause, meta, driverAdapterError]) pending.push({ value: next, depth: depth + 1 });
+  }
+  // Last resort: a Prisma request error whose message carries the database code ("Code: `1020`").
+  if (error instanceof Error && error.name === 'PrismaClientKnownRequestError') {
+    const match = /Code: `([0-9A-Z]+)`/.exec(error.message);
+    if (match?.[1] && CONFLICT_CODES.has(match[1])) return true;
   }
   return false;
 }
