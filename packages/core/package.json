@@ -21,6 +21,7 @@
   "dependencies": {
     "@fastify/swagger": "^9.9.1",
     "@tecton/manifest": "workspace:*",
-    "fastify": "^5.12.5"
+    "fastify": "^5.12.5",
+    "jose": "6.2.12"
   }
 }

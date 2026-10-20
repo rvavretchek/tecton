@@ -1,5 +1,6 @@
 import { parseManifest, type TectonManifest } from '@tecton/manifest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import type { TokenVerifier } from './auth/token-verifier.js';
 import { actionRoutePath, registerActionRoutes } from './routes.js';
 import { createTectonServer } from './server.js';
 
@@ -33,10 +34,21 @@ afterEach(async () => {
   for (const app of servers.splice(0)) await app.close();
 });
 
+/** Accepts every request as a caller with every tenant permission: these tests are not about tokens. */
+const ACCEPT_ALL: TokenVerifier = {
+  verify: async () => ({
+    subject: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5f',
+    permissions: ['tenant:create', 'tenant:archive'],
+    tokenId: 'test',
+    issuedAt: new Date(0),
+    expiresAt: new Date(0),
+  }),
+};
+
 async function serve(handlers: Parameters<typeof registerActionRoutes>[2] = {}) {
   const app = createTectonServer();
   servers.push(app);
-  registerActionRoutes(app, TENANT, handlers);
+  registerActionRoutes(app, TENANT, handlers, { verifier: ACCEPT_ALL });
   await app.ready();
   return app;
 }
@@ -218,7 +230,7 @@ describe('requests Fastify rejects before validation (review P2)', () => {
   it('Given a body over the size limit, When called, Then it is 413', async () => {
     const app = createTectonServer();
     servers.push(app);
-    registerActionRoutes(app, TENANT, {});
+    registerActionRoutes(app, TENANT, {}, { verifier: ACCEPT_ALL });
     await app.ready();
     const response = await app.inject({
       method: 'POST',

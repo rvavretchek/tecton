@@ -57,6 +57,22 @@ export const frameworkErrors = {
       // RFC 9110 15.5.2: a 401 names the authentication scheme it expects.
       headers: { 'www-authenticate': 'Bearer' },
     }),
+  /** Authenticated, but missing a permission the action requires. Never lists which one. */
+  forbidden: () =>
+    new TectonError({ status: 403, slug: 'forbidden', i18nKey: 'tecton.error.forbidden', message: 'missing permission for this action' }),
+  /**
+   * The token could not be verified because the keys are unavailable (JWKS unreachable or invalid,
+   * nothing usable in cache). Fail closed, but distinct from a bad token: the client should retry,
+   * not refresh or log out.
+   */
+  authUnavailable: () =>
+    new TectonError({
+      status: 503,
+      slug: 'auth-unavailable',
+      i18nKey: 'tecton.error.authUnavailable',
+      message: 'authentication is temporarily unavailable',
+      headers: { 'retry-after': '5' },
+    }),
   notFound: () =>
     new TectonError({ status: 404, slug: 'not-found', i18nKey: 'tecton.error.notFound', message: 'route not found' }),
   notImplemented: (domain: string, action: string) =>

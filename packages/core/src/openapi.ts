@@ -1,5 +1,6 @@
 import swagger from '@fastify/swagger';
 import type { TectonManifest } from '@tecton/manifest';
+import { InvalidTokenError } from './auth/token-verifier.js';
 import { registerActionRoutes } from './routes.js';
 import { createTectonServer } from './server.js';
 
@@ -14,9 +15,11 @@ export async function buildOpenApiDocument(manifest: TectonManifest): Promise<Re
       openapi: {
         openapi: '3.1.0',
         info: { title: manifest.domain, version: manifest.version, description: manifest.description },
+        components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } } },
       },
     });
-    registerActionRoutes(app, manifest);
+    // Routes are only described, never called: a verifier that refuses everything is enough.
+    registerActionRoutes(app, manifest, {}, { verifier: { verify: async () => Promise.reject(new InvalidTokenError()) } });
     await app.ready();
     return app.swagger() as unknown as Record<string, unknown>;
   } finally {

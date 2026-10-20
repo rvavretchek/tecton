@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { parseManifest, type TectonManifest } from '@tecton/manifest';
+import { tokenVerifierFromEnv, type TokenVerifier } from './auth/token-verifier.js';
 import { registerActionRoutes, type ActionHandlers } from './routes.js';
 import { createTectonServer, type TectonServerOptions } from './server.js';
 
@@ -10,13 +11,20 @@ export interface DomainServerOptions extends TectonServerOptions {
   /** Port to listen on (0 picks a free port). Default 3000. */
   port?: number;
   /**
-   * Interface to bind. Default 127.0.0.1 (loopback only): until token verification arrives
-   * (Story 2.4), actions with `auth.requires` run without a token, so the service must not be
-   * reachable from the network by default. Set `0.0.0.0` explicitly to expose it.
+   * Interface to bind. Default 127.0.0.1 (loopback only): exposing a service is a decision, so
+   * set `0.0.0.0` explicitly. Every protected action verifies its token either way (Story 2.4).
    */
   host?: string;
   /** Implemented actions; the others answer 501. */
   handlers?: ActionHandlers;
+  /**
+   * Verifies the tokens of the protected actions. When omitted and the manifest has a protected
+   * action, it comes from the environment (tokenVerifierFromEnv: TECTON_JWKS_URL...), so a
+   * missing configuration stops the service at startup.
+   */
+  verifier?: TokenVerifier;
+  /** Environment read when `verifier` is omitted. Default process.env. */
+  env?: NodeJS.ProcessEnv;
 }
 
 /** Reads and validates a domain manifest; throws with every problem when it is invalid. */
@@ -33,8 +41,10 @@ export function loadDomainManifest(manifestPath: string): TectonManifest {
  */
 export async function startDomainServer(options: DomainServerOptions): Promise<FastifyInstance> {
   const manifest = loadDomainManifest(options.manifestPath);
+  const needsVerifier = manifest.actions.some((action) => !('public' in action.auth));
+  const verifier = options.verifier ?? (needsVerifier ? tokenVerifierFromEnv(options.env ?? process.env) : undefined);
   const app = createTectonServer(options.logger === undefined ? {} : { logger: options.logger });
-  registerActionRoutes(app, manifest, options.handlers ?? {});
+  registerActionRoutes(app, manifest, options.handlers ?? {}, verifier ? { verifier } : {});
   await app.listen({ port: options.port ?? 3000, host: options.host ?? '127.0.0.1' });
   return app;
 }

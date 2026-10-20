@@ -131,6 +131,14 @@ describe('Dev Services and the Auth service (Story 2.2b, AC 5)', () => {
     expect(env).toContain('# TECTON_AUTH_SIGNING_KEY=');
     expect(env).not.toMatch(/^TECTON_AUTH_(PEPPER|SIGNING_KEY)=/m);
   });
+
+  it('points the domain services to the JWKS of apps/auth, in development mode (Story 2.4)', async () => {
+    const root = await workspace();
+    const env = read(root, '.env.example');
+
+    expect(env).toMatch(/^TECTON_ENV=development$/m);
+    expect(env).toMatch(/^TECTON_JWKS_URL=http:\/\/127\.0\.0\.1:3000\/auth\/\.well-known\/jwks\.json$/m);
+  });
 });
 
 describe('Dev Services and an old apps/domains/auth (Story 2.2b review P7)', () => {

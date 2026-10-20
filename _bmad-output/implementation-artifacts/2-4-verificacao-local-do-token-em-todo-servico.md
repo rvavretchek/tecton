@@ -1,6 +1,10 @@
+---
+baseline_commit: e82c35492bb2a784ea8fce874580587277588593
+---
+
 # Story 2.4: Verificação local do token em todo serviço
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -32,53 +36,53 @@ para que nenhum serviço confie em outro, nem no Gateway, para decidir quem est�
 
 ## Tasks / Subtasks
 
-- [ ] **T1. Dependência e erros (AC: 1, 4, 7)**
-  - [ ] `@tecton/core` → `dependencies`: `jose` 6.2.12, versão fixa (aprovado pelo Boss em 2026-10-20; mesma versão do `@tecton/auth`).
-  - [ ] `frameworkErrors.forbidden()` (403, `forbidden`, `tecton.error.forbidden`, mensagem genérica que não lista as permissões que faltam).
-  - [ ] `frameworkErrors.authUnavailable()` (503, `auth-unavailable`, `tecton.error.authUnavailable`, header `retry-after: 5`).
-  - [ ] Esquema das rotas e OpenAPI: respostas 403 e 503 ao lado das atuais. Para action não pública, `security: [{ bearerAuth: [] }]` e o esquema `bearerAuth` (`http`, `bearer`, `bearerFormat: JWT`) nos `components` do documento. Atualizar `openapi.test.ts`.
-- [ ] **T2. Verificador (AC: 2, 3, 4, 6, 9)** — `packages/core/src/auth/token-verifier.ts`
-  - [ ] `createTokenVerifier({ jwksUrl, issuer, audience, devMode, ca?, clock? })`:
+- [x] **T1. Dependência e erros (AC: 1, 4, 7)**
+  - [x] `@tecton/core` → `dependencies`: `jose` 6.2.12, versão fixa (aprovado pelo Boss em 2026-10-20; mesma versão do `@tecton/auth`).
+  - [x] `frameworkErrors.forbidden()` (403, `forbidden`, `tecton.error.forbidden`, mensagem genérica que não lista as permissões que faltam).
+  - [x] `frameworkErrors.authUnavailable()` (503, `auth-unavailable`, `tecton.error.authUnavailable`, header `retry-after: 5`).
+  - [x] Esquema das rotas e OpenAPI: respostas 403 e 503 ao lado das atuais. Para action não pública, `security: [{ bearerAuth: [] }]` e o esquema `bearerAuth` (`http`, `bearer`, `bearerFormat: JWT`) nos `components` do documento. Atualizar `openapi.test.ts`.
+- [x] **T2. Verificador (AC: 2, 3, 4, 6, 9)** — `packages/core/src/auth/token-verifier.ts`
+  - [x] `createTokenVerifier({ jwksUrl, issuer, audience, devMode, ca?, clock? })`:
     - valida a URL na criação: `https:` sempre; `http:` só com `devMode`; outra coisa é erro (`TokenVerifierConfigError`, sem ecoar credenciais de URL);
     - `issuer` e `audience` obrigatórios e sem espaço nas pontas (mesmos padrões do Auth: `urn:tecton:auth`, `urn:tecton:api`).
-  - [ ] JWKS por `createRemoteJWKSet` do `jose`, com `[customFetch]`:
+  - [x] JWKS por `createRemoteJWKSet` do `jose`, com `[customFetch]`:
     - requisição por `node:https` (ou `node:http` em dev), que nunca segue redirecionamento (3xx é erro);
     - `ca` opcional (PEM) só nessa requisição, nunca global (ASR-4);
     - só 200 com `content-type` JSON; corpo limitado (64 KiB);
     - tempo limite de 5 s (`timeoutDuration`); cooldown de 30 s e cache de 10 min (padrões do `jose`).
-  - [ ] `verify(authorizationHeader)`:
+  - [x] `verify(authorizationHeader)`:
     - aceita só `Bearer <token>` (esquema sem diferença de maiúsculas, um espaço, token de até 8 KiB);
     - `jwtVerify` com `algorithms: ['EdDSA']`, `issuer`, `audience`, `typ: 'at+jwt'`, `requiredClaims: ['sub', 'jti', 'exp', 'iat']` e `currentDate` da `Clock`;
     - exige `kid` no cabeçalho, `typ: 'user'` e `perms` como lista de strings;
     - devolve `Principal { subject, permissions, tokenId, expiresAt }`, objeto novo a cada chamada;
     - erros: `InvalidTokenError` (todo motivo de token ruim, mensagem única) e `TokenVerificationUnavailableError` (JWKS inacessível, fora do ar, inválido). Separar os dois pelos erros do `jose` (`JWKSTimeout`, `JWKSInvalid`, falha de rede) contra os de token (`JWSSignatureVerificationFailed`, `JWTExpired`, `JWTClaimValidationFailed`, `JOSEAlgNotAllowed`, `JWKSNoMatchingKey`...).
-  - [ ] `tokenVerifierFromEnv(env)`: `TECTON_JWKS_URL` (obrigatória), `TECTON_AUTH_ISSUER`, `TECTON_AUTH_AUDIENCE` (com os padrões), `TECTON_ENV` (`development` liga o modo dev; qualquer outro valor ou ausência é produção) e `TECTON_JWKS_CA_FILE` (opcional, PEM). Mensagens com o nome da variável, nunca o valor.
-- [ ] **T3. Rotas (AC: 1, 5, 7, 8, 10)** — `packages/core/src/routes.ts`
-  - [ ] `registerActionRoutes(app, manifest, handlers, { verifier })`:
+  - [x] `tokenVerifierFromEnv(env)`: `TECTON_JWKS_URL` (obrigatória), `TECTON_AUTH_ISSUER`, `TECTON_AUTH_AUDIENCE` (com os padrões), `TECTON_ENV` (`development` liga o modo dev; qualquer outro valor ou ausência é produção) e `TECTON_JWKS_CA_FILE` (opcional, PEM). Mensagens com o nome da variável, nunca o valor.
+- [x] **T3. Rotas (AC: 1, 5, 7, 8, 10)** — `packages/core/src/routes.ts`
+  - [x] `registerActionRoutes(app, manifest, handlers, { verifier })`:
     - manifest com action não pública e sem `verifier`: lança erro na hora do registro;
     - action não pública: hook `onRequest` (antes do parse e da validação do corpo) que verifica o header, guarda o `Principal` e confere `auth.requires` contra `principal.permissions` (todas exigidas);
     - `InvalidTokenError` vira `unauthorized()`, `TokenVerificationUnavailableError` vira `authUnavailable()` e falta de permissão vira `forbidden()`;
     - action pública: nenhum hook; o header `Authorization` é ignorado.
-  - [ ] `ActionContext.principal?: Principal` (presente em toda action não pública). Nada no contexto vem de header de identidade.
-  - [ ] Preservar: validação do corpo, 501 sem handler, `reply` no contexto, action sem input aceitando requisição sem corpo (2.3), handler de action desconhecida lançando erro.
-- [ ] **T4. Servidor de domínio e workspace gerado (AC: 9, 10)**
-  - [ ] `startDomainServer` aceita `verifier` (ou monta um por `tokenVerifierFromEnv(process.env)` quando não recebe) e o passa ao `registerActionRoutes`. Atualizar o comentário do `host` (a verificação agora existe; o padrão `127.0.0.1` continua).
-  - [ ] Template `domain/src/main.ts`: o verificador sai do ambiente; a configuração é documentada no cabeçalho do arquivo.
-  - [ ] `.env.example` do Dev Services (`envExample` em `packages/cli/src/dev-services.ts`): `TECTON_ENV=development` e `TECTON_JWKS_URL` apontando para o JWKS do `apps/auth` (`http://127.0.0.1:<porta do auth>/auth/.well-known/jwks.json`), com comentário dizendo que fora do dev a URL precisa ser `https`.
-  - [ ] O serviço de Auth não muda: todas as actions dele são públicas, então ele não precisa de verificador.
-- [ ] **T5. Fixtures de teste (ASR-4, R-02)** — `tests/support`
-  - [ ] `tokenFactory(keys)`: token válido assinado com chave de teste e variantes forjadas — `alg: none`, HS256 com a chave pública como segredo, RS256, `kid` desconhecido, sem `kid`, `exp` vencido, `iss` e `aud` errados, `typ` de cabeçalho errado, `typ: service`, `perms` ausente ou malformado, assinatura adulterada, payload adulterado.
-  - [ ] `jwksTls()`: gera com `openssl` (decisão do Boss) uma CA e um certificado de servidor para `127.0.0.1`/`localhost` numa pasta temporária, sobe um servidor HTTPS local que serve um JWKS (e, sob comando, um 3xx para outro host, 500, JSON inválido ou atraso), e devolve `{ url, ca, stop }`. Sem `openssl` no PATH, falha com mensagem clara. A CA só vale no verificador do teste; nunca `NODE_TLS_REJECT_UNAUTHORIZED` nem `NODE_EXTRA_CA_CERTS`.
-  - [ ] Baixar o W2 do Epic 1 no `deferred-work.md` (fixture `jwksTls`).
-- [ ] **T6. Testes (AC: todos)** — Test Design P0-010 (2), P0-011 (6), P0-012 (2), P0-013 (3), P0-014 (4)
-  - [ ] Verificador (`token-verifier.test.ts`, contra `jwksTls`):
+  - [x] `ActionContext.principal?: Principal` (presente em toda action não pública). Nada no contexto vem de header de identidade.
+  - [x] Preservar: validação do corpo, 501 sem handler, `reply` no contexto, action sem input aceitando requisição sem corpo (2.3), handler de action desconhecida lançando erro.
+- [x] **T4. Servidor de domínio e workspace gerado (AC: 9, 10)**
+  - [x] `startDomainServer` aceita `verifier` (ou monta um por `tokenVerifierFromEnv(process.env)` quando não recebe) e o passa ao `registerActionRoutes`. Atualizar o comentário do `host` (a verificação agora existe; o padrão `127.0.0.1` continua).
+  - [x] Template `domain/src/main.ts`: o verificador sai do ambiente; a configuração é documentada no cabeçalho do arquivo.
+  - [x] `.env.example` do Dev Services (`envExample` em `packages/cli/src/dev-services.ts`): `TECTON_ENV=development` e `TECTON_JWKS_URL` apontando para o JWKS do `apps/auth` (`http://127.0.0.1:<porta do auth>/auth/.well-known/jwks.json`), com comentário dizendo que fora do dev a URL precisa ser `https`.
+  - [x] O serviço de Auth não muda: todas as actions dele são públicas, então ele não precisa de verificador.
+- [x] **T5. Fixtures de teste (ASR-4, R-02)** — `tests/support`
+  - [x] `tokenFactory(keys)`: token válido assinado com chave de teste e variantes forjadas — `alg: none`, HS256 com a chave pública como segredo, RS256, `kid` desconhecido, sem `kid`, `exp` vencido, `iss` e `aud` errados, `typ` de cabeçalho errado, `typ: service`, `perms` ausente ou malformado, assinatura adulterada, payload adulterado.
+  - [x] `jwksTls()`: gera com `openssl` (decisão do Boss) uma CA e um certificado de servidor para `127.0.0.1`/`localhost` numa pasta temporária, sobe um servidor HTTPS local que serve um JWKS (e, sob comando, um 3xx para outro host, 500, JSON inválido ou atraso), e devolve `{ url, ca, stop }`. Sem `openssl` no PATH, falha com mensagem clara. A CA só vale no verificador do teste; nunca `NODE_TLS_REJECT_UNAUTHORIZED` nem `NODE_EXTRA_CA_CERTS`.
+  - [x] Baixar o W2 do Epic 1 no `deferred-work.md` (fixture `jwksTls`).
+- [x] **T6. Testes (AC: todos)** — Test Design P0-010 (2), P0-011 (6), P0-012 (2), P0-013 (3), P0-014 (4)
+  - [x] Verificador (`token-verifier.test.ts`, contra `jwksTls`):
     - token válido devolve o `Principal`;
     - cada variante forjada do `tokenFactory` é `InvalidTokenError` (P0-011, R-02);
     - `kid` desconhecido: uma busca a mais, e uma rajada de `kid` desconhecidos dentro do cooldown não gera outra (contar as requisições no servidor de teste) (P0-012);
     - JWKS fora do ar, 500, JSON inválido, atraso maior que o limite e 3xx para outro host: `TokenVerificationUnavailableError` (P0-014);
     - `http` sem `devMode` falha na criação; com `devMode` funciona; `ftp:` falha sempre (P0-014);
     - header `Authorization` malformado, esquema errado, token enorme: `InvalidTokenError`.
-  - [ ] Rotas (`routes.test.ts` ou arquivo novo, com verificador falso e com o real):
+  - [x] Rotas (`routes.test.ts` ou arquivo novo, com verificador falso e com o real):
     - sem Bearer: 401 e o handler nem a validação rodam (corpo inválido sem token também dá 401, não 400) (P0-010);
     - token adulterado: 401 (P0-010);
     - token válido de A com `x-user-id: B`, `x-claims` e `Tecton-On-Behalf-Of`: o handler recebe o `principal` de A (P0-013);
@@ -86,13 +90,13 @@ para que nenhum serviço confie em outro, nem no Gateway, para decidir quem est�
     - action pública sem token executa; com token inválido também executa (P0-013);
     - JWKS indisponível: 503 com `Retry-After` (P0-014);
     - registro sem verificador para manifest com action protegida: lança; manifest só com actions públicas: registra.
-  - [ ] `tokenVerifierFromEnv`: variáveis obrigatórias, padrões, `TECTON_ENV` diferente de `development` mantém produção, mensagens com o nome da variável.
-  - [ ] Geração (`new.generation.test.ts`): o domínio `finance` sobe com `TECTON_JWKS_URL` do `apps/auth` e `TECTON_ENV=development`; sem token responde 401; com um token assinado pela mesma chave do `apps/auth` (via `createAccessTokenIssuer` do `@tecton/auth`) e `finance:close`, responde 501.
-  - [ ] Atualizar testes existentes que sobem domínio com action protegida sem verificador (`domain-server.test.ts`, `generate-domain`).
-  - [ ] Segredos: o token nunca aparece em log nem em corpo de erro (`assertNoSecretsLeaked`).
-  - [ ] Fase vermelha por mutação (A3), registrada no Debug Log. No mínimo: `algorithms` sem a restrição a `EdDSA`; sem checar `aud`; sem checar `typ: user`; hook em `preHandler` depois da validação do corpo; `requires` como OU; seguir redirecionamento; `http` aceito fora do dev; erro do JWKS tratado como 401 ou como aceito.
-- [ ] **T7. Verificação final**
-  - [ ] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (local pelo túnel se o ubt-host02 responder; os três bancos no CI) e `test:generation`.
+  - [x] `tokenVerifierFromEnv`: variáveis obrigatórias, padrões, `TECTON_ENV` diferente de `development` mantém produção, mensagens com o nome da variável.
+  - [x] Geração (`new.generation.test.ts`): o domínio `finance` sobe com `TECTON_JWKS_URL` do `apps/auth` e `TECTON_ENV=development`; sem token responde 401; com um token assinado pela mesma chave do `apps/auth` (via `createAccessTokenIssuer` do `@tecton/auth`) e `finance:close`, responde 501.
+  - [x] Atualizar testes existentes que sobem domínio com action protegida sem verificador (`domain-server.test.ts`, `generate-domain`).
+  - [x] Segredos: o token nunca aparece em log nem em corpo de erro (`assertNoSecretsLeaked`).
+  - [x] Fase vermelha por mutação (A3), registrada no Debug Log. No mínimo: `algorithms` sem a restrição a `EdDSA`; sem checar `aud`; sem checar `typ: user`; hook em `preHandler` depois da validação do corpo; `requires` como OU; seguir redirecionamento; `http` aceito fora do dev; erro do JWKS tratado como 401 ou como aceito.
+- [x] **T7. Verificação final**
+  - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (local pelo túnel se o ubt-host02 responder; os três bancos no CI) e `test:generation`.
   - [ ] Code review por story antes da 2.5 (retro A1).
 
 ## Dev Notes
@@ -155,14 +159,70 @@ para que nenhum serviço confie em outro, nem no Gateway, para decidir quem est�
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5)
+
 ### Debug Log References
+
+- **Desvio do AC 3, semântica do cooldown do `jose`:** a nova busca por `kid` desconhecido só acontece quando a última busca tem mais de 30 s. Logo depois de uma busca, um `kid` desconhecido é 401 sem buscar de novo. O limite de frequência vale desde a última busca, e não desde a primeira falha. O AC continua atendido (uma busca, com limite), e a rotação em três passos do Auth publica a chave nova 5 minutos antes de assinar, então nenhum verificador vê um `kid` legítimo desconhecido. Os testes movem o relógio do sistema (timers falsos do Vitest só para `Date`).
+- **Cache de 5 min, e não 10:** `cacheMaxAge` alinhado ao `Cache-Control: max-age=300` do JWKS do Auth.
+- **`jwksTimeoutMs`:** opção a mais no verificador (padrão 5000), para o teste de JWKS lento não esperar 5 s.
+- **`openssl` desta máquina:** o `OPENSSL_CONF` global aponta para um arquivo do PostgreSQL que não existe, e o `openssl req` falhava. A fixture usa uma configuração mínima própria, numa pasta temporária. Com essa configuração, a CA saiu sem `basicConstraints CA:TRUE` ("unsuitable certificate purpose"); as extensões da CA e do certificado de servidor agora são explícitas.
+- **Script Python e `\n`:** duas vezes um heredoc gravou quebra de linha real dentro de string TypeScript (erro já registrado na 2.2b); corrigido com a ferramenta de edição.
+- **OpenAPI:** o `buildOpenApiDocument` registra as rotas só para descrevê-las; passa um verificador que recusa tudo, porque o registro agora exige verificador para action protegida.
+- **Domínio gerado lê o `.env`:** o `start` do template do domínio passou a `node --env-file-if-exists=../../../.env dist/main.js`, como o `apps/auth` (P5 da 2.2b); sem isso, o `TECTON_JWKS_URL` do `.env` nunca chegaria ao serviço.
+- **Fase vermelha por mutação (A3),** cada uma restaurada:
+
+  | Mutação | Testes que falharam |
+  |---|---|
+  | sem checar `aud` | 2 |
+  | sem checar `typ: user` | 2 |
+  | sem checar o `typ` do cabeçalho | 4 |
+  | verificação em `preHandler` (depois do corpo) | 1 |
+  | `requires` como OU | 2 |
+  | `http` aceito fora do dev | 4 |
+  | JWKS indisponível como 401 | 1 |
+  | JWKS indisponível aceito | 9 |
+  | registro sem verificador aceito | 1 |
+  | sem limite de corpo do JWKS | 1 |
+  | pré-checagem do `alg` e `algorithms` removidos juntos | 4 |
+  | `principal` compartilhado entre requisições | 1 |
+
+  Duas mutações sobreviveram por serem equivalentes, ambas por haver duas camadas:
+  - remover só a pré-checagem do `alg`: o `jwtVerify` com `algorithms: ['EdDSA']` também recusa (removendo as duas, 4 testes falham);
+  - aceitar um 3xx no `fetch` próprio: o `jose` exige status 200 e recusa igual.
+
+  A mutação do `principal` compartilhado sobreviveu na primeira rodada porque o verificador real já devolve um objeto novo; o teste passou a usar um verificador falso que reutiliza o mesmo objeto, e agora a pega.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- **Verificador (`@tecton/core`, `auth/token-verifier.ts`):**
+  - `createTokenVerifier`: URL do JWKS validada na criação (`https`; `http` só com `devMode`); `issuer` e `audience` com os padrões do Auth;
+  - JWKS pelo `createRemoteJWKSet` do `jose` com `fetch` próprio por `node:http(s)`: CA opcional só nessa requisição, nunca segue redirecionamento, só 200 com JSON, até 64 KiB, 5 s de limite, cache de 5 min e nova busca no máximo a cada 30 s;
+  - `verify`: `Bearer` de até 8 KiB; `alg: EdDSA` e `kid` obrigatórios; `typ: at+jwt`; `iss`, `aud`, `exp` pela `Clock`; `sub`, `jti`, `iat`, `typ: user` e `perms`;
+  - `InvalidTokenError` (todo token ruim) e `TokenVerificationUnavailableError` (chaves indisponíveis);
+  - `tokenVerifierFromEnv`: `TECTON_JWKS_URL`, `TECTON_AUTH_ISSUER`, `TECTON_AUTH_AUDIENCE`, `TECTON_ENV` e `TECTON_JWKS_CA_FILE`.
+- **Rotas:** hook `onRequest` nas actions protegidas (antes do corpo); 401, 403 (todas as permissões exigidas) e 503 com `Retry-After`; `principal` no contexto, copiado por requisição; registro recusado sem verificador; actions públicas sem hook. OpenAPI com `bearerAuth`, 403 e 503.
+- **Erros:** `frameworkErrors.forbidden()` e `authUnavailable()`.
+- **Servidor de domínio e workspace:** `startDomainServer` monta o verificador pelo ambiente quando há action protegida; template do domínio documenta as variáveis e lê o `.env`; `.env.example` com `TECTON_ENV=development` e `TECTON_JWKS_URL` do `apps/auth`.
+- **Fixtures (`tests/support`):** `tokenFactory` (válido e 19 forjados, assinados com `node:crypto`) e `jwksTls` (CA e certificado por `openssl`, servidor HTTPS com modos de falha e contagem de requisições). W2 do Epic 1 baixado.
+- **Testes:** verificador (49), rotas protegidas (34), servidor de domínio (4 novos), OpenAPI (1), Dev Services (1), geração (domínio 401 sem token e 501 com token do `apps/auth`).
+- **Verificação local:** build, typecheck, `check:deps` (137 módulos), `lint:examples`, `validate:asyncapi`, `test` (738) e `test:generation` (3). Persistência: pelo CI (a story não toca banco).
+- **Pendente:** o code review (A1), próximo passo.
 
 ### File List
+
+- `packages/core/package.json` (`jose` 6.2.12), `pnpm-lock.yaml`
+- `packages/core/src/auth/token-verifier.ts` e teste (novos)
+- `packages/core/src/routes.ts`, `routes.test.ts` (modificados); `routes-auth.test.ts` (novo)
+- `packages/core/src/errors/tecton-error.ts`, `openapi.ts`, `openapi.test.ts`, `domain-server.ts`, `domain-server.test.ts`, `index.ts` (modificados)
+- `packages/core/README.md` (novo)
+- `packages/cli/templates/domain/{package.json,src/main.ts}` (modificados)
+- `packages/cli/src/dev-services.ts`, `dev-services.test.ts`, `commands/generate-domain.test.ts`, `commands/new.generation.test.ts` (modificados)
+- `tests/support/{tokens,jwks-tls}.ts` (novos), `tests/support/index.ts` (modificado)
+- `_bmad-output/implementation-artifacts/deferred-work.md`, esta story, `sprint-status.yaml`
 
 ## Change Log
 
 - 2026-10-20: Story criada (Create Story), com as decisões do Boss sobre `jose` no core, `TECTON_ENV`, 503 e `openssl`.
+- 2026-10-20: Story implementada (Dev Story); status → review.

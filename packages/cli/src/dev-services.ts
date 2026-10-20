@@ -211,6 +211,10 @@ export function envExample(database: DevDatabase, domains: readonly string[]): s
         '#   TECTON_AUTH_SIGNING_KEY: openssl genpkey -algorithm ed25519 (the whole PEM, on one line with \\n)',
         '# TECTON_AUTH_PEPPER=',
         '# TECTON_AUTH_SIGNING_KEY=',
+        '# Token verification of the domain services: the JWKS of apps/auth (same port as its PORT).',
+        '# TECTON_ENV=development allows the http URL below; outside development it must be https.',
+        'TECTON_ENV=development',
+        'TECTON_JWKS_URL=http://127.0.0.1:3000/auth/.well-known/jwks.json',
       ]
     : [];
   return [

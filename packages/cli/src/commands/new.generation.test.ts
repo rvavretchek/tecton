@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { buildSigningKeys, createAccessTokenIssuer } from '@tecton/auth';
 import { afterAll, describe, expect, it } from 'vitest';
 import { run } from '../cli.js';
 
@@ -73,6 +74,9 @@ describe('tecton-admin generate domain — walking skeleton runs (Story 1.10, AC
         'TECTON_AUTH_PEPPER=generation-test-pepper-with-32-bytes!',
         `TECTON_AUTH_SIGNING_KEY="${signingKey.trimEnd().split('\n').join('\\n')}"`,
         `PORT=${authPort}`,
+        // The domain verifies its tokens against the JWKS of apps/auth (Story 2.4).
+        'TECTON_ENV=development',
+        `TECTON_JWKS_URL=http://127.0.0.1:${authPort}/auth/.well-known/jwks.json`,
         '',
       ].join('\n'),
     );
@@ -84,18 +88,42 @@ describe('tecton-admin generate domain — walking skeleton runs (Story 1.10, AC
       const jwks = await waitForGet(`http://127.0.0.1:${authPort}/auth/.well-known/jwks.json`);
       expect(jwks.status).toBe(200);
       expect(((await jwks.json()) as { keys: unknown[] }).keys).toHaveLength(1);
+
+      // The domain reads the same workspace .env (its start script); PORT is overridden here.
+      const domainScripts = JSON.parse(readFileSync(join(domainDir, 'package.json'), 'utf8')) as { scripts: { start: string } };
+      expect(domainScripts.scripts.start).toBe('node --env-file-if-exists=../../../.env dist/main.js');
+      const port = await freePort();
+      const service = spawn(process.execPath, ['--env-file-if-exists=../../../.env', 'dist/main.js'], {
+        cwd: domainDir,
+        env: { ...process.env, PORT: String(port) },
+      });
+      try {
+        const url = `http://127.0.0.1:${port}/finance/close-month`;
+        expect((await waitForResponse(url, { month: '2026-10' })).status).toBe(401);
+
+        // A token signed with the key of apps/auth, as its login would issue it.
+        const keys = await buildSigningKeys({ privateKeyPem: signingKey });
+        const issuer = createAccessTokenIssuer({ keys, clock: { now: () => new Date() } });
+        const { accessToken } = await issuer.issue({
+          id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5f',
+          login: 'alice',
+          passwordHash: 'unused',
+          status: 'active',
+          permissions: ['finance:close'],
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        });
+        const authorized = await fetch(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
+          body: JSON.stringify({ month: '2026-10' }),
+        });
+        expect(authorized.status).toBe(501);
+      } finally {
+        service.kill();
+      }
     } finally {
       authService.kill();
-    }
-
-    const port = await freePort();
-    // Same command as the package "start" script, run directly so the test can stop it reliably.
-    const service = spawn(process.execPath, ['dist/main.js'], { cwd: domainDir, env: { ...process.env, PORT: String(port) } });
-    try {
-      const response = await waitForResponse(`http://127.0.0.1:${port}/finance/close-month`, { month: '2026-10' });
-      expect(response.status).toBe(501);
-    } finally {
-      service.kill();
     }
   }, 900_000);
 });

@@ -126,7 +126,7 @@ describe('tecton-admin generate domain — walking skeleton and reminder (AC 5, 
     const dir = join(root, 'apps', 'domains', 'finance');
 
     expect(readFileSync(join(dir, 'src', 'main.ts'), 'utf8')).toContain('startDomainServer');
-    expect(readJson(join(dir, 'package.json'))['scripts']).toEqual({ build: 'tsc -p tsconfig.json', start: 'node dist/main.js' });
+    expect(readJson(join(dir, 'package.json'))['scripts']).toEqual({ build: 'tsc -p tsconfig.json', start: 'node --env-file-if-exists=../../../.env dist/main.js' });
     expect(readJson(join(dir, 'tsconfig.json'))['extends']).toBe('../../../tsconfig.base.json');
   });
 

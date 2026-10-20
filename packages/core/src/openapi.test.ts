@@ -73,3 +73,17 @@ describe('buildOpenApiDocument error responses (review P33)', () => {
     }
   });
 });
+
+describe('buildOpenApiDocument security (Story 2.4)', () => {
+  it('marks protected actions with bearerAuth and 403/503, and leaves public ones open', async () => {
+    const doc = (await buildOpenApiDocument(manifestOf(source('{ displayName: string }')))) as Doc;
+    const create = doc['paths']['/tenant/create-tenant']['post'];
+    const archive = doc['paths']['/tenant/archive-tenant']['post'];
+
+    expect(doc['components']['securitySchemes']).toEqual({ bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } });
+    expect(create['security']).toEqual([{ bearerAuth: [] }]);
+    for (const status of ['403', '503']) expect(create['responses'][status]['content']['application/json']['schema']).toMatchObject({ type: 'object' });
+    expect(archive['security']).toBeUndefined();
+    expect(archive['responses']).not.toHaveProperty('403');
+  });
+});
