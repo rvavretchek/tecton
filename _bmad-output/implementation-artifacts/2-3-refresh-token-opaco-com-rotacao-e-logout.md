@@ -4,7 +4,7 @@ baseline_commit: fd5659cf7727a424604b06571128c5eb62197810
 
 # Story 2.3: Refresh token opaco com rotação e logout
 
-Status: review
+Status: done
 
 ## Story
 
@@ -131,24 +131,24 @@ para usar o sistema sem interrupção e sem que um refresh token roubado sirva p
   - [x] Fase vermelha por mutação (retro A3), registrada no Debug Log. No mínimo: marcar como usado sem condição; reuso sem revogar a família; rotação estendendo a validade; cookie sem `HttpOnly`; token no corpo da resposta; refresh com credencial desativada aceito.
 - [x] **T8. Verificação final**
   - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (local pelo túnel se o ubt-host02 responder; os três bancos no CI) e `test:generation`.
-  - [ ] Code review por story antes da 2.4 (retro A1).
+  - [x] Code review por story antes da 2.4 (retro A1).
 
 ### Review Findings (code review da Story 2.3, 2026-10-20)
 
 > Camadas: Edge Case Hunter e Acceptance Auditor. O Blind Hunter não rodou: o verificador de permissões do ambiente falhou em todas as tentativas de iniciá-lo.
 
-- [ ] [Review][Patch] P1 (alta) Falha depois da rotação confirmada vira logout: se `findById` (erro de banco) ou `issuer.issue` falham depois do commit do `rotate`, o cliente recebe 500 sem cookie novo, e o retry com o cookie antigo conta como reuso e revoga a família, com evento falso. Correção: a checagem da credencial e a emissão do access token rodam dentro da transação da rotação; se falharem, a transação desfaz e o token antigo continua válido [packages/auth/src/core/session.ts, adapters/prisma/prisma-refresh-token-store.ts]
-- [ ] [Review][Patch] P2 (média) O caminho de conflito de escrita declara reuso sem conferir o estado: revoga como `reuse` um token que nem foi usado (deadlock com logout ou revogação concorrente) e uma família expirada ou já revogada. Correção: reclassificar fora da transação na mesma ordem e tentar a rotação de novo uma vez quando o token ainda não foi usado [prisma-refresh-token-store.ts]
-- [ ] [Review][Patch] P3 (média) Logout com o banco fora do ar dá 500 sem apagar o cookie. Correção: apagar o cookie antes de revogar; o erro continua 500 (a revogação não aconteceu) e o README explica [packages/auth/src/service.ts, README.md]
-- [ ] [Review][Patch] P4 (média) `POST /auth/refresh` e `/auth/logout` sem corpo (o `fetch` de uma SPA sem `body`) dão 400, e o logout nem revoga nem apaga o cookie; a T5 pedia testar corpo vazio e sem `content-type`, e só `{}` e `{ extra: 1 }` foram testados. Correção: no `@tecton/core`, uma action com `input: {}` aceita requisição sem corpo; testes dos três casos [packages/core/src/routes.ts, refresh-http.test.ts]
-- [ ] [Review][Patch] P5 (média) Cookie `tecton_refresh` duplicado (plantado com outro `Path` ou domínio pai) deixa o logout sem efeito no servidor, embora responda 200. Correção: o logout revoga a família de cada valor bem formado presente (até 4); o refresh continua recusando a ambiguidade [refresh-cookie.ts, service.ts, session.ts]
-- [ ] [Review][Patch] P6 (baixa) Replay de token usado depois de a família expirar não gera o evento de reuso (a validade é conferida antes do `usedAt`). Correção: conferir `usedAt` antes da validade, nos dois stores [prisma-refresh-token-store.ts, memory-refresh-token-store.test-helper.ts]
-- [ ] [Review][Patch] P7 (baixa) Linha de token inválida (`usedAt` ou `createdAt` que não é data) não é tratada como desconhecida, como a T3 pede; só a família é validada [prisma-refresh-token-store.ts]
-- [ ] [Review][Patch] P8 (baixa) `openSession` e `login`, exportados, não validam `refreshTtlSeconds` (só o `createAuthService` valida); `NaN` gera data inválida [packages/auth/src/core/session.ts]
-- [ ] [Review][Patch] P9 (baixa) O último recurso do `isWriteConflict` só reconhece `PrismaClientKnownRequestError`, não `PrismaClientUnknownRequestError` [adapters/prisma/client.ts]
-- [ ] [Review][Patch] P10 (baixa) O AD-7 da Architecture Spine ainda diz que o cookie é restrito ao caminho do endpoint de refresh; só o `epics.md` foi emendado [ARCHITECTURE-SPINE.md]
-- [ ] [Review][Patch] P11 (baixa) O teste ponta a ponta de persistência não captura logs nem confere o corpo do logout [prisma-refresh-token-store.persistence.test.ts]
-- [ ] [Review][Patch] P12 (baixa) Registros: desvios da porta não anotados (`openFamily(family, token)` posicional e `revokeFamily` público, além do previsto na T2); mutação "marcar como usado sem condição" do adaptador Prisma não executada (só há o teste de rotação simultânea no CI) [story]
+- [x] [Review][Patch] P1 (alta) Falha depois da rotação confirmada vira logout: se `findById` (erro de banco) ou `issuer.issue` falham depois do commit do `rotate`, o cliente recebe 500 sem cookie novo, e o retry com o cookie antigo conta como reuso e revoga a família, com evento falso. Correção: a checagem da credencial e a emissão do access token rodam dentro da transação da rotação; se falharem, a transação desfaz e o token antigo continua válido [packages/auth/src/core/session.ts, adapters/prisma/prisma-refresh-token-store.ts]
+- [x] [Review][Patch] P2 (média) O caminho de conflito de escrita declara reuso sem conferir o estado: revoga como `reuse` um token que nem foi usado (deadlock com logout ou revogação concorrente) e uma família expirada ou já revogada. Correção: reclassificar fora da transação na mesma ordem e tentar a rotação de novo uma vez quando o token ainda não foi usado [prisma-refresh-token-store.ts]
+- [x] [Review][Patch] P3 (média) Logout com o banco fora do ar dá 500 sem apagar o cookie. Correção: apagar o cookie antes de revogar; o erro continua 500 (a revogação não aconteceu) e o README explica [packages/auth/src/service.ts, README.md]
+- [x] [Review][Patch] P4 (média) `POST /auth/refresh` e `/auth/logout` sem corpo (o `fetch` de uma SPA sem `body`) dão 400, e o logout nem revoga nem apaga o cookie; a T5 pedia testar corpo vazio e sem `content-type`, e só `{}` e `{ extra: 1 }` foram testados. Correção: no `@tecton/core`, uma action com `input: {}` aceita requisição sem corpo; testes dos três casos [packages/core/src/routes.ts, refresh-http.test.ts]
+- [x] [Review][Patch] P5 (média) Cookie `tecton_refresh` duplicado (plantado com outro `Path` ou domínio pai) deixa o logout sem efeito no servidor, embora responda 200. Correção: o logout revoga a família de cada valor bem formado presente (até 4); o refresh continua recusando a ambiguidade [refresh-cookie.ts, service.ts, session.ts]
+- [x] [Review][Patch] P6 (baixa) Replay de token usado depois de a família expirar não gera o evento de reuso (a validade é conferida antes do `usedAt`). Correção: conferir `usedAt` antes da validade, nos dois stores [prisma-refresh-token-store.ts, memory-refresh-token-store.test-helper.ts]
+- [x] [Review][Patch] P7 (baixa) Linha de token inválida (`usedAt` ou `createdAt` que não é data) não é tratada como desconhecida, como a T3 pede; só a família é validada [prisma-refresh-token-store.ts]
+- [x] [Review][Patch] P8 (baixa) `openSession` e `login`, exportados, não validam `refreshTtlSeconds` (só o `createAuthService` valida); `NaN` gera data inválida [packages/auth/src/core/session.ts]
+- [x] [Review][Patch] P9 (baixa) O último recurso do `isWriteConflict` só reconhece `PrismaClientKnownRequestError`, não `PrismaClientUnknownRequestError` [adapters/prisma/client.ts]
+- [x] [Review][Patch] P10 (baixa) O AD-7 da Architecture Spine ainda diz que o cookie é restrito ao caminho do endpoint de refresh; só o `epics.md` foi emendado [ARCHITECTURE-SPINE.md]
+- [x] [Review][Patch] P11 (baixa) O teste ponta a ponta de persistência não captura logs nem confere o corpo do logout [prisma-refresh-token-store.persistence.test.ts]
+- [x] [Review][Patch] P12 (baixa) Registros: desvios da porta não anotados (`openFamily(family, token)` posicional e `revokeFamily` público, além do previsto na T2); mutação "marcar como usado sem condição" do adaptador Prisma não executada (só há o teste de rotação simultânea no CI) [story]
 - [x] [Review][Defer] W1 Replay repetido de um token roubado grava um `warn` por tentativa, sem limite [packages/auth/src/core/session.ts] — adiado: limite de taxa do Gateway (3.7) e bloqueio por identificador (2.6)
 - [x] [Review][Defer] W2 Linha de família corrompida é recusada como desconhecida, sem log (diferente da credencial corrompida) [prisma-refresh-token-store.ts] — adiado: entra com a observabilidade (3.3), junto com métricas de recusa
 - Descartados:
@@ -257,6 +257,25 @@ Claude Opus 5.5 (claude-opus-5-5)
 
   O "marcar como usado" condicional do adaptador Prisma só se exercita contra banco real; o teste de rotação simultânea (cinco chamadas, exatamente uma `rotated`) roda no CI.
 
+- **Code review (2026-10-20), desvios da porta registrados (P12):**
+  - `openFamily(family, token)` recebe dois argumentos posicionais, e não um objeto `{ family, token }` como a T2 escrevia;
+  - `rotate` ganhou o quarto argumento `authorize` (P1): a checagem da credencial e a emissão do access token rodam dentro da transação, e o resultado novo `inactive` substitui o `revokeFamily` público, que saiu da porta;
+  - `endSession` aceita vários tokens (P5), e `readRefreshCookies` lista todos os valores do cookie.
+- **Fase vermelha das correções do review (A3),** cada uma restaurada:
+
+  | Mutação | Testes que falharam |
+  |---|---|
+  | rotação não desfeita quando o `authorize` falha (P1) | 3 |
+  | cookie apagado só depois de revogar (P3) | 1 |
+  | `@tecton/core` sem aceitar corpo ausente (P4) | 3 |
+  | logout com um cookie só (P5) | 1 |
+  | logout sem limite de tokens (P5) | 1 |
+  | validade conferida antes do uso (P6) | 1 |
+  | `openSession` sem validar o TTL (P8) | 1 |
+  | último recurso só com `KnownRequestError` (P9) | 1 |
+
+  As correções do adaptador Prisma (P1, P2, P6 e P7) só se exercitam contra banco real; os testes novos de rollback, `inactive` e replay tardio passaram no CI (`39470598701`) nos três bancos. A mutação "marcar como usado sem condição" do adaptador continua sem execução local (Docker remoto fora do ar); quem a cobre é o teste de rotação simultânea no CI.
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
@@ -278,11 +297,12 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **Configuração:** `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS`; um único cliente Prisma no `startAuthServiceFromEnv`.
 - **Testes:** núcleo (15), cookie (4), HTTP (12), config (8), manifest (1), paridade (1), rotas do core (1), pacote (migration `0002`, sem helper de teste). Persistência: store de refresh (7) e fluxo completo (1), nos três bancos pelo CI.
 - **Verificação local:** build, typecheck, `check:deps` (129 módulos), `lint:examples`, `validate:asyncapi`, `test` (622) e `test:generation` (3). Persistência: pelo CI.
-- **Pendente:** o code review (A1), próximo passo.
+- **Code review (A1):** 12 patches aplicados (P1 a P12), 2 adiados (W1 e W2 no `deferred-work.md`), 6 descartados. O Blind Hunter não rodou (falha do verificador de permissões do ambiente); revisaram o Edge Case Hunter e o Acceptance Auditor.
+- **Persistência:** verde no CI nos três bancos (`39436748367` na implementação, `39470598701` depois do review).
 
 ### File List
 
-- `packages/core/src/routes.ts`, `routes.test.ts` (modificados: `reply` no `ActionContext`)
+- `packages/core/src/routes.ts`, `routes.test.ts` (modificados: `reply` no `ActionContext`; action sem input aceita requisição sem corpo)
 - `packages/auth/prisma/{postgresql,mysql}/schema.prisma` (modificados); `prisma/{postgresql,mysql}/migrations/0002_refresh_tokens/migration.sql` (novos)
 - `packages/auth/src/core/{refresh-token,refresh-token-store,session}.ts`, `session.test.ts`, `memory-refresh-token-store.test-helper.ts` (novos)
 - `packages/auth/src/core/{login,credential-store}.ts`, `login.test.ts`, `bootstrap.test.ts` (modificados)
@@ -292,9 +312,10 @@ Claude Opus 5.5 (claude-opus-5-5)
 - `packages/auth/src/service.ts`, `service.test.ts`, `review-2-2b.test.ts`, `manifest.test.ts`, `schema-parity.test.ts`, `index.ts` (modificados); `src/refresh-http.test.ts` (novo)
 - `packages/auth/tecton.yaml`, `README.md`, `tsconfig.json` (modificados)
 - `packages/cli/src/commands/{auth-bootstrap.test,new.generation.test}.ts` (modificados)
-- `_bmad-output/planning-artifacts/epics.md` (emenda do `Path`), esta story, `sprint-status.yaml`, `deferred-work.md`
+- `_bmad-output/planning-artifacts/epics.md` e `architecture/.../ARCHITECTURE-SPINE.md` (emendas do `Path`), esta story, `sprint-status.yaml`, `deferred-work.md`
 
 ## Change Log
 
 - 2026-10-20: Story criada (Create Story), com as decisões do Boss sobre `Path=/auth` e validade fixa da família.
 - 2026-10-20: Story implementada (Dev Story); persistência nova a confirmar no CI; status → review.
+- 2026-10-20: Code review: P1 a P12 aplicados, W1 e W2 adiados; status → done.
