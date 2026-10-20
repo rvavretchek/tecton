@@ -123,7 +123,13 @@ describe(`Refresh token store on ${selectedDatabase()} (Story 2.3)`, () => {
     const results = await Promise.all(Array.from({ length: 5 }, () => store.rotate(first.stored.tokenHash, newToken().stored, AT)));
 
     expect(results.filter((result) => result.kind === 'rotated')).toHaveLength(1);
-    expect(results.filter((result) => result.kind === 'reused')).toHaveLength(4);
+    // The first loser revokes the family; losers that read it afterwards find it already revoked.
+    // Both are refused, and both are reported as reuse by the core (tokenWasUsed).
+    const losers = results.filter((result) => result.kind !== 'rotated');
+    expect(losers.some((result) => result.kind === 'reused')).toBe(true);
+    for (const loser of losers) {
+      expect(loser.kind === 'reused' || (loser.kind === 'revoked' && loser.tokenWasUsed), JSON.stringify(loser)).toBe(true);
+    }
     expect(await store.rotate(first.stored.tokenHash, newToken().stored, AT)).toMatchObject({ kind: 'revoked', family: { revokedReason: 'reuse' } });
   }, 60_000);
 

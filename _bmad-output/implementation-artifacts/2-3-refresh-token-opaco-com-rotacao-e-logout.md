@@ -206,6 +206,7 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **Corpo das actions sem input:** com `input: {}`, o schema é um objeto fechado. `{}` passa e `{ "extra": 1 }` dá 400 (teste). Documentado no README: o cliente manda `{}`.
 - **Mensagem de log trocada sem querer:** a primeira versão unificou o log de credencial corrompida e quebrou um teste da 2.2b (`corrupt credential refused at login`). Agora há uma mensagem por caminho (`at login`, `at refresh`).
 - **README do `@tecton/auth` com `typ: JWT`:** sobra de antes da P3 da 2.2b; corrigido para `typ: at+jwt`.
+- **Primeiro CI (`d745c65`), teste de rotação simultânea errado:** no PostgreSQL e no MariaDB, exatamente uma rotação venceu, como esperado, mas só uma perdedora deu `reused`. As que leram a família depois de revogada deram `revoked` com `tokenWasUsed`, que também é 401 e também gera o evento. O teste esperava quatro `reused`; agora aceita os dois resultados. O código não mudou.
 - **Docker remoto inacessível de novo:** o ubt-host02 não respondeu. Os testes de persistência novos (store de refresh nos cinco resultados, rotação simultânea real, cascata e fluxo completo) rodam no CI nos três bancos.
 - **Fase vermelha por mutação (A3),** cada uma restaurada:
 
