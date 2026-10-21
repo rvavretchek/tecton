@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream';
-import { createArgon2idAuthProvider } from '@tecton/providers';
-import { assertNoSecretsLeaked, createTestClock, ed25519KeyPairPem, selectedDatabase, startDatabase, type StartedDatabase } from '#test-support';
+import { createArgon2idAuthProvider, RevocationStoreUnavailableError } from '@tecton/providers';
+import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, ed25519KeyPairPem, selectedDatabase, startDatabase, type StartedDatabase } from '#test-support';
 import { v7 as uuidv7 } from 'uuid';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { bootstrapAdmin } from '../../core/bootstrap.js';
@@ -198,6 +198,7 @@ describe(`Refresh end to end on ${selectedDatabase()} (Story 2.3)`, () => {
       },
     });
     const app = await createAuthService({
+    revocations: createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down')),
       store,
       refreshTokens: createPrismaRefreshTokenStore({ client }),
       auth,

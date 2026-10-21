@@ -1,5 +1,5 @@
-import { createArgon2idAuthProvider } from '@tecton/providers';
-import { assertNoSecretsLeaked, createTestClock, ed25519KeyPairPem, selectedDatabase, startDatabase, type StartedDatabase } from '#test-support';
+import { createArgon2idAuthProvider, RevocationStoreUnavailableError } from '@tecton/providers';
+import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, ed25519KeyPairPem, selectedDatabase, startDatabase, type StartedDatabase } from '#test-support';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AlreadyBootstrappedError, bootstrapAdmin } from '../../core/bootstrap.js';
@@ -221,6 +221,7 @@ describe(`Auth login end to end on ${selectedDatabase()} (Story 2.2b)`, () => {
 
     const client = createAuthPrismaClient(database.url);
     const app = await createAuthService({
+    revocations: createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down')),
       store: createPrismaCredentialStore({ client }),
       refreshTokens: createPrismaRefreshTokenStore({ client }),
       auth,

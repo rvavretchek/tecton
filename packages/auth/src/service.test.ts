@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream';
-import { createArgon2idAuthProvider } from '@tecton/providers';
-import { assertNoSecretsLeaked, createTestClock, ed25519KeyPairPem } from '#test-support';
+import { createArgon2idAuthProvider, RevocationStoreUnavailableError } from '@tecton/providers';
+import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, ed25519KeyPairPem } from '#test-support';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
@@ -53,6 +53,7 @@ async function service(options: { previous?: number } = {}) {
   });
   const clock = createTestClock(new Date('2026-10-19T12:00:00.000Z'));
   const app = await createAuthService({
+    revocations: createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down')),
     store,
     refreshTokens: createMemoryRefreshTokenStore().store,
     auth,

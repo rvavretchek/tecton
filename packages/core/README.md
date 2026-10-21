@@ -37,9 +37,19 @@ at startup when a setting is missing or invalid:
 | `TECTON_ENV` | only `development` allows an `http` JWKS URL; anything else, or no value, means production rules |
 | `TECTON_AUTH_ISSUER`, `TECTON_AUTH_AUDIENCE` | expected `iss` and `aud`; defaults `urn:tecton:auth` and `urn:tecton:api`, the same as the Auth service |
 | `TECTON_JWKS_CA_FILE` | optional PEM file of the CA that signs the JWKS certificate, trusted for that request only |
+| `TECTON_VALKEY_URL` | Valkey of the token revocations (`redis://` or `rediss://`); required |
+| `TECTON_REVOCATION_TIMEOUT_MS` | time limit of a revocation check, 50-5000; default 500 |
 
 In a generated workspace these come from the workspace `.env` (shared, no secrets), and the
 domain's own database from `apps/domains/<domain>/.env`.
+
+### Revocation (Story 2.5)
+
+After the signature and the claims, every token is checked against the `TokenRevocationStore` of
+`@tecton/providers` (Valkey): by its `jti` (logout) and by its subject (every token issued until a
+given instant, e.g. after a refresh token reuse). A revoked token is a 401. When Valkey is
+unreachable or slower than the time limit, the request is a 503: a token is never accepted
+without checking revocation (FR-14, fail closed).
 
 ### JWKS fetching
 

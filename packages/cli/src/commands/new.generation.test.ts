@@ -71,7 +71,11 @@ describe('tecton-admin generate domain — walking skeleton runs (Story 1.10, AC
     const signingKey = generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
     const pepper = 'generation-test-pepper-with-32-bytes!';
     const lines = (...values: string[]) => [...values, ''].join('\n');
-    writeFileSync(join(workspace, '.env'), lines('TECTON_ENV=development', `TECTON_JWKS_URL=http://127.0.0.1:${authPort}/auth/.well-known/jwks.json`));
+    // No Valkey listens on port 1: services start, and every revocation check fails closed (Story 2.5).
+    writeFileSync(
+      join(workspace, '.env'),
+      lines('TECTON_ENV=development', `TECTON_JWKS_URL=http://127.0.0.1:${authPort}/auth/.well-known/jwks.json`, 'TECTON_VALKEY_URL=redis://127.0.0.1:1'),
+    );
     const authDir = join(workspace, 'apps', 'auth');
     writeFileSync(
       join(authDir, '.env'),
@@ -129,7 +133,8 @@ describe('tecton-admin generate domain — walking skeleton runs (Story 1.10, AC
           headers: { 'content-type': 'application/json', authorization: `Bearer ${accessToken}` },
           body: JSON.stringify({ month: '2026-10' }),
         });
-        expect(authorized.status).toBe(501);
+        // A valid token, but revocation cannot be checked without Valkey: 503, never accepted.
+        expect(authorized.status).toBe(503);
       } finally {
         service.kill();
       }

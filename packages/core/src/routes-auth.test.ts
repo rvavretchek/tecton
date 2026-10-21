@@ -1,6 +1,7 @@
 import { Writable } from 'node:stream';
 import { parseManifest, type TectonManifest } from '@tecton/manifest';
-import { assertNoSecretsLeaked, createTestClock, createTestSigningKey, jwksTls, tokenFactory, type JwksTlsServer } from '#test-support';
+import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, createTestSigningKey, jwksTls, tokenFactory, type JwksTlsServer } from '#test-support';
+import { RevocationStoreUnavailableError } from '@tecton/providers';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { createTokenVerifier, InvalidTokenError, type TokenVerifier } from './auth/token-verifier.js';
 import { registerActionRoutes, type ActionContext } from './routes.js';
@@ -29,6 +30,7 @@ actions:
     auth: { public: true }
 `);
 
+const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'));
 const NOW = new Date('2026-10-20T12:00:00.000Z');
 const USER_A = '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5a';
 const key = createTestSigningKey();
@@ -65,7 +67,7 @@ async function serve(options: { verifier?: TokenVerifier } = {}) {
     return { closedBy: context.principal?.subject ?? 'nobody' };
   });
   const status = vi.fn(async () => ({ ok: true }));
-  const verifier = options.verifier ?? createTokenVerifier({ jwksUrl: jwks.url, ca: jwks.ca, clock: createTestClock(NOW) });
+  const verifier = options.verifier ?? createTokenVerifier({ revocations, jwksUrl: jwks.url, ca: jwks.ca, clock: createTestClock(NOW) });
   registerActionRoutes(app, FINANCE, { closeMonth, status }, { verifier });
   await app.ready();
   const call = (headers: Record<string, string> = {}, payload: unknown = { month: '2026-10' }) =>
@@ -170,7 +172,7 @@ describe('public actions (Story 2.4, AC 8)', () => {
 
 describe('verification unavailable (Story 2.4, AC 4)', () => {
   it('answers 503 with Retry-After when the JWKS cannot be fetched, never running the handler (P0-014)', async () => {
-    const unreachable = createTokenVerifier({ jwksUrl: 'https://127.0.0.1:1/auth/.well-known/jwks.json', clock: createTestClock(NOW) });
+    const unreachable = createTokenVerifier({ revocations, jwksUrl: 'https://127.0.0.1:1/auth/.well-known/jwks.json', clock: createTestClock(NOW) });
     const { call, closeMonth } = await serve({ verifier: unreachable });
     const response = await call(auth(tokens.valid({ perms: ALL_PERMS })));
 
@@ -229,7 +231,7 @@ describe('secrets (Story 2.4)', () => {
 
 describe('review fixes (Story 2.4 review)', () => {
   it('logs why verification is unavailable, without the token (P7)', async () => {
-    const unreachable = createTokenVerifier({ jwksUrl: 'https://127.0.0.1:1/auth/.well-known/jwks.json', clock: createTestClock(NOW) });
+    const unreachable = createTokenVerifier({ revocations, jwksUrl: 'https://127.0.0.1:1/auth/.well-known/jwks.json', clock: createTestClock(NOW) });
     const { call, logs } = await serve({ verifier: unreachable });
     const token = tokens.valid({ perms: ALL_PERMS });
 
@@ -257,5 +259,25 @@ describe('review fixes (Story 2.4 review)', () => {
     seen[0]?.principal?.expiresAt.setTime(0);
 
     expect(shared.expiresAt).toEqual(NOW);
+  });
+});
+
+describe('revocation through the routes (Story 2.5, AC 2, AC 4)', () => {
+  it('answers 401 to a revoked token and 503 when the revocation store is down', async () => {
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: timeout'));
+    const verifier = createTokenVerifier({ revocations: store, jwksUrl: jwks.url, ca: jwks.ca, clock: createTestClock(NOW) });
+    const { call, closeMonth, logs } = await serve({ verifier });
+    const token = tokens.valid({ jti: 'jti-revoked', perms: ALL_PERMS });
+
+    expect((await call(auth(token))).statusCode).toBe(200);
+    await store.revokeToken({ tokenId: 'jti-revoked', expiresAt: new Date(NOW.getTime() + 900_000) });
+    expect((await call(auth(token))).statusCode).toBe(401);
+
+    store.setUnavailable(true);
+    const down = await call(auth(tokens.valid({ perms: ALL_PERMS })));
+    expect(down.statusCode).toBe(503);
+    expect(down.headers['retry-after']).toBe('5');
+    expect(logs()).toContain('revocation could not be checked');
+    expect(closeMonth).toHaveBeenCalledTimes(1);
   });
 });

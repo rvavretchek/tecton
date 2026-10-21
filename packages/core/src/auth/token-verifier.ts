@@ -2,6 +2,7 @@ import { X509Certificate } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
+import { RevocationStoreUnavailableError, tokenRevocationStoreFromEnv, type TokenRevocationStore } from '@tecton/providers';
 import { createLocalJWKSet, decodeProtectedHeader, errors, jwtVerify, type FlattenedJWSInput, type JWK, type JWSHeaderParameters } from 'jose';
 
 // Local token verification of every service (Story 2.4, AD-7): EdDSA signatures checked against
@@ -59,6 +60,8 @@ export class TokenVerifierConfigError extends Error {
 export interface TokenVerifier {
   /** Verifies an Authorization header value (`Bearer <token>`). */
   verify(authorization: string | undefined): Promise<Principal>;
+  /** Releases what the verifier holds (the revocation store connection). */
+  close?(): Promise<void>;
 }
 
 export interface TokenVerifierOptions {
@@ -73,6 +76,11 @@ export interface TokenVerifierOptions {
   clock?: { now(): Date };
   /** Time limit of one JWKS request, in milliseconds. Default 5000. */
   jwksTimeoutMs?: number;
+  /**
+   * Revoked tokens (Story 2.5, FR-14). Required: a service never verifies without checking
+   * revocation. When it cannot answer, the request is refused with 503 (fail closed).
+   */
+  revocations: TokenRevocationStore;
 }
 
 /** Marks a failure to obtain the keys, as opposed to a bad token. */
@@ -228,6 +236,8 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
   const issuer = claimText('issuer', options.issuer ?? DEFAULT_ISSUER);
   const audience = claimText('audience', options.audience ?? DEFAULT_AUDIENCE);
   const clock = options.clock ?? { now: () => new Date() };
+  const { revocations } = options;
+  if (!revocations) throw new TokenVerifierConfigError('a token revocation store is required (Story 2.5, FR-14)');
   // Cache timing runs on Date.now, like any wall-clock TTL; token times run on the Clock.
   const cache = createJwksCache(url, validatedCa(options.ca), validatedTimeout(options.jwksTimeoutMs), () => Date.now());
 
@@ -244,6 +254,7 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
   };
 
   return {
+    close: () => revocations.close(),
     async verify(authorization) {
       const match = typeof authorization === 'string' && authorization.length <= MAX_TOKEN_LENGTH + 7 ? BEARER.exec(authorization) : null;
       const token = match?.[1];
@@ -283,8 +294,17 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
       if (typeof sub !== 'string' || typeof jti !== 'string' || typeof iat !== 'number' || typeof exp !== 'number') throw new InvalidTokenError();
       // A token issued in the future (beyond the tolerance) is never valid.
       if (iat > clock.now().getTime() / 1000 + CLOCK_TOLERANCE_SECONDS) throw new InvalidTokenError();
-      // Revocation (Story 2.5) plugs in here: check `jti` and `sub` against the TokenRevocationStore
-      // before returning the principal.
+      // Revocation (Story 2.5): by jti or by subject; when the store cannot answer, never "not revoked".
+      let revoked: boolean;
+      try {
+        revoked = await revocations.isRevoked({ tokenId: jti, subject: sub, issuedAt: new Date(iat * 1000) });
+      } catch (error) {
+        if (error instanceof RevocationStoreUnavailableError) {
+          throw new TokenVerificationUnavailableError(`revocation could not be checked: ${error.message}`, { cause: error });
+        }
+        throw error;
+      }
+      if (revoked) throw new InvalidTokenError();
       return { subject: sub, permissions: [...perms], tokenId: jti, issuedAt: new Date(iat * 1000), expiresAt: new Date(exp * 1000) };
     },
   };
@@ -293,7 +313,8 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
 /**
  * The verifier of a domain service from its environment: TECTON_JWKS_URL (required),
  * TECTON_AUTH_ISSUER and TECTON_AUTH_AUDIENCE (defaults urn:tecton:auth and urn:tecton:api),
- * TECTON_ENV (only "development" allows an http JWKS URL) and TECTON_JWKS_CA_FILE (optional PEM).
+ * TECTON_ENV (only "development" allows an http JWKS URL), TECTON_JWKS_CA_FILE (optional PEM),
+ * and the revocation store: TECTON_VALKEY_URL (required) and TECTON_REVOCATION_TIMEOUT_MS.
  */
 export function tokenVerifierFromEnv(env: NodeJS.ProcessEnv): TokenVerifier {
   const jwksUrl = env['TECTON_JWKS_URL']?.trim();
@@ -315,15 +336,28 @@ export function tokenVerifierFromEnv(env: NodeJS.ProcessEnv): TokenVerifier {
       throw new TokenVerifierConfigError('TECTON_JWKS_CA_FILE could not be read');
     }
   }
+  const devMode = env['TECTON_ENV']?.trim() === 'development';
+  // The JWKS URL is checked before the store opens a connection.
+  try {
+    validatedUrl(jwksUrl, devMode);
+  } catch (error) {
+    if (error instanceof TokenVerifierConfigError) throw new TokenVerifierConfigError(`TECTON_JWKS_URL: ${error.message}`);
+    throw error;
+  }
+  // TECTON_VALKEY_URL and TECTON_REVOCATION_TIMEOUT_MS: required, the store names its variables.
+  const revocations = tokenRevocationStoreFromEnv(env);
   try {
     return createTokenVerifier({
       jwksUrl,
       issuer: text('TECTON_AUTH_ISSUER', DEFAULT_ISSUER),
       audience: text('TECTON_AUTH_AUDIENCE', DEFAULT_AUDIENCE),
-      devMode: env['TECTON_ENV']?.trim() === 'development',
+      devMode,
+      revocations,
       ...(ca === undefined ? {} : { ca }),
     });
   } catch (error) {
+    // The store connects in the background: release it when the verifier cannot be built.
+    void revocations.close();
     // Name the variable behind the problem (never its value).
     if (!(error instanceof TokenVerifierConfigError)) throw error;
     const variable = /JWKS URL/.test(error.message) ? 'TECTON_JWKS_URL' : /CA/.test(error.message) ? 'TECTON_JWKS_CA_FILE' : /^issuer/.test(error.message) ? 'TECTON_AUTH_ISSUER' : 'TECTON_AUTH_AUDIENCE';

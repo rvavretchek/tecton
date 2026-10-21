@@ -1,7 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createTestClock, createTestSigningKey, jwksTls, tokenFactory, type JwksTlsServer } from '#test-support';
+import { createMemoryTokenRevocationStore, createTestClock, createTestSigningKey, jwksTls, tokenFactory, type JwksTlsServer } from '#test-support';
+import { RevocationStoreUnavailableError } from '@tecton/providers';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   CLOCK_TOLERANCE_SECONDS,
@@ -15,6 +16,7 @@ import {
   type TokenVerifierOptions,
 } from './token-verifier.js';
 
+const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'));
 const NOW = new Date('2026-10-20T12:00:00.000Z');
 const key = createTestSigningKey();
 const tokens = tokenFactory(key, { now: NOW });
@@ -29,7 +31,7 @@ afterAll(async () => {
 });
 
 function verifier(options: Partial<TokenVerifierOptions> = {}) {
-  return createTokenVerifier({ jwksUrl: jwks.url, ca: jwks.ca, clock: createTestClock(NOW), ...options });
+  return createTokenVerifier({ revocations, jwksUrl: jwks.url, ca: jwks.ca, clock: createTestClock(NOW), ...options });
 }
 
 const bearer = (token: string) => `Bearer ${token}`;
@@ -158,13 +160,13 @@ describe('JWKS fetching (Story 2.4, AC 3, AC 4)', () => {
   });
 
   it('fails closed when the Auth service is unreachable (P0-014)', async () => {
-    const v = createTokenVerifier({ jwksUrl: 'https://127.0.0.1:1/auth/.well-known/jwks.json', clock: createTestClock(NOW) });
+    const v = createTokenVerifier({ revocations, jwksUrl: 'https://127.0.0.1:1/auth/.well-known/jwks.json', clock: createTestClock(NOW) });
 
     await expect(v.verify(bearer(tokens.valid()))).rejects.toBeInstanceOf(TokenVerificationUnavailableError);
   });
 
   it('does not trust the test CA without the ca option (the CA is never process-wide)', async () => {
-    await expect(createTokenVerifier({ jwksUrl: jwks.url, clock: createTestClock(NOW) }).verify(bearer(tokens.valid()))).rejects.toBeInstanceOf(
+    await expect(createTokenVerifier({ revocations, jwksUrl: jwks.url, clock: createTestClock(NOW) }).verify(bearer(tokens.valid()))).rejects.toBeInstanceOf(
       TokenVerificationUnavailableError,
     );
   });
@@ -172,18 +174,18 @@ describe('JWKS fetching (Story 2.4, AC 3, AC 4)', () => {
 
 describe('JWKS URL transport (Story 2.4, AC 9)', () => {
   it('refuses http outside development mode, at creation', () => {
-    expect(() => createTokenVerifier({ jwksUrl: 'http://auth.internal/auth/.well-known/jwks.json' })).toThrow(TokenVerifierConfigError);
-    expect(() => createTokenVerifier({ jwksUrl: 'http://auth.internal/auth/.well-known/jwks.json', devMode: true })).not.toThrow();
+    expect(() => createTokenVerifier({ revocations, jwksUrl: 'http://auth.internal/auth/.well-known/jwks.json' })).toThrow(TokenVerifierConfigError);
+    expect(() => createTokenVerifier({ revocations, jwksUrl: 'http://auth.internal/auth/.well-known/jwks.json', devMode: true })).not.toThrow();
   });
 
   it.each(['ftp://auth.internal/jwks.json', 'file:///etc/jwks.json', 'not a url'])('refuses %s in every mode', (jwksUrl) => {
-    expect(() => createTokenVerifier({ jwksUrl, devMode: true })).toThrow(TokenVerifierConfigError);
+    expect(() => createTokenVerifier({ revocations, jwksUrl, devMode: true })).toThrow(TokenVerifierConfigError);
   });
 
   it('never echoes the URL, which may carry credentials', () => {
     const error = (() => {
       try {
-        createTokenVerifier({ jwksUrl: 'http://user:s3cret-pass@auth.internal/jwks.json' });
+        createTokenVerifier({ revocations, jwksUrl: 'http://user:s3cret-pass@auth.internal/jwks.json' });
       } catch (caught) {
         return caught as Error;
       }
@@ -194,10 +196,13 @@ describe('JWKS URL transport (Story 2.4, AC 9)', () => {
   });
 
   it('refuses an empty or padded issuer or audience', () => {
-    expect(() => createTokenVerifier({ jwksUrl: jwks.url, issuer: ' ' })).toThrow(TokenVerifierConfigError);
-    expect(() => createTokenVerifier({ jwksUrl: jwks.url, audience: ' acme' })).toThrow(TokenVerifierConfigError);
+    expect(() => createTokenVerifier({ revocations, jwksUrl: jwks.url, issuer: ' ' })).toThrow(TokenVerifierConfigError);
+    expect(() => createTokenVerifier({ revocations, jwksUrl: jwks.url, audience: ' acme' })).toThrow(TokenVerifierConfigError);
   });
 });
+
+/** A Valkey URL nothing listens on: the store starts, and every check fails closed. */
+const NO_VALKEY = { TECTON_VALKEY_URL: 'redis://127.0.0.1:1', TECTON_REVOCATION_TIMEOUT_MS: '200' };
 
 describe('tokenVerifierFromEnv (Story 2.4)', () => {
   it('requires TECTON_JWKS_URL, naming it', () => {
@@ -207,7 +212,8 @@ describe('tokenVerifierFromEnv (Story 2.4)', () => {
   it('allows http only with TECTON_ENV=development, exactly', () => {
     const http = 'http://127.0.0.1:3000/auth/.well-known/jwks.json';
 
-    expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: http, TECTON_ENV: 'development' })).not.toThrow();
+    const v = tokenVerifierFromEnv({ TECTON_JWKS_URL: http, TECTON_ENV: 'development', ...NO_VALKEY });
+    void v.close?.();
     for (const env of [undefined, 'production', 'dev', 'Development', 'test']) {
       expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: http, ...(env === undefined ? {} : { TECTON_ENV: env }) })).toThrow(TokenVerifierConfigError);
     }
@@ -217,9 +223,11 @@ describe('tokenVerifierFromEnv (Story 2.4)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'tecton-ca-'));
     try {
       writeFileSync(join(dir, 'ca.pem'), jwks.ca);
-      const v = tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_JWKS_CA_FILE: join(dir, 'ca.pem') });
-      await expect(v.verify(bearer(tokenFactory(key).valid()))).resolves.toBeDefined();
-      expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_JWKS_CA_FILE: join(dir, 'missing.pem') })).toThrow(
+      const v = tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_JWKS_CA_FILE: join(dir, 'ca.pem'), ...NO_VALKEY });
+      // The JWKS was fetched through the CA: the check fails only later, at revocation (no Valkey here).
+      await expect(v.verify(bearer(tokenFactory(key).valid()))).rejects.toThrow(/revocation could not be checked/);
+      await v.close?.();
+      expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_JWKS_CA_FILE: join(dir, 'missing.pem'), ...NO_VALKEY })).toThrow(
         /^TECTON_JWKS_CA_FILE could not be read$/,
       );
     } finally {
@@ -333,9 +341,63 @@ describe('verifier settings (Story 2.4 review)', () => {
       writeFileSync(join(dir, 'empty.pem'), '');
       expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: 'http://auth.internal/jwks.json' })).toThrow(/^TECTON_JWKS_URL: /);
       expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: 'not a url' })).toThrow(/^TECTON_JWKS_URL: /);
-      expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_JWKS_CA_FILE: join(dir, 'empty.pem') })).toThrow(/^TECTON_JWKS_CA_FILE: /);
+      expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_JWKS_CA_FILE: join(dir, 'empty.pem'), ...NO_VALKEY })).toThrow(/^TECTON_JWKS_CA_FILE: /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('revocation (Story 2.5, AC 2 to 4)', () => {
+  it('refuses a token revoked by jti, and only that one', async () => {
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'));
+    const v = verifier({ revocations: store });
+    const revoked = tokens.valid({ jti: 'revoked-jti' });
+    await store.revokeToken({ tokenId: 'revoked-jti', expiresAt: new Date(NOW.getTime() + 900_000) });
+
+    await expect(v.verify(bearer(revoked))).rejects.toBeInstanceOf(InvalidTokenError);
+    await expect(v.verify(bearer(tokens.valid({ jti: 'other-jti' })))).resolves.toBeDefined();
+  });
+
+  it('refuses tokens of a revoked subject issued at or before the instant, and accepts later ones', async () => {
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'));
+    const v = verifier({ revocations: store });
+    const iat = Math.floor(NOW.getTime() / 1000);
+    await store.revokeSubject({ subject: 'user-a', at: NOW });
+
+    await expect(v.verify(bearer(tokens.valid({ sub: 'user-a', iat: iat - 60, exp: iat + 840 })))).rejects.toBeInstanceOf(InvalidTokenError);
+    await expect(v.verify(bearer(tokens.valid({ sub: 'user-a', iat })))).rejects.toBeInstanceOf(InvalidTokenError);
+    await expect(v.verify(bearer(tokens.valid({ sub: 'user-a', iat: iat + 1, exp: iat + 901 })))).resolves.toBeDefined();
+    await expect(v.verify(bearer(tokens.valid({ sub: 'user-b', iat })))).resolves.toBeDefined();
+  });
+
+  it('fails closed when the store cannot answer: unavailable, never "not revoked"', async () => {
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: timeout'));
+    store.setUnavailable(true);
+
+    const error = await verifier({ revocations: store })
+      .verify(bearer(tokens.valid()))
+      .then(
+        () => undefined,
+        (caught: unknown) => caught as Error,
+      );
+    expect(error).toBeInstanceOf(TokenVerificationUnavailableError);
+    expect(error?.message).toMatch(/revocation could not be checked/);
+  });
+
+  it('checks revocation only for a token that is otherwise valid', async () => {
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'));
+    const isRevoked = vi.spyOn(store, 'isRevoked');
+
+    await expect(verifier({ revocations: store }).verify(bearer(tokens.forged()['tampered payload'] as string))).rejects.toBeInstanceOf(InvalidTokenError);
+    expect(isRevoked).not.toHaveBeenCalled();
+  });
+
+  it('requires a revocation store (AC 7)', () => {
+    expect(() => createTokenVerifier({ jwksUrl: jwks.url } as TokenVerifierOptions)).toThrow(TokenVerifierConfigError);
+  });
+
+  it('requires TECTON_VALKEY_URL in the environment, naming it (AC 7)', () => {
+    expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url })).toThrow(/^TECTON_VALKEY_URL is not set/);
   });
 });

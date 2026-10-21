@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream';
-import { createArgon2idAuthProvider } from '@tecton/providers';
-import { assertNoSecretsLeaked, createTestClock, ed25519KeyPairPem } from '#test-support';
+import { createArgon2idAuthProvider, RevocationStoreUnavailableError } from '@tecton/providers';
+import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, ed25519KeyPairPem } from '#test-support';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthConfigError, previousPeppersFromEnv, signingKeysFromEnv, tokenSettingsFromEnv, listenSettingsFromEnv } from './adapters/env/config-from-env.js';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
@@ -57,7 +57,8 @@ async function serviceWith(rows: Record<string, Credential | Error>) {
       done();
     },
   });
-  const app = await createAuthService({ store: storeWith(rows), refreshTokens: createMemoryRefreshTokenStore().store, auth, issuer: createAccessTokenIssuer({ keys, clock }), keys, clock, logger: { level: 'info', stream } });
+  const app = await createAuthService({
+    revocations: createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down')), store: storeWith(rows), refreshTokens: createMemoryRefreshTokenStore().store, auth, issuer: createAccessTokenIssuer({ keys, clock }), keys, clock, logger: { level: 'info', stream } });
   return { app, logs: () => lines.join('') };
 }
 

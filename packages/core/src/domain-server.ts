@@ -42,9 +42,20 @@ export function loadDomainManifest(manifestPath: string): TectonManifest {
 export async function startDomainServer(options: DomainServerOptions): Promise<FastifyInstance> {
   const manifest = loadDomainManifest(options.manifestPath);
   const needsVerifier = manifest.actions.some((action) => !isPublicAction(action));
-  const verifier = options.verifier ?? (needsVerifier ? tokenVerifierFromEnv(options.env ?? process.env) : undefined);
+  // A verifier built here (from the environment) belongs to this server: it closes with it.
+  const owned = options.verifier === undefined && needsVerifier ? tokenVerifierFromEnv(options.env ?? process.env) : undefined;
+  const verifier = options.verifier ?? owned;
   const app = createTectonServer(options.logger === undefined ? {} : { logger: options.logger });
-  registerActionRoutes(app, manifest, options.handlers ?? {}, verifier ? { verifier } : {});
-  await app.listen({ port: options.port ?? 3000, host: options.host ?? '127.0.0.1' });
+  if (owned?.close) {
+    const close = owned.close.bind(owned);
+    app.addHook('onClose', async () => close());
+  }
+  try {
+    registerActionRoutes(app, manifest, options.handlers ?? {}, verifier ? { verifier } : {});
+    await app.listen({ port: options.port ?? 3000, host: options.host ?? '127.0.0.1' });
+  } catch (error) {
+    await app.close().catch(() => undefined);
+    throw error;
+  }
   return app;
 }

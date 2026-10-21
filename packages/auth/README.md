@@ -111,6 +111,8 @@ their own, never this one, so no domain can sign a token.
 | `TECTON_AUTH_AUDIENCE` | `aud` claim, one audience for the whole workspace; default `urn:tecton:api` |
 | `TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS` | access token lifetime, 60-3600; default 900 (15 minutes) |
 | `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` | fixed lifetime of a session (refresh token family), 3600-7776000; default 604800 (7 days) |
+| `TECTON_VALKEY_URL` | Valkey of the token revocations, shared with every service; required |
+| `TECTON_REVOCATION_TIMEOUT_MS` | time limit of a revocation call, 50-5000; default 500 |
 | `PORT`, `HOST` | default 3000 and `127.0.0.1` (loopback only; set `HOST=0.0.0.0` to expose it) |
 
 Every setting is validated before the service listens. A missing or invalid signing key (not
@@ -174,6 +176,19 @@ make other requests wait for it (single flight; the Directory admin SPA does thi
 `SameSite=Strict` keeps other sites from triggering refresh or logout with the cookie. `Secure`
 requires `https`; Chrome and Firefox also accept it on `http://localhost`, but not every browser
 does.
+
+## Token revocation
+
+The Auth service writes revocations to the Valkey every service checks (`TokenRevocationStore`,
+Story 2.5):
+
+- `POST /auth/logout` with `Authorization: Bearer <access token>` revokes that token until it
+  expires, besides the refresh family. The token is verified locally with this service's own keys;
+  without a valid one, only the family is revoked. If Valkey fails, the answer is 503, with the
+  cookie already cleared and the family already revoked: log out again.
+- A refresh token reuse revokes every access token of the subject issued until then. If Valkey
+  fails, the refresh is still a 401 and the failure is logged
+  (`event: "auth.refresh_token.reuse.revocation_failed"`).
 
 ## JWKS and key rotation
 

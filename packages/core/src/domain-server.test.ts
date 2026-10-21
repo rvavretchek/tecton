@@ -75,11 +75,17 @@ describe('startDomainServer token verification (Story 2.4)', () => {
   });
 
   it('Given the verifier from the environment, When called without a token, Then it is 401', async () => {
-    const env = { TECTON_JWKS_URL: 'http://127.0.0.1:1/auth/.well-known/jwks.json', TECTON_ENV: 'development' };
+    const env = { TECTON_JWKS_URL: 'http://127.0.0.1:1/auth/.well-known/jwks.json', TECTON_ENV: 'development', TECTON_VALKEY_URL: 'redis://127.0.0.1:1' };
     const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, env });
     servers.push(app);
 
     expect((await app.inject({ method: 'POST', url: '/finance/close-month', payload: { month: '2026-10' } })).statusCode).toBe(401);
+  });
+
+  it('Given a protected action, When TECTON_VALKEY_URL is missing, Then startup fails naming it (Story 2.5, AC 7)', async () => {
+    const env = { TECTON_JWKS_URL: 'http://127.0.0.1:1/auth/.well-known/jwks.json', TECTON_ENV: 'development' };
+
+    await expect(startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, env })).rejects.toThrow(/^TECTON_VALKEY_URL is not set/);
   });
 
   it('Given only public actions, When started without any token configuration, Then it starts', async () => {
