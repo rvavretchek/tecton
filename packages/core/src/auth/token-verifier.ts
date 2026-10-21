@@ -1,15 +1,8 @@
+import { X509Certificate } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
-import {
-  createRemoteJWKSet,
-  customFetch,
-  decodeProtectedHeader,
-  errors,
-  jwtVerify,
-  type FlattenedJWSInput,
-  type JWSHeaderParameters,
-} from 'jose';
+import { createLocalJWKSet, decodeProtectedHeader, errors, jwtVerify, type FlattenedJWSInput, type JWK, type JWSHeaderParameters } from 'jose';
 
 // Local token verification of every service (Story 2.4, AD-7): EdDSA signatures checked against
 // the Auth service's JWKS, never trusting a header or another service.
@@ -24,10 +17,14 @@ const DEFAULT_JWKS_TIMEOUT_MS = 5_000;
 /** Same as the Auth JWKS Cache-Control (max-age=300): keys are refreshed every 5 minutes. */
 const JWKS_CACHE_MAX_AGE_MS = 300_000;
 /**
- * An unknown `kid` refetches the JWKS only when the last fetch is older than this (jose
- * cooldownDuration): at most one fetch per 30 s, however many unknown tokens arrive.
+ * An unknown `kid` refetches the JWKS only when the last attempt, successful or not, is older than
+ * this: at most one fetch per 30 s, however many unknown tokens arrive.
  */
 export const JWKS_REFETCH_COOLDOWN_MS = 30_000;
+/** After a failed fetch, no new fetch for this long: requests fail fast with 503 (Retry-After: 5). */
+export const JWKS_FAILURE_BACKOFF_MS = 5_000;
+/** Skew accepted between the clocks of the Auth service and this one (exp, iat). */
+export const CLOCK_TOLERANCE_SECONDS = 30;
 
 /** Who is calling, as the verified token says. A fresh object for every request. */
 export interface Principal {
@@ -79,48 +76,109 @@ export interface TokenVerifierOptions {
 }
 
 /** Marks a failure to obtain the keys, as opposed to a bad token. */
-class KeysUnavailable extends Error {}
+class KeysUnavailable extends Error {
+  override readonly name = 'KeysUnavailable';
+}
 
 const BEARER = /^Bearer ([A-Za-z0-9_.-]+)$/i;
 
 /**
- * The JWKS request: node:http(s) with the optional CA, never following a redirect, 200 with JSON
- * only, body capped at MAX_JWKS_BYTES. Anything else becomes a non-200 Response, which jose refuses.
+ * The JWKS request: node:http(s) with the optional CA, never following a redirect (any 3xx is an
+ * error, AD-7), 200 with JSON only, body capped at MAX_JWKS_BYTES (declared or streamed), settled
+ * exactly once even when the connection closes mid-body.
  */
-function jwksFetch(ca: string | undefined) {
-  return (url: string, init: { signal?: AbortSignal }): Promise<Response> =>
-    new Promise((resolve, reject) => {
-      const target = new URL(url);
-      const secure = target.protocol === 'https:';
-      const request = (secure ? https : http).request(
-        target,
-        { method: 'GET', headers: { accept: 'application/json' }, ...(init.signal ? { signal: init.signal } : {}), ...(secure && ca ? { ca } : {}) },
-        (response) => {
-          const status = response.statusCode ?? 0;
-          const json = /^application\/(jwk-set\+)?json\b/i.test(response.headers['content-type'] ?? '');
-          if (status !== 200 || !json) {
-            // Redirects included: a 3xx is refused, never followed (AD-7).
-            response.resume();
-            resolve(new Response(null, { status: status >= 200 && status <= 599 && status !== 200 ? status : 502 }));
-            return;
+function fetchJwks(url: URL, ca: string | undefined, timeoutMs: number): Promise<unknown> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const fail = (reason: string) => {
+      if (settled) return;
+      settled = true;
+      request.destroy();
+      reject(new KeysUnavailable(reason));
+    };
+    const secure = url.protocol === 'https:';
+    const request = (secure ? https : http).request(
+      url,
+      { method: 'GET', headers: { accept: 'application/json' }, timeout: timeoutMs, ...(secure && ca ? { ca } : {}) },
+      (response) => {
+        const status = response.statusCode ?? 0;
+        if (status !== 200) return fail(status >= 300 && status < 400 ? `redirect (${status}) refused` : `status ${status}`);
+        if (!/^application\/(jwk-set\+)?json\b/i.test(response.headers['content-type'] ?? '')) return fail('not JSON');
+        if (Number(response.headers['content-length'] ?? 0) > MAX_JWKS_BYTES) return fail('too large');
+        const chunks: Buffer[] = [];
+        let size = 0;
+        response.on('data', (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > MAX_JWKS_BYTES) return fail('too large');
+          chunks.push(chunk);
+        });
+        response.on('end', () => {
+          if (settled) return;
+          settled = true;
+          try {
+            resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          } catch {
+            reject(new KeysUnavailable('invalid JSON'));
           }
-          const chunks: Buffer[] = [];
-          let size = 0;
-          response.on('data', (chunk: Buffer) => {
-            size += chunk.length;
-            if (size > MAX_JWKS_BYTES) {
-              request.destroy(new Error('JWKS response too large'));
-              return;
-            }
-            chunks.push(chunk);
-          });
-          response.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: 200, headers: { 'content-type': 'application/json' } })));
-          response.on('error', reject);
-        },
-      );
-      request.on('error', reject);
-      request.end();
-    });
+        });
+        response.on('error', () => fail('response error'));
+        response.on('close', () => fail('connection closed'));
+      },
+    );
+    request.on('timeout', () => fail('timeout'));
+    request.on('error', (error: NodeJS.ErrnoException) => fail(error.code ?? 'request error'));
+    request.end();
+  });
+}
+
+type KeyGetter = ReturnType<typeof createLocalJWKSet>;
+
+/**
+ * Cache of the Auth JWKS. Keys are reused for JWKS_CACHE_MAX_AGE_MS. An unknown `kid` triggers a
+ * new fetch only if the last attempt, successful or not, is older than JWKS_REFETCH_COOLDOWN_MS;
+ * after a failed fetch, no other fetch starts for JWKS_FAILURE_BACKOFF_MS (the 503 Retry-After).
+ * Concurrent fetches are merged. Expired keys are never used (fail closed).
+ */
+function createJwksCache(url: URL, ca: string | undefined, timeoutMs: number, now: () => number) {
+  let local: KeyGetter | undefined;
+  let fetchedAt = Number.NEGATIVE_INFINITY;
+  let attemptedAt = Number.NEGATIVE_INFINITY;
+  let failedAt = Number.NEGATIVE_INFINITY;
+  let pending: Promise<void> | undefined;
+
+  const reload = (): Promise<void> => {
+    if (pending) return pending;
+    if (now() - failedAt < JWKS_FAILURE_BACKOFF_MS) return Promise.reject(new KeysUnavailable('recent failure'));
+    attemptedAt = now();
+    pending = fetchJwks(url, ca, timeoutMs)
+      .then((json) => {
+        const keys = (json as { keys?: unknown } | null)?.keys;
+        if (!Array.isArray(keys)) throw new KeysUnavailable('not a JWK Set');
+        local = createLocalJWKSet({ keys: keys as JWK[] });
+        fetchedAt = now();
+      })
+      .catch((error: unknown) => {
+        failedAt = now();
+        throw error instanceof KeysUnavailable ? error : new KeysUnavailable('fetch failed', { cause: error });
+      })
+      .finally(() => {
+        pending = undefined;
+      });
+    return pending;
+  };
+
+  return async (header: JWSHeaderParameters, token: FlattenedJWSInput) => {
+    if (!local || now() - fetchedAt >= JWKS_CACHE_MAX_AGE_MS) await reload();
+    try {
+      return await (local as KeyGetter)(header, token);
+    } catch (error) {
+      if (!(error instanceof errors.JWKSNoMatchingKey)) throw error;
+      // Unknown kid: maybe a key published after the last fetch (rotation). At most one fetch per cooldown.
+      if (now() - attemptedAt < JWKS_REFETCH_COOLDOWN_MS) throw error;
+      await reload();
+      return (local as KeyGetter)(header, token);
+    }
+  };
 }
 
 function validatedUrl(jwksUrl: string, devMode: boolean): URL {
@@ -144,27 +202,44 @@ function claimText(name: string, value: string): string {
   return value;
 }
 
-/** Creates the verifier of a service; the JWKS URL is checked here, at startup. */
+/** A CA option must hold at least one valid PEM certificate; checked at startup, not at the first request. */
+function validatedCa(ca: string | undefined): string | undefined {
+  if (ca === undefined) return undefined;
+  try {
+    if (!ca.includes('-----BEGIN CERTIFICATE-----')) throw new Error('no certificate');
+    new X509Certificate(ca);
+  } catch {
+    throw new TokenVerifierConfigError('the JWKS CA must hold a valid PEM certificate');
+  }
+  return ca;
+}
+
+function validatedTimeout(timeoutMs: number | undefined): number {
+  if (timeoutMs === undefined) return DEFAULT_JWKS_TIMEOUT_MS;
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 60_000) {
+    throw new TokenVerifierConfigError('jwksTimeoutMs must be an integer between 1 and 60000');
+  }
+  return timeoutMs;
+}
+
+/** Creates the verifier of a service; the JWKS URL, CA and limits are checked here, at startup. */
 export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifier {
   const url = validatedUrl(options.jwksUrl, options.devMode === true);
   const issuer = claimText('issuer', options.issuer ?? DEFAULT_ISSUER);
   const audience = claimText('audience', options.audience ?? DEFAULT_AUDIENCE);
   const clock = options.clock ?? { now: () => new Date() };
-  const remote = createRemoteJWKSet(url, {
-    timeoutDuration: options.jwksTimeoutMs ?? DEFAULT_JWKS_TIMEOUT_MS,
-    cacheMaxAge: JWKS_CACHE_MAX_AGE_MS,
-    cooldownDuration: JWKS_REFETCH_COOLDOWN_MS,
-    [customFetch]: jwksFetch(options.ca),
-  });
+  // Cache timing runs on Date.now, like any wall-clock TTL; token times run on the Clock.
+  const cache = createJwksCache(url, validatedCa(options.ca), validatedTimeout(options.jwksTimeoutMs), () => Date.now());
 
-  // A key that matches no `kid` (after the one rate-limited refetch) is a bad token; any other
-  // failure to get the keys means verification is unavailable.
+  // A key that matches no `kid` (after the one rate-limited refetch) is a bad token. Every other
+  // failure to get a key (fetch failed, invalid JWKS, a duplicated kid) means verification is
+  // unavailable: a broken JWKS must never look like bad tokens and log users out.
   const keys = async (header: JWSHeaderParameters, token: FlattenedJWSInput) => {
     try {
-      return await remote(header, token);
+      return await cache(header, token);
     } catch (error) {
-      if (error instanceof errors.JWKSNoMatchingKey || error instanceof errors.JWKSMultipleMatchingKeys) throw error;
-      throw new KeysUnavailable();
+      if (error instanceof errors.JWKSNoMatchingKey) throw error;
+      throw error instanceof KeysUnavailable ? error : new KeysUnavailable('invalid JWKS', { cause: error });
     }
   };
 
@@ -191,9 +266,13 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
           typ: 'at+jwt',
           requiredClaims: ['sub', 'jti', 'exp', 'iat'],
           currentDate: clock.now(),
+          // Small skew between the Auth host and this one.
+          clockTolerance: CLOCK_TOLERANCE_SECONDS,
         }));
       } catch (error) {
-        if (error instanceof KeysUnavailable) throw new TokenVerificationUnavailableError('the JWKS could not be fetched');
+        if (error instanceof KeysUnavailable) {
+          throw new TokenVerificationUnavailableError(`the JWKS could not be used: ${error.message}`, { cause: error });
+        }
         throw new InvalidTokenError();
       }
 
@@ -202,6 +281,10 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
       if (typ !== 'user') throw new InvalidTokenError();
       if (!Array.isArray(perms) || !perms.every((perm) => typeof perm === 'string')) throw new InvalidTokenError();
       if (typeof sub !== 'string' || typeof jti !== 'string' || typeof iat !== 'number' || typeof exp !== 'number') throw new InvalidTokenError();
+      // A token issued in the future (beyond the tolerance) is never valid.
+      if (iat > clock.now().getTime() / 1000 + CLOCK_TOLERANCE_SECONDS) throw new InvalidTokenError();
+      // Revocation (Story 2.5) plugs in here: check `jti` and `sub` against the TokenRevocationStore
+      // before returning the principal.
       return { subject: sub, permissions: [...perms], tokenId: jti, issuedAt: new Date(iat * 1000), expiresAt: new Date(exp * 1000) };
     },
   };
@@ -232,11 +315,18 @@ export function tokenVerifierFromEnv(env: NodeJS.ProcessEnv): TokenVerifier {
       throw new TokenVerifierConfigError('TECTON_JWKS_CA_FILE could not be read');
     }
   }
-  return createTokenVerifier({
-    jwksUrl,
-    issuer: text('TECTON_AUTH_ISSUER', DEFAULT_ISSUER),
-    audience: text('TECTON_AUTH_AUDIENCE', DEFAULT_AUDIENCE),
-    devMode: env['TECTON_ENV']?.trim() === 'development',
-    ...(ca === undefined ? {} : { ca }),
-  });
+  try {
+    return createTokenVerifier({
+      jwksUrl,
+      issuer: text('TECTON_AUTH_ISSUER', DEFAULT_ISSUER),
+      audience: text('TECTON_AUTH_AUDIENCE', DEFAULT_AUDIENCE),
+      devMode: env['TECTON_ENV']?.trim() === 'development',
+      ...(ca === undefined ? {} : { ca }),
+    });
+  } catch (error) {
+    // Name the variable behind the problem (never its value).
+    if (!(error instanceof TokenVerifierConfigError)) throw error;
+    const variable = /JWKS URL/.test(error.message) ? 'TECTON_JWKS_URL' : /CA/.test(error.message) ? 'TECTON_JWKS_CA_FILE' : /^issuer/.test(error.message) ? 'TECTON_AUTH_ISSUER' : 'TECTON_AUTH_AUDIENCE';
+    throw new TokenVerifierConfigError(`${variable}: ${error.message}`);
+  }
 }

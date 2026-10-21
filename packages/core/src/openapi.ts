@@ -1,7 +1,7 @@
 import swagger from '@fastify/swagger';
 import type { TectonManifest } from '@tecton/manifest';
 import { InvalidTokenError } from './auth/token-verifier.js';
-import { registerActionRoutes } from './routes.js';
+import { isPublicAction, registerActionRoutes } from './routes.js';
 import { createTectonServer } from './server.js';
 
 /**
@@ -15,7 +15,10 @@ export async function buildOpenApiDocument(manifest: TectonManifest): Promise<Re
       openapi: {
         openapi: '3.1.0',
         info: { title: manifest.domain, version: manifest.version, description: manifest.description },
-        components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } } },
+        // Only when some action needs a token.
+        ...(manifest.actions.some((action) => !isPublicAction(action))
+          ? { components: { securitySchemes: { bearerAuth: { type: 'http', scheme: 'bearer', bearerFormat: 'JWT' } } } }
+          : {}),
       },
     });
     // Routes are only described, never called: a verifier that refuses everything is enough.

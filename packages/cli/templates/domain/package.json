@@ -8,7 +8,7 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "start": "node --env-file-if-exists=../../../.env dist/main.js"
+    "start": "node --env-file-if-exists=../../../.env --env-file-if-exists=.env dist/main.js"
   },
   "dependencies": {
     "@tecton/core": "{{tecton:core}}",

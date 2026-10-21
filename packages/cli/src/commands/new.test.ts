@@ -58,6 +58,7 @@ describe('tecton-admin new — workspace (AC 1, AC 2)', () => {
         'AGENTS.md',
         'CLAUDE.md',
         'README.md',
+        'apps/auth/.env.example',
         'apps/auth/package.json',
         'apps/auth/src/main.ts',
         'apps/auth/src/migrate.ts',

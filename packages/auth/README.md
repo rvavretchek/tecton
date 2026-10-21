@@ -94,6 +94,11 @@ pnpm --filter ./apps/auth migrate   # applies the Auth database migrations
 pnpm --filter ./apps/auth start     # startAuthServiceFromEnv(process.env)
 ```
 
+Both scripts read the workspace `.env` (settings every service shares) and then `apps/auth/.env`
+(the Auth database, `PORT=3001` and the secrets), each copied from its `.env.example`. Keep the
+Pepper and the signing key in `apps/auth/.env` only: the domains read the workspace `.env` and
+their own, never this one, so no domain can sign a token.
+
 | Variable | Meaning |
 |---|---|
 | `TECTON_AUTH_DATABASE_URL` | the Auth database (Dev Services creates an `auth` database) |

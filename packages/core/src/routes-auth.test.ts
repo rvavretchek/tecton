@@ -226,3 +226,36 @@ describe('secrets (Story 2.4)', () => {
     assertNoSecretsLeaked(responses.map((response) => response.body).join(''), { valid, forged });
   });
 });
+
+describe('review fixes (Story 2.4 review)', () => {
+  it('logs why verification is unavailable, without the token (P7)', async () => {
+    const unreachable = createTokenVerifier({ jwksUrl: 'https://127.0.0.1:1/auth/.well-known/jwks.json', clock: createTestClock(NOW) });
+    const { call, logs } = await serve({ verifier: unreachable });
+    const token = tokens.valid({ perms: ALL_PERMS });
+
+    expect((await call(auth(token))).statusCode).toBe(503);
+    expect(logs()).toContain('token verification unavailable');
+    expect(logs()).toContain('ECONNREFUSED');
+    assertNoSecretsLeaked(logs(), { token });
+  });
+
+  it('refuses a hand-built manifest whose protected action requires no permission (P11)', () => {
+    const app = createTectonServer();
+    servers.push(app);
+    const action = FINANCE.actions[0] as (typeof FINANCE.actions)[number];
+    const unguarded = { ...FINANCE, actions: [{ ...action, auth: { requires: [] } }] };
+
+    expect(() => registerActionRoutes(app, unguarded, {}, { verifier: { verify: async () => Promise.reject(new InvalidTokenError()) } })).toThrow(
+      /must be public or require permissions: closeMonth/,
+    );
+  });
+
+  it('copies the dates of the principal too (P13)', async () => {
+    const shared = { subject: USER_A, permissions: [...ALL_PERMS], tokenId: 't', issuedAt: new Date(NOW), expiresAt: new Date(NOW) };
+    const { call, seen } = await serve({ verifier: { verify: async () => shared } });
+    await call(auth('x'));
+    seen[0]?.principal?.expiresAt.setTime(0);
+
+    expect(shared.expiresAt).toEqual(NOW);
+  });
+});

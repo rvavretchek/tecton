@@ -4,8 +4,10 @@ import { join } from 'node:path';
 import { createTestClock, createTestSigningKey, jwksTls, tokenFactory, type JwksTlsServer } from '#test-support';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import {
+  CLOCK_TOLERANCE_SECONDS,
   createTokenVerifier,
   InvalidTokenError,
+  JWKS_FAILURE_BACKOFF_MS,
   JWKS_REFETCH_COOLDOWN_MS,
   TokenVerificationUnavailableError,
   TokenVerifierConfigError,
@@ -68,11 +70,21 @@ describe('createTokenVerifier (Story 2.4, AC 2)', () => {
     expect((error as Error).message).toBe('invalid token');
   });
 
-  it('checks exp against the injected clock', async () => {
+  it('checks exp against the injected clock, with the clock tolerance', async () => {
     const token = tokens.valid();
+    const at = (ms: number) => verifier({ clock: createTestClock(new Date(NOW.getTime() + ms)) }).verify(bearer(token));
 
-    await expect(verifier({ clock: createTestClock(new Date(NOW.getTime() + 899_000)) }).verify(bearer(token))).resolves.toBeDefined();
-    await expect(verifier({ clock: createTestClock(new Date(NOW.getTime() + 901_000)) }).verify(bearer(token))).rejects.toBeInstanceOf(InvalidTokenError);
+    await expect(at(899_000)).resolves.toBeDefined();
+    await expect(at((900 + CLOCK_TOLERANCE_SECONDS - 1) * 1000)).resolves.toBeDefined();
+    await expect(at((900 + CLOCK_TOLERANCE_SECONDS + 1) * 1000)).rejects.toBeInstanceOf(InvalidTokenError);
+  });
+
+  it('refuses a token issued in the future beyond the tolerance (review P12)', async () => {
+    const iat = Math.floor(NOW.getTime() / 1000);
+    const future = (seconds: number) => tokens.valid({ iat: iat + seconds, exp: iat + seconds + 900 });
+
+    await expect(verifier().verify(bearer(future(CLOCK_TOLERANCE_SECONDS - 1)))).resolves.toBeDefined();
+    await expect(verifier().verify(bearer(future(CLOCK_TOLERANCE_SECONDS + 5)))).rejects.toBeInstanceOf(InvalidTokenError);
   });
 
   it('checks the configured issuer and audience', async () => {
@@ -210,6 +222,118 @@ describe('tokenVerifierFromEnv (Story 2.4)', () => {
       expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_JWKS_CA_FILE: join(dir, 'missing.pem') })).toThrow(
         /^TECTON_JWKS_CA_FILE could not be read$/,
       );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('JWKS cache and failures (Story 2.4 review)', () => {
+  it('never follows a redirect, even to a server that would hand out a key (P3)', async () => {
+    const attacker = createTestSigningKey(key.kid);
+    const evil = await jwksTls({ keys: [attacker.publicJwk] });
+    jwks.setRedirect(evil.url);
+    jwks.setMode('redirect');
+    try {
+      const forged = tokenFactory(attacker, { now: NOW }).valid({ perms: ['finance:close'] });
+      await expect(verifier({ ca: `${jwks.ca}\n${evil.ca}` }).verify(bearer(forged))).rejects.toBeInstanceOf(TokenVerificationUnavailableError);
+      expect(evil.requests()).toBe(0);
+    } finally {
+      jwks.setMode('ok');
+      await evil.stop();
+    }
+  });
+
+  it('after a failed fetch, fails fast without fetching again until the backoff passes (P2)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    jwks.setMode('error');
+    try {
+      const v = verifier();
+      const before = jwks.requests();
+      for (let i = 0; i < 5; i += 1) await expect(v.verify(bearer(tokens.valid()))).rejects.toBeInstanceOf(TokenVerificationUnavailableError);
+      expect(jwks.requests()).toBe(before + 1);
+
+      jwks.setMode('ok');
+      await expect(v.verify(bearer(tokens.valid()))).rejects.toBeInstanceOf(TokenVerificationUnavailableError);
+      vi.setSystemTime(Date.now() + JWKS_FAILURE_BACKOFF_MS + 100);
+      await expect(v.verify(bearer(tokens.valid()))).resolves.toBeDefined();
+      expect(jwks.requests()).toBe(before + 2);
+    } finally {
+      jwks.setMode('ok');
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops using expired keys while the Auth service is down: 503, never the old keys (P6)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const v = verifier();
+      await expect(v.verify(bearer(tokens.valid()))).resolves.toBeDefined();
+      jwks.setMode('error');
+      vi.setSystemTime(Date.now() + 4 * 60_000);
+      await expect(v.verify(bearer(tokens.valid()))).resolves.toBeDefined();
+      vi.setSystemTime(Date.now() + 2 * 60_000);
+      await expect(v.verify(bearer(tokens.valid()))).rejects.toBeInstanceOf(TokenVerificationUnavailableError);
+    } finally {
+      jwks.setMode('ok');
+      vi.useRealTimers();
+    }
+  });
+
+  it('treats a JWKS with a duplicated kid as unavailable, not as bad tokens (P5)', async () => {
+    jwks.setKeys([key.publicJwk, { ...createTestSigningKey(key.kid).publicJwk }]);
+    try {
+      await expect(verifier().verify(bearer(tokens.valid()))).rejects.toBeInstanceOf(TokenVerificationUnavailableError);
+    } finally {
+      jwks.setKeys([key.publicJwk]);
+    }
+  });
+
+  it('fails closed when the connection drops in the middle of the body (P10)', async () => {
+    jwks.setMode('truncated');
+    try {
+      await expect(verifier().verify(bearer(tokens.valid()))).rejects.toBeInstanceOf(TokenVerificationUnavailableError);
+    } finally {
+      jwks.setMode('ok');
+    }
+  });
+
+  it('says why, without the URL or the token (P7)', async () => {
+    jwks.setMode('redirect');
+    try {
+      const error = await verifier()
+        .verify(bearer(tokens.valid()))
+        .then(
+          () => undefined,
+          (caught: unknown) => caught as Error,
+        );
+      expect(error?.message).toMatch(/redirect \(302\) refused/);
+      expect(error?.message).not.toContain('127.0.0.1');
+    } finally {
+      jwks.setMode('ok');
+    }
+  });
+});
+
+describe('verifier settings (Story 2.4 review)', () => {
+  it.each(['', 'not a certificate', '-----BEGIN CERTIFICATE-----\nbroken\n-----END CERTIFICATE-----\n'])(
+    'refuses an unusable CA at creation: %j (P8)',
+    (ca) => {
+      expect(() => verifier({ ca })).toThrow(TokenVerifierConfigError);
+    },
+  );
+
+  it.each([0, -1, 1.5, 120_000])('refuses jwksTimeoutMs %s (P9)', (jwksTimeoutMs) => {
+    expect(() => verifier({ jwksTimeoutMs })).toThrow(TokenVerifierConfigError);
+  });
+
+  it('names the variable when the environment holds a bad value (P14)', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tecton-ca-'));
+    try {
+      writeFileSync(join(dir, 'empty.pem'), '');
+      expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: 'http://auth.internal/jwks.json' })).toThrow(/^TECTON_JWKS_URL: /);
+      expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: 'not a url' })).toThrow(/^TECTON_JWKS_URL: /);
+      expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_JWKS_CA_FILE: join(dir, 'empty.pem') })).toThrow(/^TECTON_JWKS_CA_FILE: /);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

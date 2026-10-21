@@ -39,3 +39,7 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 
 - W1 Replay repetido de um refresh token roubado grava um `warn` por tentativa, sem limite [packages/auth/src/core/session.ts] — adiado: limite de taxa do Gateway (3.7) e bloqueio por identificador (2.6)
 - W2 Linha de família de refresh corrompida é recusada como desconhecida, sem log [packages/auth/src/adapters/prisma/prisma-refresh-token-store.ts] — adiado: observabilidade (3.3), junto com métricas de recusa
+
+## Deferred from: code review da Story 2.4 (2026-10-20)
+
+- W1 401 e 403 sem os atributos do RFC 6750 no `WWW-Authenticate` (`error="invalid_token"`, `error="insufficient_scope"`) [packages/core/src/errors/tecton-error.ts] — adiado: formato de erro do Epic 5 (FR-24, RFC 9457)

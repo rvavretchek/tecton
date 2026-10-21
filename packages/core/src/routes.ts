@@ -32,7 +32,9 @@ export function actionRoutePath(domain: string, actionName: string): string {
   return `/${domain}/${toKebabCase(actionName)}`;
 }
 
-const isPublic = (action: ManifestAction) => 'public' in action.auth && action.auth.public === true;
+/** Whether an action runs without a token. The one definition used by routes and the domain server. */
+export const isPublicAction = (action: ManifestAction): boolean => 'public' in action.auth && action.auth.public === true;
+const isPublic = isPublicAction;
 
 function routeSchema(domain: string, action: ManifestAction) {
   const protectedAction = !isPublic(action);
@@ -79,6 +81,12 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
   }
   const { verifier } = options;
   const protectedActions = manifest.actions.filter((action) => !isPublic(action)).map((action) => action.name);
+  // A protected action without permissions would let any valid token through (only possible with a
+  // manifest built by hand: parseManifest refuses it).
+  const unguarded = manifest.actions.filter((action) => !isPublic(action) && !('requires' in action.auth && action.auth.requires.length > 0));
+  if (unguarded.length > 0) {
+    throw new Error(`actions of domain "${manifest.domain}" must be public or require permissions: ${unguarded.map((action) => action.name).join(', ')}`);
+  }
   if (protectedActions.length > 0 && !verifier) {
     throw new Error(
       `domain "${manifest.domain}" has actions that require a token (${protectedActions.join(', ')}) but no token verifier was given`,
@@ -104,7 +112,11 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
             try {
               principal = await verifier.verify(request.headers.authorization);
             } catch (error) {
-              if (error instanceof TokenVerificationUnavailableError) throw frameworkErrors.authUnavailable();
+              if (error instanceof TokenVerificationUnavailableError) {
+                // The reason (refused redirect, CA, timeout...) for the operator; never the token or the URL.
+                request.log.warn({ reason: error.message }, 'token verification unavailable');
+                throw frameworkErrors.authUnavailable();
+              }
               if (error instanceof InvalidTokenError) throw frameworkErrors.unauthorized();
               throw error;
             }
@@ -124,7 +136,7 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
           action: action.name,
           request,
           reply,
-          ...(principal ? { principal: { ...principal, permissions: [...principal.permissions] } } : {}),
+          ...(principal ? { principal: { ...principal, permissions: [...principal.permissions], issuedAt: new Date(principal.issuedAt), expiresAt: new Date(principal.expiresAt) } } : {}),
         });
       },
     );

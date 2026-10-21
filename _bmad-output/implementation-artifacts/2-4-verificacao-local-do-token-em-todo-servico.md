@@ -4,7 +4,7 @@ baseline_commit: e82c35492bb2a784ea8fce874580587277588593
 
 # Story 2.4: Verificação local do token em todo serviço
 
-Status: review
+Status: done
 
 ## Story
 
@@ -21,6 +21,7 @@ para que nenhum serviço confie em outro, nem no Gateway, para decidir quem est�
    - os claims precisam ter `sub`, `jti`, `typ: user` e `perms` (lista de strings);
    - todo token com `alg` diferente de `EdDSA` é rejeitado, incluindo `none`, `HS256` (inclusive com a chave pública como segredo) e `RS256`.
 3. **`kid` desconhecido.** Dado um token com `kid` que não está no cache, quando ele chega, então o JWKS é buscado de novo uma única vez, com limite de frequência (no máximo uma busca a cada 30 s, padrão do `jose`). Se o `kid` continuar desconhecido, a resposta é 401.
+   - **Emenda do code review (2026-10-20):** o limite conta desde a última tentativa de busca, com ou sem sucesso. Um `kid` desconhecido logo depois de uma busca não dispara outra e é 401; a rotação em três passos do Auth publica a chave nova antes de assinar, então um `kid` legítimo não cai nesse caso. Depois de uma busca que falhou, nenhuma outra começa por 5 s (503 imediato).
 4. **Fail-closed.** Dado um serviço sem JWKS em cache e com o Auth inacessível (ou respondendo erro, conteúdo inválido ou fora do tempo limite), quando chega uma requisição autenticada, então ela é recusada com **503** e `Retry-After`, nunca aceita sem verificação. (Decisão do Boss, 2026-10-20: 503 diz a verdade e evita que a SPA tente refresh e deslogue o usuário durante uma queda do Auth.)
 5. **Identidade só do token.** Dado um token válido do usuário A e um header como `x-user-id`, `x-claims` ou `Tecton-On-Behalf-Of` dizendo ser o usuário B, quando a requisição é processada, então o serviço trata a chamada como do usuário A e ignora o header (AD-7). O handler recebe a identidade verificada no contexto (`principal`), nunca um header.
 6. **Chamada direta adulterada.** Dado uma chamada direta ao serviço, sem passar pelo Gateway, com token adulterado (assinatura, claims ou cabeçalho alterados), quando ela chega, então o próprio serviço a rejeita com 401 (FR-13).
@@ -50,6 +51,7 @@ para que nenhum serviço confie em outro, nem no Gateway, para decidir quem est�
     - `ca` opcional (PEM) só nessa requisição, nunca global (ASR-4);
     - só 200 com `content-type` JSON; corpo limitado (64 KiB);
     - tempo limite de 5 s (`timeoutDuration`); cooldown de 30 s e cache de 10 min (padrões do `jose`).
+    - **Emenda do code review:** cache de 5 min (igual ao `max-age=300` do JWKS do Auth) e cache próprio sobre o `createLocalJWKSet` do `jose`, no lugar do `createRemoteJWKSet` (ver o Debug Log).
   - [x] `verify(authorizationHeader)`:
     - aceita só `Bearer <token>` (esquema sem diferença de maiúsculas, um espaço, token de até 8 KiB);
     - `jwtVerify` com `algorithms: ['EdDSA']`, `issuer`, `audience`, `typ: 'at+jwt'`, `requiredClaims: ['sub', 'jti', 'exp', 'iat']` e `currentDate` da `Clock`;
@@ -97,7 +99,42 @@ para que nenhum serviço confie em outro, nem no Gateway, para decidir quem est�
   - [x] Fase vermelha por mutação (A3), registrada no Debug Log. No mínimo: `algorithms` sem a restrição a `EdDSA`; sem checar `aud`; sem checar `typ: user`; hook em `preHandler` depois da validação do corpo; `requires` como OU; seguir redirecionamento; `http` aceito fora do dev; erro do JWKS tratado como 401 ou como aceito.
 - [x] **T7. Verificação final**
   - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:persistence` (local pelo túnel se o ubt-host02 responder; os três bancos no CI) e `test:generation`.
-  - [ ] Code review por story antes da 2.5 (retro A1).
+  - [x] Code review por story antes da 2.5 (retro A1).
+
+### Review Findings (code review da Story 2.4, 2026-10-20)
+
+> Camadas: Blind Hunter, Edge Case Hunter e Acceptance Auditor (os três pararam no limite de uso da sessão e foram retomados).
+
+- [x] [Review][Decision] D1 Configuração por app — o domínio gerado lia o `.env` inteiro do workspace, com a chave de assinatura e o Pepper do Auth e as URLs de todos os bancos (os três revisores). Boss (2026-10-20): **um `.env` por app**. A raiz fica só com o que é comum e não é segredo (`TECTON_ENV`, `TECTON_JWKS_URL`); `apps/auth/.env` com o banco do Auth, o Pepper, a chave e `PORT=3001`; `apps/domains/<d>/.env` só com o banco do domínio; cada `start` lê a raiz e depois o próprio; o Dev Services gera um `.env.example` por app.
+- [x] [Review][Patch] P1 (alta) Aplicar a D1: templates (`start` e `migrate` do `apps/auth`, `start` do domínio), `writeDevServices` gerando `.env.example` na raiz, em `apps/auth` e em cada domínio, `.gitignore` cobrindo `.env` em toda pasta, `JWKS_URL` na porta 3001, e o teste de geração com um `.env` por app [packages/cli/src/dev-services.ts, templates]
+- [x] [Review][Patch] P2 (média) Com o JWKS falhando, o cooldown do `jose` nunca começa (só conta busca bem-sucedida): cada requisição dispara uma nova busca de até 5 s contra o Auth. Correção: depois de uma falha, recusar com 503 sem buscar por 5 s (o `Retry-After`) [token-verifier.ts]
+- [x] [Review][Patch] P3 (média) O "follow redirect" do A3 não foi testado de verdade: o 3xx aponta para um host que nem resolve. Correção: o 3xx aponta para um segundo servidor local com a chave de um atacante; um token assinado por ela nunca é aceito [tests/support/jwks-tls.ts, token-verifier.test.ts]
+- [x] [Review][Patch] P4 (média) A forja "tampered signature" pode sair idêntica à assinatura válida (bits de preenchimento do último caractere base64url): teste instável em ~0,4% das execuções. Correção: alterar um caractere do meio [tests/support/tokens.ts]
+- [x] [Review][Patch] P5 (média) `kid` duplicado no JWKS (erro do Auth na rotação) vira 401 para todo token e faz o cliente deslogar. Correção: `JWKSMultipleMatchingKeys` é indisponibilidade (503) [token-verifier.ts]
+- [x] [Review][Patch] P6 (média) Sem teste do cache vencido com o Auth fora (o README promete 503) [token-verifier.test.ts]
+- [x] [Review][Patch] P7 (baixa) Causa do 503 descartada: nenhum log distingue CA errada de queda. Correção: `cause` no erro e `warn` com nome e código no hook das rotas, sem URL nem token [token-verifier.ts, routes.ts]
+- [x] [Review][Patch] P8 (baixa) `TECTON_JWKS_CA_FILE` vazio ou sem PEM válido passa na subida. Correção: validar como certificado X.509 na criação [token-verifier.ts]
+- [x] [Review][Patch] P9 (baixa) `jwksTimeoutMs` 0, negativo ou fracionário passa sem validação [token-verifier.ts]
+- [x] [Review][Patch] P10 (baixa) O `fetch` próprio não trata conexão fechada no meio do corpo (`close` sem `end`), drena corpos de 3xx/5xx sem limite e não confere `Content-Length` acima de 64 KiB [token-verifier.ts]
+- [x] [Review][Patch] P11 (baixa) Manifest montado à mão com `requires: []` em action não pública deixa passar qualquer token; e as duas checagens de "é pública?" (`domain-server` e `routes`) divergem. Correção: recusar no registro e usar uma só função [routes.ts, domain-server.ts]
+- [x] [Review][Patch] P12 (baixa) `iat` no futuro aceito e nenhuma tolerância de relógio entre serviços. Correção: `clockTolerance` de 30 s e recusa de `iat` além disso [token-verifier.ts]
+- [x] [Review][Patch] P13 (baixa) A cópia do `principal` é rasa: as datas são os mesmos objetos [routes.ts]
+- [x] [Review][Patch] P14 (baixa) Erros de URL do `tokenVerifierFromEnv` não citam `TECTON_JWKS_URL` [token-verifier.ts]
+- [x] [Review][Patch] P15 (baixa) Forjas mais fiéis: HS256 com a chave pública em PEM como segredo, cabeçalho alterado mantendo o `kid` válido, `perms` com item que não é string [tests/support/tokens.ts]
+- [x] [Review][Patch] P16 (baixa) OpenAPI declara `bearerAuth` mesmo sem action protegida [openapi.ts]
+- [x] [Review][Patch] P17 (baixa) Ponto de extensão da revogação (2.5) não marcado no verificador [token-verifier.ts]
+- [x] [Review][Patch] P18 (baixa) Registros: emendar o AC 3 e a T2 (cooldown desde a última busca bem-sucedida; cache de 5 min, não 10), anotar o `issuedAt` a mais no `Principal` e registrar a mutação só do `algorithms` [story]
+- [x] [Review][Defer] W1 401 e 403 sem os atributos do RFC 6750 (`error="invalid_token"`, `insufficient_scope`) [errors/tecton-error.ts] — adiado: formato de erro do Epic 5 (FR-24, RFC 9457)
+- Descartados:
+  - chave malformada no JWKS dá 503 (o JWKS está quebrado; 503 é o certo);
+  - `kid` inventado vira 503 com o Auth fora (inevitável; a P2 limita o custo);
+  - verificador próprio que devolve `principal` sem `permissions` dá 500 (fail-closed; erro do código do dev);
+  - `Cache-Control` não lido do Auth (constante documentada; a revogação imediata é da 2.5);
+  - `principal` opcional no tipo (o handler de action pública também usa o contexto);
+  - `http` em dev para qualquer host (em Docker o Auth tem nome de serviço, não loopback);
+  - cabeçalhos do `jose` (User-Agent) substituídos no `fetch` próprio;
+  - `.env.example` sem JWKS quando não há `apps/auth` (a D1 põe o JWKS na raiz sempre);
+  - mutação equivalente do 3xx aceito (a P3 testa o seguimento de verdade).
 
 ## Dev Notes
 
@@ -193,6 +230,33 @@ Claude Opus 5.5 (claude-opus-5-5)
 
   A mutação do `principal` compartilhado sobreviveu na primeira rodada porque o verificador real já devolve um objeto novo; o teste passou a usar um verificador falso que reutiliza o mesmo objeto, e agora a pega.
 
+- **Code review (2026-10-20):**
+  - **D1, um `.env` por app (Boss):** `rootEnvExample` (só `TECTON_VALKEY_URL`, `TECTON_ENV` e `TECTON_JWKS_URL`) e `appEnvExample` por app; `apps/auth/.env.example` com `PORT=3001` e os segredos comentados; cada domínio com o próprio banco. O `start` (e o `migrate` do Auth) lê `--env-file-if-exists` da raiz e depois do app: o arquivo de depois prevalece e o ambiente do shell ganha dos dois (conferido no Node 24). O teste de geração prova que o processo do domínio não recebe nenhuma variável `TECTON_AUTH_*`.
+  - **Cache próprio do JWKS (P2, P5, P10):** o `createRemoteJWKSet` do `jose` só marca o cooldown em busca bem-sucedida, então, com o Auth fora, cada requisição disparava uma busca nova. O verificador passou a usar um cache pequeno sobre o `createLocalJWKSet` (que continua escolhendo a chave): cooldown desde a última tentativa, 5 s sem buscar depois de uma falha, buscas simultâneas unidas, `fetch` próprio que acerta uma vez só (fim, erro, `close`, `timeout`), recusa 3xx, não-JSON e `Content-Length` acima de 64 KiB. `kid` duplicado e JWKS inválido são 503.
+  - **`Principal.issuedAt`:** campo a mais em relação à T2 (`iat`), copiado por requisição junto com `expiresAt`.
+  - **Fase vermelha das correções (A3),** cada uma restaurada:
+
+    | Mutação | Testes que falharam |
+    |---|---|
+    | segredo do Auth no `.env` da raiz (P1) | 1 |
+    | sem backoff depois de falha (P2) | 1 |
+    | seguir o redirecionamento de verdade (P3) | 2 |
+    | `kid` duplicado como 401 (P5) | 1 |
+    | chaves vencidas usadas (P6) | 1 |
+    | sem log do motivo do 503 (P7) | 1 |
+    | CA sem validação (P8) | 1 |
+    | `jwksTimeoutMs` sem validação (P9) | 4 |
+    | `requires` vazio aceito (P11) | 1 |
+    | `iat` no futuro aceito (P12) | 1 |
+    | datas do `principal` compartilhadas (P13) | 1 |
+    | erro sem o nome da variável (P14) | 1 |
+    | `perms` com item que não é string (P15) | 2 |
+    | `bearerAuth` sempre no OpenAPI (P16) | 1 |
+
+    Duas sobreviveram por serem equivalentes:
+    - tirar o tratamento de `close` (P10): o Node 24 emite `error` na resposta abortada, e o `fail` é chamado igual;
+    - tirar só o `algorithms: ['EdDSA']`: a pré-checagem do `alg` recusa sozinha (as duas juntas: 4 testes falham, ver a tabela do Dev Story).
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
@@ -208,7 +272,8 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **Fixtures (`tests/support`):** `tokenFactory` (válido e 19 forjados, assinados com `node:crypto`) e `jwksTls` (CA e certificado por `openssl`, servidor HTTPS com modos de falha e contagem de requisições). W2 do Epic 1 baixado.
 - **Testes:** verificador (49), rotas protegidas (34), servidor de domínio (4 novos), OpenAPI (1), Dev Services (1), geração (domínio 401 sem token e 501 com token do `apps/auth`).
 - **Verificação local:** build, typecheck, `check:deps` (137 módulos), `lint:examples`, `validate:asyncapi`, `test` (738) e `test:generation` (3). Persistência: pelo CI (a story não toca banco).
-- **Pendente:** o code review (A1), próximo passo.
+- **Code review (A1):** 1 decisão (D1, um `.env` por app), 18 patches (P1 a P18), 1 adiado (W1 no `deferred-work.md`) e 9 descartados, com as três camadas de revisão.
+- **Verificação depois do review:** build, typecheck, `check:deps`, `lint:examples`, `validate:asyncapi`, `test` (764) e `test:generation` (3).
 
 ### File List
 
@@ -217,8 +282,9 @@ Claude Opus 5.5 (claude-opus-5-5)
 - `packages/core/src/routes.ts`, `routes.test.ts` (modificados); `routes-auth.test.ts` (novo)
 - `packages/core/src/errors/tecton-error.ts`, `openapi.ts`, `openapi.test.ts`, `domain-server.ts`, `domain-server.test.ts`, `index.ts` (modificados)
 - `packages/core/README.md` (novo)
-- `packages/cli/templates/domain/{package.json,src/main.ts}` (modificados)
-- `packages/cli/src/dev-services.ts`, `dev-services.test.ts`, `commands/generate-domain.test.ts`, `commands/new.generation.test.ts` (modificados)
+- `packages/cli/templates/domain/{package.json,src/main.ts}`, `templates/workspace/apps/auth/{package.json,src/main.ts}` (modificados)
+- `packages/cli/src/dev-services.ts`, `dev-services.test.ts`, `commands/{generate-domain,new,new.generation}.test.ts` (modificados)
+- `packages/auth/README.md` (modificado: um `.env` por app)
 - `tests/support/{tokens,jwks-tls}.ts` (novos), `tests/support/index.ts` (modificado)
 - `_bmad-output/implementation-artifacts/deferred-work.md`, esta story, `sprint-status.yaml`
 
@@ -226,3 +292,4 @@ Claude Opus 5.5 (claude-opus-5-5)
 
 - 2026-10-20: Story criada (Create Story), com as decisões do Boss sobre `jose` no core, `TECTON_ENV`, 503 e `openssl`.
 - 2026-10-20: Story implementada (Dev Story); status → review.
+- 2026-10-20: Code review: D1 decidida pelo Boss (um `.env` por app), P1 a P18 aplicados, W1 adiado; status → done.

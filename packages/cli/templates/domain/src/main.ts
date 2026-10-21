@@ -5,6 +5,8 @@
 // environment: TECTON_JWKS_URL (the JWKS of the Auth service, https outside development),
 // TECTON_AUTH_ISSUER, TECTON_AUTH_AUDIENCE, TECTON_ENV (development allows an http JWKS URL) and
 // TECTON_JWKS_CA_FILE (optional CA for the JWKS). A missing setting stops the service at startup.
+// The start script loads the workspace .env (shared settings) and then this domain's .env (its own
+// database): a domain never reads the Auth secrets or another service's database.
 import { fileURLToPath } from 'node:url';
 import { startDomainServer } from '@tecton/core';
 

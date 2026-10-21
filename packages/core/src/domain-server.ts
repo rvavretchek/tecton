@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { parseManifest, type TectonManifest } from '@tecton/manifest';
 import { tokenVerifierFromEnv, type TokenVerifier } from './auth/token-verifier.js';
-import { registerActionRoutes, type ActionHandlers } from './routes.js';
+import { isPublicAction, registerActionRoutes, type ActionHandlers } from './routes.js';
 import { createTectonServer, type TectonServerOptions } from './server.js';
 
 export interface DomainServerOptions extends TectonServerOptions {
@@ -41,7 +41,7 @@ export function loadDomainManifest(manifestPath: string): TectonManifest {
  */
 export async function startDomainServer(options: DomainServerOptions): Promise<FastifyInstance> {
   const manifest = loadDomainManifest(options.manifestPath);
-  const needsVerifier = manifest.actions.some((action) => !('public' in action.auth));
+  const needsVerifier = manifest.actions.some((action) => !isPublicAction(action));
   const verifier = options.verifier ?? (needsVerifier ? tokenVerifierFromEnv(options.env ?? process.env) : undefined);
   const app = createTectonServer(options.logger === undefined ? {} : { logger: options.logger });
   registerActionRoutes(app, manifest, options.handlers ?? {}, verifier ? { verifier } : {});

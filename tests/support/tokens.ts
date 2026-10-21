@@ -1,4 +1,4 @@
-import { createHmac, generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
+import { createHmac, createPublicKey, generateKeyPairSync, randomUUID, sign, type KeyObject } from 'node:crypto';
 
 // Token factory of the Test Design (R-02, P0-011): valid user access tokens signed with a test
 // Ed25519 key, and forged variants every verifier must refuse. Signed with node:crypto on purpose:
@@ -73,11 +73,15 @@ export function tokenFactory(key: TestSigningKey, options: TokenFactoryOptions =
     const good = valid();
     const [goodHeader, goodPayload, goodSignature] = good.split('.') as [string, string, string];
     const rsa = generateKeyPairSync('rsa', { modulusLength: 2048 }).privateKey;
-    const publicKeyAsSecret = JSON.stringify(key.publicJwk);
-    const tamperedSignature = `${goodSignature.slice(0, -2)}${goodSignature.endsWith('AA') ? 'BB' : 'AA'}`;
+    const publicJwkAsSecret = JSON.stringify(key.publicJwk);
+    const publicPemAsSecret = createPublicKey(key.privateKey).export({ type: 'spki', format: 'pem' }).toString();
+    // A character in the middle: the last one carries padding bits that a lenient decoder ignores.
+    const middle = Math.floor(goodSignature.length / 2);
+    const tamperedSignature = `${goodSignature.slice(0, middle)}${goodSignature[middle] === 'A' ? 'B' : 'A'}${goodSignature.slice(middle + 1)}`;
     return {
       'alg none': `${b64({ alg: 'none', kid: key.kid, typ: 'at+jwt' })}.${goodPayload}.`,
-      'HS256 with the public key as secret': signed(header({ alg: 'HS256' }), claims(), (input) => createHmac('sha256', publicKeyAsSecret).update(input).digest()),
+      'HS256 with the public key (PEM) as secret': signed(header({ alg: 'HS256' }), claims(), (input) => createHmac('sha256', publicPemAsSecret).update(input).digest()),
+      'HS256 with the public JWK as secret': signed(header({ alg: 'HS256' }), claims(), (input) => createHmac('sha256', publicJwkAsSecret).update(input).digest()),
       RS256: signed(header({ alg: 'RS256' }), claims(), (input) => sign('sha256', input, rsa)),
       'unknown kid': valid({}, { kid: 'kid-that-does-not-exist' }),
       'no kid': signed({ alg: 'EdDSA', typ: 'at+jwt' }, claims(), eddsa),
@@ -90,11 +94,13 @@ export function tokenFactory(key: TestSigningKey, options: TokenFactoryOptions =
       'service token': valid({ typ: 'service' }),
       'no perms': signed(header(), (({ perms: _perms, ...rest }) => rest)(claims()), eddsa),
       'perms not a list': valid({ perms: 'tenant:create' as unknown as string[] }),
+      'perms with a non-string item': valid({ perms: ['tenant:create', 1] as unknown as string[] }),
       'no sub': signed(header(), (({ sub: _sub, ...rest }) => rest)(claims()), eddsa),
       'no jti': signed(header(), (({ jti: _jti, ...rest }) => rest)(claims()), eddsa),
       'tampered signature': `${goodHeader}.${goodPayload}.${tamperedSignature}`,
       'tampered payload': `${goodHeader}.${b64(claims({ perms: ['tenant:create', 'auth:service:register'] }))}.${goodSignature}`,
-      'tampered header': `${b64(header({ kid: `${key.kid}x` }))}.${goodPayload}.${goodSignature}`,
+      'tampered header (other kid)': `${b64(header({ kid: `${key.kid}x` }))}.${goodPayload}.${goodSignature}`,
+      'tampered header (same kid, extra field)': `${b64(header({ cty: 'JWT' }))}.${goodPayload}.${goodSignature}`,
     };
   };
 

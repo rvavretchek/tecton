@@ -86,4 +86,10 @@ describe('buildOpenApiDocument security (Story 2.4)', () => {
     expect(archive['security']).toBeUndefined();
     expect(archive['responses']).not.toHaveProperty('403');
   });
+
+  it('declares no security scheme for a manifest with only public actions (review P16)', async () => {
+    const doc = (await buildOpenApiDocument(manifestOf(source('{ displayName: string }').replace('auth: { requires: [tenant:create] }', 'auth: { public: true }')))) as Doc;
+
+    expect(doc['components']?.['securitySchemes']).toBeUndefined();
+  });
 });

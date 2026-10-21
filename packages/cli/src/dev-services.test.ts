@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { parse } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 import { run } from './cli.js';
-import { databasesSql, envExample } from './dev-services.js';
+import { appEnvExample, databasesSql } from './dev-services.js';
 
 const created: string[] = [];
 afterEach(() => {
@@ -89,9 +89,10 @@ describe('one logical database per domain (AC 1, AC 2)', () => {
     const sql = read(root, 'dev-services/databases.sql');
     expect(sql).toContain("SELECT 'CREATE DATABASE \"finance\"' WHERE NOT EXISTS (SELECT FROM pg_database WHERE datname = 'finance')\\gexec");
     expect(sql).toContain('leave_requests');
-    const env = read(root, '.env.example');
-    expect(env).toContain('TECTON_FINANCE_DATABASE_URL=postgresql://tecton:tecton@localhost:5432/finance');
-    expect(env).toContain('TECTON_LEAVE_REQUESTS_DATABASE_URL=postgresql://tecton:tecton@localhost:5432/leave_requests');
+    expect(read(root, 'apps/domains/finance/.env.example')).toContain('TECTON_FINANCE_DATABASE_URL=postgresql://tecton:tecton@localhost:5432/finance');
+    expect(read(root, 'apps/domains/leave-requests/.env.example')).toContain(
+      'TECTON_LEAVE_REQUESTS_DATABASE_URL=postgresql://tecton:tecton@localhost:5432/leave_requests',
+    );
   });
 
   it('Given a domain generated later, When generate runs again, Then its database is added too', async () => {
@@ -103,7 +104,7 @@ describe('one logical database per domain (AC 1, AC 2)', () => {
     expect(sql).toContain('CREATE DATABASE IF NOT EXISTS `finance`;');
     expect(sql).toContain('CREATE DATABASE IF NOT EXISTS `billing`;');
     expect(sql).toContain("GRANT ALL PRIVILEGES ON `billing`.* TO 'tecton'@'%';");
-    expect(read(root, '.env.example')).toContain('TECTON_BILLING_DATABASE_URL=mysql://tecton:tecton@localhost:3306/billing');
+    expect(read(root, 'apps/domains/billing/.env.example')).toContain('TECTON_BILLING_DATABASE_URL=mysql://tecton:tecton@localhost:3306/billing');
   });
 });
 
@@ -113,7 +114,7 @@ describe('generators', () => {
   });
 
   it('use the mysql URL scheme for MariaDB (Prisma mysql provider)', () => {
-    expect(envExample('mariadb', ['finance'])).toContain('mysql://tecton:tecton@localhost:3306/finance');
+    expect(appEnvExample('mariadb', 'finance')).toContain('mysql://tecton:tecton@localhost:3306/finance');
   });
 });
 
@@ -125,8 +126,9 @@ describe('Dev Services and the Auth service (Story 2.2b, AC 5)', () => {
     const sql = read(root, 'dev-services/databases.sql');
     expect(sql).toContain('-- auth');
     expect(sql.indexOf('-- auth')).toBeLessThan(sql.indexOf('-- finance'));
-    const env = read(root, '.env.example');
+    const env = read(root, 'apps/auth/.env.example');
     expect(env).toContain('TECTON_AUTH_DATABASE_URL=postgresql://tecton:tecton@localhost:5432/auth');
+    expect(env).toMatch(/^PORT=3001$/m);
     expect(env).toContain('# TECTON_AUTH_PEPPER=');
     expect(env).toContain('# TECTON_AUTH_SIGNING_KEY=');
     expect(env).not.toMatch(/^TECTON_AUTH_(PEPPER|SIGNING_KEY)=/m);
@@ -137,7 +139,18 @@ describe('Dev Services and the Auth service (Story 2.2b, AC 5)', () => {
     const env = read(root, '.env.example');
 
     expect(env).toMatch(/^TECTON_ENV=development$/m);
-    expect(env).toMatch(/^TECTON_JWKS_URL=http:\/\/127\.0\.0\.1:3000\/auth\/\.well-known\/jwks\.json$/m);
+    expect(env).toMatch(/^TECTON_JWKS_URL=http:\/\/127\.0\.0\.1:3001\/auth\/\.well-known\/jwks\.json$/m);
+  });
+
+  it('keeps secrets and database URLs out of the shared file, and each app to its own (Story 2.4 review D1)', async () => {
+    const root = await workspace();
+    await cli(['generate', 'domain', 'finance', 'billing'], root);
+
+    expect(read(root, '.env.example')).not.toMatch(/DATABASE_URL|PEPPER|SIGNING_KEY|^PORT=/m);
+    const finance = read(root, 'apps/domains/finance/.env.example');
+    expect(finance).toContain('TECTON_FINANCE_DATABASE_URL=');
+    expect(finance).not.toMatch(/AUTH|BILLING|PEPPER|SIGNING_KEY/);
+    expect(read(root, 'apps/auth/.env.example')).not.toMatch(/FINANCE|BILLING/);
   });
 });
 

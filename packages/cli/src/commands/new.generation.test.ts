@@ -63,40 +63,51 @@ describe('tecton-admin generate domain — walking skeleton runs (Story 1.10, AC
     const lintIo = { cwd: workspace, stdout: { write: (text: string) => void (lintOutput += text) }, stderr: { write: (text: string) => void (lintOutput += text) } };
     expect(await run(['lint'], lintIo), lintOutput).toBe(0);
 
-    // apps/auth starts from the workspace .env, as its start script does (review P5 of 2.2b).
-    // The database is never reached: the JWKS needs none, and Prisma connects lazily.
+    // One .env per app (Story 2.4 review D1): the workspace .env holds only shared settings, and
+    // the Auth secrets live in apps/auth/.env. Each start script reads the workspace .env and then
+    // its own. The database is never reached: the JWKS needs none, and Prisma connects lazily.
     const authPort = await freePort();
+    const port = await freePort();
     const signingKey = generateKeyPairSync('ed25519').privateKey.export({ format: 'pem', type: 'pkcs8' }).toString();
+    const pepper = 'generation-test-pepper-with-32-bytes!';
+    const lines = (...values: string[]) => [...values, ''].join('\n');
+    writeFileSync(join(workspace, '.env'), lines('TECTON_ENV=development', `TECTON_JWKS_URL=http://127.0.0.1:${authPort}/auth/.well-known/jwks.json`));
+    const authDir = join(workspace, 'apps', 'auth');
     writeFileSync(
-      join(workspace, '.env'),
-      [
+      join(authDir, '.env'),
+      lines(
         'TECTON_AUTH_DATABASE_URL=postgresql://tecton:tecton@127.0.0.1:1/auth',
-        'TECTON_AUTH_PEPPER=generation-test-pepper-with-32-bytes!',
+        `TECTON_AUTH_PEPPER=${pepper}`,
         `TECTON_AUTH_SIGNING_KEY="${signingKey.trimEnd().split('\n').join('\\n')}"`,
         `PORT=${authPort}`,
-        // The domain verifies its tokens against the JWKS of apps/auth (Story 2.4).
-        'TECTON_ENV=development',
-        `TECTON_JWKS_URL=http://127.0.0.1:${authPort}/auth/.well-known/jwks.json`,
-        '',
-      ].join('\n'),
+      ),
     );
-    const authDir = join(workspace, 'apps', 'auth');
-    const authScripts = JSON.parse(readFileSync(join(authDir, 'package.json'), 'utf8')) as { scripts: { start: string } };
-    expect(authScripts.scripts.start).toBe('node --env-file-if-exists=../../.env dist/main.js');
-    const authService = spawn(process.execPath, ['--env-file-if-exists=../../.env', 'dist/main.js'], { cwd: authDir, env: { ...process.env } });
+    writeFileSync(join(domainDir, '.env'), lines(`PORT=${port}`));
+    const { PORT: _port, ...baseEnv } = process.env;
+    /** Runs a package "start" script the way pnpm would, so the test can stop it reliably. */
+    const startOf = (dir: string, expected: string) => {
+      const scripts = (JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as { scripts: { start: string } }).scripts;
+      expect(scripts.start).toBe(expected);
+      return spawn(process.execPath, scripts.start.split(' ').slice(1), { cwd: dir, env: baseEnv });
+    };
+
+    // A domain never sees the Auth secrets, whatever the files hold.
+    const probe = spawnSync(
+      process.execPath,
+      ['--env-file-if-exists=../../../.env', '--env-file-if-exists=.env', '-e', 'console.log(JSON.stringify(process.env))'],
+      { cwd: domainDir, encoding: 'utf8', env: baseEnv },
+    );
+    const domainEnv = JSON.parse(probe.stdout) as Record<string, string>;
+    expect(domainEnv['TECTON_JWKS_URL']).toContain(String(authPort));
+    expect(Object.keys(domainEnv).filter((name) => name.startsWith('TECTON_AUTH_'))).toEqual([]);
+
+    const authService = startOf(authDir, 'node --env-file-if-exists=../../.env --env-file-if-exists=.env dist/main.js');
     try {
       const jwks = await waitForGet(`http://127.0.0.1:${authPort}/auth/.well-known/jwks.json`);
       expect(jwks.status).toBe(200);
       expect(((await jwks.json()) as { keys: unknown[] }).keys).toHaveLength(1);
 
-      // The domain reads the same workspace .env (its start script); PORT is overridden here.
-      const domainScripts = JSON.parse(readFileSync(join(domainDir, 'package.json'), 'utf8')) as { scripts: { start: string } };
-      expect(domainScripts.scripts.start).toBe('node --env-file-if-exists=../../../.env dist/main.js');
-      const port = await freePort();
-      const service = spawn(process.execPath, ['--env-file-if-exists=../../../.env', 'dist/main.js'], {
-        cwd: domainDir,
-        env: { ...process.env, PORT: String(port) },
-      });
+      const service = startOf(domainDir, 'node --env-file-if-exists=../../../.env --env-file-if-exists=.env dist/main.js');
       try {
         const url = `http://127.0.0.1:${port}/finance/close-month`;
         expect((await waitForResponse(url, { month: '2026-10' })).status).toBe(401);

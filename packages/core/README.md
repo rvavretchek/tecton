@@ -38,17 +38,28 @@ at startup when a setting is missing or invalid:
 | `TECTON_AUTH_ISSUER`, `TECTON_AUTH_AUDIENCE` | expected `iss` and `aud`; defaults `urn:tecton:auth` and `urn:tecton:api`, the same as the Auth service |
 | `TECTON_JWKS_CA_FILE` | optional PEM file of the CA that signs the JWKS certificate, trusted for that request only |
 
+In a generated workspace these come from the workspace `.env` (shared, no secrets), and the
+domain's own database from `apps/domains/<domain>/.env`.
+
 ### JWKS fetching
 
 - A redirect is never followed: any 3xx is refused, so no one on the internal network can hand
   out a fake key.
-- Keys are cached for 5 minutes, the same as the `Cache-Control` of the Auth JWKS.
-- A token with an unknown `kid` fetches the JWKS again only if the last fetch is older than
-  30 seconds, so a burst of unknown tokens costs at most one fetch. A key published during a
-  rotation (Auth, three-step rotation) is found that way.
-- Each fetch has a 5-second limit and reads at most 64 KiB of JSON.
+- Keys are cached for 5 minutes, the same as the `Cache-Control` of the Auth JWKS. A key removed
+  from the JWKS can stay trusted for that long; immediate revocation is the `TokenRevocationStore`
+  (Story 2.5).
+- A token with an unknown `kid` fetches the JWKS again only if the last attempt, successful or
+  not, is older than 30 seconds: a burst of unknown tokens costs at most one fetch. A key published
+  during a rotation (Auth, three-step rotation) is found that way.
+- After a failed fetch, no new fetch starts for 5 seconds (the `Retry-After`): requests fail fast
+  with 503 instead of each waiting on a struggling Auth service.
+- Each fetch has a 5-second limit and reads at most 64 KiB of JSON. A duplicated `kid` or an
+  invalid JWKS is unavailability (503), never a bad token: a broken JWKS must not log users out.
 - When the cache expires and the Auth service stays unreachable, the old keys are not used:
-  every protected action answers 503 until a fetch succeeds.
+  every protected action answers 503 until a fetch succeeds. The reason (refused redirect, TLS
+  error, timeout...) is logged as a warning, without the URL or the token.
+- A clock skew of up to 30 seconds is accepted on `exp` and `iat`; a token issued further in the
+  future is refused.
 
-The registration of routes refuses a manifest with protected actions but no verifier: a protected
-route never runs unverified.
+The registration of routes refuses a manifest with protected actions but no verifier, and a
+protected action that requires no permission: a protected route never runs unverified.

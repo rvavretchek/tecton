@@ -10,7 +10,7 @@ import { join } from 'node:path';
 // NODE_EXTRA_CA_CERTS. The certificates are made with the openssl binary (no dependency).
 
 /** How the server answers the next JWKS requests. */
-export type JwksMode = 'ok' | 'redirect' | 'error' | 'invalid-json' | 'html' | 'slow' | 'huge';
+export type JwksMode = 'ok' | 'redirect' | 'error' | 'invalid-json' | 'html' | 'slow' | 'huge' | 'truncated';
 
 export interface JwksTlsServer {
   /** https://127.0.0.1:<port>/auth/.well-known/jwks.json */
@@ -20,6 +20,8 @@ export interface JwksTlsServer {
   /** Replaces the published keys. */
   setKeys(keys: unknown[]): void;
   setMode(mode: JwksMode): void;
+  /** Where the "redirect" mode points (default: a host that does not resolve). */
+  setRedirect(location: string): void;
   /** Number of JWKS requests received so far. */
   requests(): number;
   stop(): Promise<void>;
@@ -61,6 +63,7 @@ export async function jwksTls(options: { keys?: unknown[]; slowMs?: number } = {
   const { ca, key, cert } = createTestCertificates();
   let keys = options.keys ?? [];
   let mode: JwksMode = 'ok';
+  let redirectTo = 'https://attacker.example/auth/.well-known/jwks.json';
   let count = 0;
   const server = createServer({ key, cert }, (request, response) => {
     if (request.url !== JWKS_TEST_PATH) {
@@ -71,7 +74,7 @@ export async function jwksTls(options: { keys?: unknown[]; slowMs?: number } = {
     const json = (body: string) => response.writeHead(200, { 'content-type': 'application/json' }).end(body);
     switch (mode) {
       case 'redirect':
-        response.writeHead(302, { location: 'https://attacker.example/auth/.well-known/jwks.json' }).end();
+        response.writeHead(302, { location: redirectTo }).end();
         return;
       case 'error':
         response.writeHead(500).end();
@@ -81,6 +84,12 @@ export async function jwksTls(options: { keys?: unknown[]; slowMs?: number } = {
         return;
       case 'html':
         response.writeHead(200, { 'content-type': 'text/html' }).end('<html></html>');
+        return;
+      case 'truncated':
+        // Promises a full body, sends part of it and drops the connection.
+        response.writeHead(200, { 'content-type': 'application/json', 'content-length': '1000' });
+        response.write('{"keys": [');
+        setTimeout(() => response.socket?.destroy(), 50).unref();
         return;
       case 'huge':
         json(JSON.stringify({ keys, padding: 'x'.repeat(100 * 1024) }));
@@ -99,6 +108,7 @@ export async function jwksTls(options: { keys?: unknown[]; slowMs?: number } = {
     ca,
     setKeys: (next) => void (keys = next),
     setMode: (next) => void (mode = next),
+    setRedirect: (location) => void (redirectTo = location),
     requests: () => count,
     stop: () =>
       new Promise((resolve) => {
