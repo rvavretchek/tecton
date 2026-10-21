@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream';
-import { createArgon2idAuthProvider, RevocationStoreUnavailableError } from '@tecton/providers';
-import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, createTestSigningKey, ed25519KeyPairPem, tokenFactory } from '#test-support';
+import { createArgon2idAuthProvider, RevocationStoreUnavailableError, LoginLockoutUnavailableError } from '@tecton/providers';
+import { assertNoSecretsLeaked, createMemoryLoginLockout, createMemoryTokenRevocationStore, createTestClock, createTestSigningKey, ed25519KeyPairPem, tokenFactory } from '#test-support';
 import { decodeJwt } from 'jose';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
@@ -52,6 +52,7 @@ async function service(options: { issuer?: string; audience?: string } = {}) {
   const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'), () => clock.now());
   const refresh = createMemoryRefreshTokenStore();
   const app = await createAuthService({
+    lockout: createMemoryLoginLockout(() => new LoginLockoutUnavailableError('down'), () => new Date()),
     store,
     refreshTokens: refresh.store,
     revocations,

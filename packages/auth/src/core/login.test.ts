@@ -1,10 +1,10 @@
-import { createArgon2idAuthProvider, type AuthProvider } from '@tecton/providers';
-import { createTestClock } from '#test-support';
+import { createArgon2idAuthProvider, type AuthProvider, LoginLockoutUnavailableError } from '@tecton/providers';
+import { createMemoryLoginLockout, createTestClock } from '#test-support';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccessTokenIssuer } from './access-token.js';
 import type { Credential } from './credential.js';
 import type { CredentialStore } from './credential-store.js';
-import { InvalidCredentialsError, login } from './login.js';
+import { InvalidCredentialsError, login, LoginLockedError } from './login.js';
 import { createMemoryRefreshTokenStore } from './memory-refresh-token-store.test-helper.js';
 
 const PASSWORD = 'alice-password-123';
@@ -44,8 +44,10 @@ async function setup(options: { status?: 'active' | 'disabled'; auth?: AuthProvi
   };
   const dummyHash = await realAuth.hashPassword('dummy-password-value');
   const refresh = createMemoryRefreshTokenStore();
-  const deps = { store, auth, issuer, clock: createTestClock(), dummyHash, refreshTokens: refresh.store, refreshTtlSeconds: 604_800 };
-  return { deps, updates, credential, refresh };
+  const clock = createTestClock();
+  const lockout = createMemoryLoginLockout(() => new LoginLockoutUnavailableError('down'), () => clock.now());
+  const deps = { store, auth, issuer, clock, dummyHash, refreshTokens: refresh.store, refreshTtlSeconds: 604_800, lockout };
+  return { deps, updates, credential, refresh, lockout, clock };
 }
 
 describe('login (AC 1, AC 2)', () => {
@@ -115,5 +117,90 @@ describe('login (AC 1, AC 2)', () => {
 
     await login(deps, { login: 'alice', password: PASSWORD });
     expect(updates).toEqual([]);
+  });
+});
+
+describe('login lockout (Story 2.6, AC 1 to 6)', () => {
+  const tooMany = async (deps: Awaited<ReturnType<typeof setup>>['deps'], loginValue: string, times: number, password = 'wrong-password-123') => {
+    for (let i = 0; i < times; i += 1) await login(deps, { login: loginValue, password }).catch(() => undefined);
+  };
+
+  it('locks after 5 failures: then even the right password is refused before any lookup or Argon2id', async () => {
+    const spy = { verifyPassword: vi.fn(realAuth.verifyPassword), hashPassword: vi.fn(realAuth.hashPassword) };
+    const { deps } = await setup({ auth: spy });
+    const findByLogin = vi.spyOn(deps.store, 'findByLogin');
+    await tooMany(deps, 'alice', 5);
+    findByLogin.mockClear();
+    spy.verifyPassword.mockClear();
+
+    const error = await login(deps, { login: 'alice', password: PASSWORD }).catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(LoginLockedError);
+    expect((error as LoginLockedError).retryAfterSeconds).toBe(900);
+    expect(findByLogin).not.toHaveBeenCalled();
+    expect(spy.verifyPassword).not.toHaveBeenCalled();
+  });
+
+  it('answers the attempt that reaches the limit with the usual refusal, and reports the lock once', async () => {
+    const { deps } = await setup();
+    const onLocked = vi.fn();
+    const withEvent = { ...deps, onLocked };
+    await tooMany(withEvent, 'alice', 4);
+
+    await expect(login(withEvent, { login: 'alice', password: 'wrong-password-123' })).rejects.toBeInstanceOf(InvalidCredentialsError);
+    expect(onLocked).toHaveBeenCalledTimes(1);
+    expect(onLocked).toHaveBeenCalledWith({ identifier: 'alice', lockSeconds: 900 });
+  });
+
+  it.each([
+    ['an unknown login', 'nobody', 'active'],
+    ['a disabled credential', 'alice', 'disabled'],
+  ] as const)('counts %s like a wrong password (AC 3)', async (_label, loginValue, status) => {
+    const { deps, lockout } = await setup({ status });
+    await tooMany(deps, loginValue, 4, PASSWORD);
+
+    expect(lockout.failures(loginValue)).toBe(4);
+    await tooMany(deps, loginValue, 1, PASSWORD);
+    await expect(login(deps, { login: loginValue, password: PASSWORD })).rejects.toBeInstanceOf(LoginLockedError);
+  });
+
+  it('counts the normalized identifier: case and spaces do not split the count', async () => {
+    const { deps, lockout } = await setup();
+    await login(deps, { login: 'Alice', password: 'wrong-password-123' }).catch(() => undefined);
+    await login(deps, { login: '  ALICE ', password: 'wrong-password-123' }).catch(() => undefined);
+
+    expect(lockout.failures('alice')).toBe(2);
+  });
+
+  it('does not count a malformed login, and never asks the lockout about it', async () => {
+    const { deps, lockout } = await setup();
+    const check = vi.spyOn(lockout, 'check');
+
+    await expect(login(deps, { login: `al${String.fromCodePoint(0x200b)}ice`, password: PASSWORD })).rejects.toBeInstanceOf(InvalidCredentialsError);
+    expect(check).not.toHaveBeenCalled();
+  });
+
+  it('clears the failures on success (AC 5)', async () => {
+    const { deps, lockout } = await setup();
+    await tooMany(deps, 'alice', 4);
+
+    await login(deps, { login: 'alice', password: PASSWORD });
+    expect(lockout.failures('alice')).toBe(0);
+  });
+
+  it('unlocks after the lock duration (clock)', async () => {
+    const { deps, clock } = await setup();
+    await tooMany(deps, 'alice', 5);
+    clock.advance(900_000);
+
+    await expect(login(deps, { login: 'alice', password: PASSWORD })).resolves.toMatchObject({ access: { tokenType: 'Bearer' } });
+  });
+
+  it('fails closed when the lockout is unavailable, before verifying the password (AC 8)', async () => {
+    const spy = { verifyPassword: vi.fn(realAuth.verifyPassword), hashPassword: vi.fn(realAuth.hashPassword) };
+    const { deps, lockout } = await setup({ auth: spy });
+    lockout.setUnavailable(true);
+
+    await expect(login(deps, { login: 'alice', password: PASSWORD })).rejects.toBeInstanceOf(LoginLockoutUnavailableError);
+    expect(spy.verifyPassword).not.toHaveBeenCalled();
   });
 });

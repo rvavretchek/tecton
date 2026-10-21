@@ -1,6 +1,6 @@
 import { Writable } from 'node:stream';
-import { createArgon2idAuthProvider, RevocationStoreUnavailableError } from '@tecton/providers';
-import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, ed25519KeyPairPem } from '#test-support';
+import { createArgon2idAuthProvider, RevocationStoreUnavailableError, LoginLockoutUnavailableError } from '@tecton/providers';
+import { assertNoSecretsLeaked, createMemoryLoginLockout, createMemoryTokenRevocationStore, createTestClock, ed25519KeyPairPem } from '#test-support';
 import { describe, expect, it, vi } from 'vitest';
 import { AuthConfigError, previousPeppersFromEnv, signingKeysFromEnv, tokenSettingsFromEnv, listenSettingsFromEnv } from './adapters/env/config-from-env.js';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
@@ -58,7 +58,8 @@ async function serviceWith(rows: Record<string, Credential | Error>) {
     },
   });
   const app = await createAuthService({
-    revocations: createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down')), store: storeWith(rows), refreshTokens: createMemoryRefreshTokenStore().store, auth, issuer: createAccessTokenIssuer({ keys, clock }), keys, clock, logger: { level: 'info', stream } });
+  lockout: createMemoryLoginLockout(() => new LoginLockoutUnavailableError('down'), () => new Date()),
+  revocations: createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down')), store: storeWith(rows), refreshTokens: createMemoryRefreshTokenStore().store, auth, issuer: createAccessTokenIssuer({ keys, clock }), keys, clock, logger: { level: 'info', stream } });
   return { app, logs: () => lines.join('') };
 }
 
@@ -167,7 +168,7 @@ describe('P1: previous Peppers from the environment', () => {
     };
     const issuer = { issuer: 'urn:tecton:auth', audience: 'urn:tecton:api', issue: async () => ({ accessToken: 't', tokenType: 'Bearer' as const, expiresIn: 900 }) };
 
-    await login({ store, auth: rotated, issuer, clock: createTestClock(), dummyHash: await rotated.hashPassword('dummy-123'), refreshTokens: createMemoryRefreshTokenStore().store, refreshTtlSeconds: 604_800 }, { login: 'alice', password: PASSWORD });
+    await login({ store, auth: rotated, issuer, clock: createTestClock(), dummyHash: await rotated.hashPassword('dummy-123'), refreshTokens: createMemoryRefreshTokenStore().store, refreshTtlSeconds: 604_800, lockout: createMemoryLoginLockout(() => new LoginLockoutUnavailableError('down'), () => new Date()) }, { login: 'alice', password: PASSWORD });
     expect(updates).toHaveLength(1);
     expect(updates[0]).toContain('keyid=Mg');
   });
@@ -226,7 +227,7 @@ describe('P12: conditional re-hash', () => {
     const store: CredentialStore = { ...storeWith({ alice: credential }), updatePasswordHash: update };
     const issuer = { issuer: 'urn:tecton:auth', audience: 'urn:tecton:api', issue: async () => ({ accessToken: 't', tokenType: 'Bearer' as const, expiresIn: 900 }) };
 
-    await login({ store, auth: needsRehash, issuer, clock: createTestClock(), dummyHash: 'd', refreshTokens: createMemoryRefreshTokenStore().store, refreshTtlSeconds: 604_800 }, { login: 'alice', password: PASSWORD });
+    await login({ store, auth: needsRehash, issuer, clock: createTestClock(), dummyHash: 'd', refreshTokens: createMemoryRefreshTokenStore().store, refreshTtlSeconds: 604_800, lockout: createMemoryLoginLockout(() => new LoginLockoutUnavailableError('down'), () => new Date()) }, { login: 'alice', password: PASSWORD });
     expect(update).toHaveBeenCalledWith(credential.id, 'new-hash', expect.any(Date), credential.passwordHash);
   });
 });

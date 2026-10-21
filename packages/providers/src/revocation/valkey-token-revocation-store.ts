@@ -1,5 +1,5 @@
-import { Redis } from 'ioredis';
 import { systemClock, type Clock } from '../clock.js';
+import { closeValkeyClient, createValkeyClient, DEFAULT_VALKEY_TIMEOUT_MS, VALKEY_TIMEOUT_LIMITS, ValkeyConfigError, valkeyClientFromEnv } from '../valkey/valkey-client.js';
 import { assertRevocationId, RevocationStoreUnavailableError, type TokenRevocationStore } from './token-revocation-store.js';
 
 /**
@@ -7,14 +7,14 @@ import { assertRevocationId, RevocationStoreUnavailableError, type TokenRevocati
  * (Story 2.4) plus 30 s more for a verifier whose clock runs behind the Auth service's.
  */
 export const REVOCATION_CLOCK_TOLERANCE_SECONDS = 60;
-export const DEFAULT_REVOCATION_TIMEOUT_MS = 500;
-export const REVOCATION_TIMEOUT_LIMITS = { min: 50, max: 5_000 } as const;
+export const DEFAULT_REVOCATION_TIMEOUT_MS = DEFAULT_VALKEY_TIMEOUT_MS;
+export const REVOCATION_TIMEOUT_LIMITS = VALKEY_TIMEOUT_LIMITS;
 export const DEFAULT_REVOCATION_KEY_PREFIX = 'tecton:revocation:';
 /** Longest access token lifetime (Auth: TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS at most 3600). */
 export const DEFAULT_MAX_TOKEN_LIFETIME_SECONDS = 3_600;
 
 /** Invalid revocation store configuration. Messages name the setting, never its value. */
-export class RevocationStoreConfigError extends Error {
+export class RevocationStoreConfigError extends ValkeyConfigError {
   override readonly name = 'RevocationStoreConfigError';
 }
 
@@ -31,8 +31,13 @@ export interface RevocationClient {
 export interface ValkeyTokenRevocationStoreOptions {
   /** redis:// or rediss:// (TLS). Ignored when `client` is given. */
   url?: string;
-  /** Injected client (tests); the store then never creates a connection. */
+  /** A client given by the caller (tests, or a connection shared with other adapters). */
   client?: RevocationClient;
+  /**
+   * The given client is shared: closing the store leaves it open (its owner closes it). Without
+   * this, the store closes the client it was given, as it closes the one it creates.
+   */
+  shared?: boolean;
   /** Time limit of one command, in milliseconds (default 500). */
   timeoutMs?: number;
   keyPrefix?: string;
@@ -58,49 +63,8 @@ return 1
 
 const DECIMAL = /^\d+$/;
 
-function validatedTimeout(timeoutMs: number): number {
-  if (!Number.isInteger(timeoutMs) || timeoutMs < REVOCATION_TIMEOUT_LIMITS.min || timeoutMs > REVOCATION_TIMEOUT_LIMITS.max) {
-    throw new RevocationStoreConfigError(
-      `the revocation timeout must be an integer between ${REVOCATION_TIMEOUT_LIMITS.min} and ${REVOCATION_TIMEOUT_LIMITS.max} milliseconds`,
-    );
-  }
-  return timeoutMs;
-}
-
-/**
- * The ioredis client of the store: every command fails at once when there is no connection (no
- * offline queue, no retry per command) and after `timeoutMs` when Valkey does not answer, so a
- * check never waits and never passes for "not revoked". It keeps reconnecting in the background.
- */
-function createClient(url: string, timeoutMs: number, onError: (error: Error) => void): RevocationClient {
-  let parsed: URL;
-  try {
-    parsed = new URL(url.trim());
-  } catch {
-    throw new RevocationStoreConfigError('the Valkey URL is not a valid URL');
-  }
-  if (parsed.protocol !== 'redis:' && parsed.protocol !== 'rediss:') {
-    throw new RevocationStoreConfigError('the Valkey URL must use redis:// or rediss://');
-  }
-  // ioredis would fall back to localhost:6379 without a word.
-  if (parsed.hostname === '') throw new RevocationStoreConfigError('the Valkey URL must name a host');
-  const client = new Redis(url.trim(), {
-    commandTimeout: timeoutMs,
-    connectTimeout: Math.max(timeoutMs * 4, 1_000),
-    enableOfflineQueue: false,
-    maxRetriesPerRequest: 0,
-    lazyConnect: true,
-  });
-  client.on('error', onError);
-  // Connects in the background: the service starts even if Valkey is down, and refuses checks
-  // (503) until it is reachable.
-  client.connect().catch(() => undefined);
-  return client;
-}
-
 /** TokenRevocationStore backed by Valkey (FR-14, reference adapter). */
 export function createValkeyTokenRevocationStore(options: ValkeyTokenRevocationStoreOptions): TokenRevocationStore {
-  const timeoutMs = validatedTimeout(options.timeoutMs ?? DEFAULT_REVOCATION_TIMEOUT_MS);
   const prefix = options.keyPrefix ?? DEFAULT_REVOCATION_KEY_PREFIX;
   const lifetime = options.maxTokenLifetimeSeconds ?? DEFAULT_MAX_TOKEN_LIFETIME_SECONDS;
   if (!Number.isInteger(lifetime) || lifetime < 1) throw new RevocationStoreConfigError('maxTokenLifetimeSeconds must be a positive integer');
@@ -110,7 +74,16 @@ export function createValkeyTokenRevocationStore(options: ValkeyTokenRevocationS
     client = options.client;
   } else {
     if (!options.url) throw new RevocationStoreConfigError('a Valkey URL or a client is required');
-    client = createClient(options.url, timeoutMs, options.onError ?? (() => undefined));
+    try {
+      client = createValkeyClient({
+        url: options.url,
+        timeoutMs: options.timeoutMs ?? DEFAULT_REVOCATION_TIMEOUT_MS,
+        ...(options.onError ? { onError: options.onError } : {}),
+      });
+    } catch (error) {
+      if (error instanceof ValkeyConfigError) throw new RevocationStoreConfigError(error.message.replace('Valkey timeout', 'revocation timeout'));
+      throw error;
+    }
   }
   const jtiKey = (tokenId: string) => `${prefix}jti:${tokenId}`;
   const subjectKey = (subject: string) => `${prefix}sub:${subject}`;
@@ -156,14 +129,7 @@ export function createValkeyTokenRevocationStore(options: ValkeyTokenRevocationS
     },
 
     close: async () => {
-      // quit() lets pending replies arrive, but it is refused while there is no connection (no
-      // offline queue) and stalls on a silent Valkey; then the client must be dropped, or it would
-      // keep reconnecting forever and the process would never exit.
-      try {
-        await client.quit();
-      } catch {
-        client.disconnect();
-      }
+      if (!options.shared) await closeValkeyClient(client);
     },
   };
 }
@@ -174,24 +140,15 @@ export function createValkeyTokenRevocationStore(options: ValkeyTokenRevocationS
  */
 export function tokenRevocationStoreFromEnv(
   env: NodeJS.ProcessEnv,
-  options: Omit<ValkeyTokenRevocationStoreOptions, 'url' | 'client' | 'timeoutMs'> = {},
+  options: Omit<ValkeyTokenRevocationStoreOptions, 'url' | 'client' | 'timeoutMs' | 'shared'> = {},
 ): TokenRevocationStore {
-  const url = env['TECTON_VALKEY_URL']?.trim();
-  if (!url) throw new RevocationStoreConfigError('TECTON_VALKEY_URL is not set; point it to the Valkey that keeps token revocations');
-  const rawTimeout = env['TECTON_REVOCATION_TIMEOUT_MS']?.trim();
-  let timeoutMs = DEFAULT_REVOCATION_TIMEOUT_MS;
-  if (rawTimeout) {
-    timeoutMs = DECIMAL.test(rawTimeout) ? Number(rawTimeout) : Number.NaN;
-    if (!Number.isInteger(timeoutMs) || timeoutMs < REVOCATION_TIMEOUT_LIMITS.min || timeoutMs > REVOCATION_TIMEOUT_LIMITS.max) {
-      throw new RevocationStoreConfigError(
-        `TECTON_REVOCATION_TIMEOUT_MS must be a decimal integer between ${REVOCATION_TIMEOUT_LIMITS.min} and ${REVOCATION_TIMEOUT_LIMITS.max}`,
-      );
-    }
-  }
+  let client: RevocationClient;
   try {
-    return createValkeyTokenRevocationStore({ ...options, url, timeoutMs });
+    client = valkeyClientFromEnv(env, options.onError ? { onError: options.onError } : {});
   } catch (error) {
-    if (error instanceof RevocationStoreConfigError) throw new RevocationStoreConfigError(`TECTON_VALKEY_URL: ${error.message}`);
+    if (error instanceof ValkeyConfigError) throw new RevocationStoreConfigError(error.message);
     throw error;
   }
+  // The store owns the client it opened here.
+  return createValkeyTokenRevocationStore({ ...options, client });
 }

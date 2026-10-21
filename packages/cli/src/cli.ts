@@ -1,5 +1,6 @@
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import { authBootstrapCommand } from './commands/auth-bootstrap.js';
+import { authUnlockCommand } from './commands/auth-unlock.js';
 import { generateDomainCommand } from './commands/generate-domain.js';
 import { lintCommand, type OutputFormat } from './commands/lint.js';
 import { newCommand } from './commands/new.js';
@@ -82,6 +83,32 @@ function buildProgram(io: CliIo, setExitCode: (code: number) => void): Command {
     )
     .action(async (options: { login: string }) => {
       setExitCode(await authBootstrapCommand(options, io));
+    });
+  auth
+    .command('unlock')
+    .description(
+      'Remove the login lockout and the failure count of one identifier, before the lock expires. ' +
+        'Works directly on the Valkey of the Auth service.',
+    )
+    .argument('<identifier>', 'login to unlock (normalized like a login: case and spaces do not matter)')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Environment:',
+        '  TECTON_VALKEY_URL  Valkey of the Auth service (redis:// or rediss://)',
+        '',
+        'A lockout follows too many failed logins of one identifier, whoever made them: someone can',
+        'lock another person out on purpose. This command is the remedy.',
+        'Exit codes: 0 unlocked (also when it was not locked), 1 failure.',
+        '',
+        'Example:',
+        '  $ tecton-admin auth unlock alice@example.com',
+        '',
+      ].join('\n'),
+    )
+    .action(async (identifier: string) => {
+      setExitCode(await authUnlockCommand(identifier, io));
     });
 
   return program;

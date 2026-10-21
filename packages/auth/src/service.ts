@@ -3,18 +3,25 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createTectonServer, frameworkErrors, loadDomainManifest, registerActionRoutes, type TectonServerOptions } from '@tecton/core';
 import {
+  closeValkeyClient,
   createArgon2idAuthProvider,
+  createValkeyLoginLockout,
+  createValkeyTokenRevocationStore,
+  lockoutPolicyFromEnv,
+  LoginLockoutUnavailableError,
   pepperFromEnv,
   RevocationStoreUnavailableError,
   systemClock,
-  tokenRevocationStoreFromEnv,
+  valkeyClientFromEnv,
   type AuthProvider,
   type Clock,
+  type LoginLockout,
   type TokenRevocationStore,
+  type ValkeyClient,
 } from '@tecton/providers';
 import type { AccessTokenIssuer } from './core/access-token.js';
 import type { CredentialStore } from './core/credential-store.js';
-import { InvalidCredentialsError, login } from './core/login.js';
+import { InvalidCredentialsError, login, LoginLockedError } from './core/login.js';
 import type { RefreshTokenStore } from './core/refresh-token-store.js';
 import {
   assertRefreshTokenTtl,
@@ -75,6 +82,8 @@ export interface AuthServiceOptions {
    * revokes every access token of the subject issued until then.
    */
   revocations: TokenRevocationStore;
+  /** Lockout by identifier after too many failed logins (Story 2.6). */
+  lockout: LoginLockout;
   clock?: Clock;
   /** Fixed lifetime of a refresh token family, in seconds (default 7 days). */
   refreshTtlSeconds?: number;
@@ -98,6 +107,7 @@ export async function createAuthService({
   issuer,
   keys,
   revocations,
+  lockout,
   clock = systemClock,
   refreshTtlSeconds = REFRESH_TOKEN_TTL.default,
   logger,
@@ -144,6 +154,10 @@ export async function createAuthService({
             dummyHash,
             refreshTokens,
             refreshTtlSeconds,
+            lockout,
+            // Security event (AC 6): the identifier and the duration, never a password.
+            onLocked: ({ identifier, lockSeconds }) =>
+              app.log.warn({ event: 'auth.login.locked', identifier, lockSeconds }, 'login locked after too many failures'),
             onRehashFailure: (error) => app.log.warn({ err: safeError(error) }, 'password re-hash after login failed'),
             onCorruptCredential: corruptCredential('login'),
           },
@@ -153,6 +167,12 @@ export async function createAuthService({
         return access;
       } catch (error) {
         if (error instanceof InvalidCredentialsError) throw frameworkErrors.unauthorized();
+        if (error instanceof LoginLockedError) throw frameworkErrors.tooManyRequests(error.retryAfterSeconds);
+        // Valkey unreachable or slow: never "not locked" (fail closed, AC 8).
+        if (error instanceof LoginLockoutUnavailableError) {
+          app.log.error({ event: 'auth.login.lockout_unavailable', err: safeError(error) }, 'login refused: lockout unavailable');
+          throw frameworkErrors.authUnavailable();
+        }
         throw error;
       }
     },
@@ -208,7 +228,7 @@ export async function createAuthService({
     return jwks;
   });
   app.addHook('onClose', async () => {
-    await Promise.all([store.close(), refreshTokens.close(), revocations.close()]);
+    await Promise.all([store.close(), refreshTokens.close(), revocations.close(), lockout.close()]);
   });
   return app;
 }
@@ -218,8 +238,9 @@ export async function createAuthService({
  * TECTON_AUTH_DATABASE_URL, TECTON_AUTH_PEPPER(_ID), TECTON_AUTH_PREVIOUS_PEPPERS,
  * TECTON_AUTH_SIGNING_KEY, TECTON_AUTH_PREVIOUS_PUBLIC_KEYS, TECTON_AUTH_NEXT_PUBLIC_KEYS,
  * TECTON_AUTH_ISSUER, TECTON_AUTH_AUDIENCE, TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS,
- * TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS, TECTON_VALKEY_URL (token revocation, required),
- * TECTON_REVOCATION_TIMEOUT_MS, PORT and HOST.
+ * TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS, TECTON_VALKEY_URL (token revocation and login lockout,
+ * required), TECTON_REVOCATION_TIMEOUT_MS, TECTON_AUTH_LOCKOUT_MAX_FAILURES,
+ * TECTON_AUTH_LOCKOUT_WINDOW_SECONDS, TECTON_AUTH_LOCKOUT_DURATION_SECONDS, PORT and HOST.
  * If anything fails after the database client is created, it is closed before the error propagates.
  */
 export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.env): Promise<AuthServiceApp> {
@@ -230,6 +251,7 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
   const keys = await signingKeysFromEnv(env);
   const tokens = tokenSettingsFromEnv(env);
   const refreshTtlSeconds = refreshTokenTtlFromEnv(env);
+  const lockoutPolicy = lockoutPolicyFromEnv(env);
   const { port, host } = listenSettingsFromEnv(env);
   const auth = createArgon2idAuthProvider({ peppers: [pepper, ...previousPeppers], currentPepperId: pepper.id });
   const issuer = createAccessTokenIssuer({ keys, clock: systemClock, ...tokens });
@@ -238,14 +260,13 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
   const store = createPrismaCredentialStore({ client });
   const refreshTokens = createPrismaRefreshTokenStore({ client });
   let app: AuthServiceApp | undefined;
-  let revocations: TokenRevocationStore | undefined;
+  let valkey: ValkeyClient | undefined;
   try {
-    // Opens a connection in the background: created inside the try, so a failure closes it.
-    // Subject revocations last as long as the longest access token this service issues.
-    revocations = tokenRevocationStoreFromEnv(env, {
-      maxTokenLifetimeSeconds: tokens.ttlSeconds,
-      onError: (error) => app?.log.warn({ reason: error.message }, 'revocation store connection error'),
-    });
+    // One Valkey connection for revocation and lockout, opened in the background inside the try:
+    // a failure closes it. Subject revocations last as long as the longest access token issued.
+    valkey = valkeyClientFromEnv(env, { onError: (error) => app?.log.warn({ reason: error.message }, 'Valkey connection error') });
+    const revocations = createValkeyTokenRevocationStore({ client: valkey, shared: true, maxTokenLifetimeSeconds: tokens.ttlSeconds });
+    const lockout = createValkeyLoginLockout({ client: valkey, shared: true, ...lockoutPolicy });
     app = await createAuthService({
       store,
       refreshTokens,
@@ -253,14 +274,18 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
       issuer,
       keys,
       revocations,
+      lockout,
       refreshTtlSeconds,
       logger: { level: 'info', redact: LOG_REDACTION },
     });
+    const shared = valkey;
+    app.addHook('onClose', async () => closeValkeyClient(shared));
     await app.listen({ port, host });
     return app;
   } catch (error) {
     // Closing the app closes the client and the store; without an app, close them directly.
-    await (app ? app.close() : Promise.all([client.close(), revocations?.close()])).catch(() => undefined);
+    await (app ? app.close() : client.close()).catch(() => undefined);
+    if (valkey) await closeValkeyClient(valkey);
     throw error;
   }
 }

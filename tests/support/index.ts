@@ -4,6 +4,7 @@ export * from './containers.js';
 export * from './factories.js';
 export * from './jwks-tls.js';
 export * from './keys.js';
+export * from './lockout.js';
 export * from './network-faults.js';
 export * from './revocations.js';
 export * from './secrets.js';

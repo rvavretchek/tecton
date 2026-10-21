@@ -1,6 +1,10 @@
+---
+baseline_commit: 7e28eb841bcb69929efd9493f92fc5eaca68ebbf
+---
+
 # Story 2.6: Bloqueio de login por identificador
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -25,49 +29,49 @@ para que um ataque distribuído contra uma única conta não escape do rate limi
 
 ## Tasks / Subtasks
 
-- [ ] **T1. Cliente Valkey compartilhado (AC: 1, 8)** — `packages/providers`
-  - [ ] Extrair a criação do cliente do adaptador da 2.5 para `src/valkey/valkey-client.ts`: `createValkeyClient({ url, timeoutMs, onError })` com as mesmas opções fail-closed (`commandTimeout`, sem fila offline, sem retry por comando, conexão em segundo plano, `disconnect()` quando o `quit` falha, validação de `redis://`/`rediss://` e de host). `valkeyClientFromEnv(env, options)` lê `TECTON_VALKEY_URL` e `TECTON_REVOCATION_TIMEOUT_MS` (o mesmo tempo limite para todo uso do Valkey; o nome da variável continua por compatibilidade).
-  - [ ] O store de revogação aceita o cliente compartilhado (`{ client }`) além da URL, sem mudar o comportamento da 2.5 (os testes da 2.5 continuam passando). Um store que recebe o cliente não o fecha.
-- [ ] **T2. Porta e adaptador do bloqueio (AC: 1 a 5, 8)** — `packages/providers/src/lockout/`
-  - [ ] Porta `LoginLockout`:
+- [x] **T1. Cliente Valkey compartilhado (AC: 1, 8)** — `packages/providers`
+  - [x] Extrair a criação do cliente do adaptador da 2.5 para `src/valkey/valkey-client.ts`: `createValkeyClient({ url, timeoutMs, onError })` com as mesmas opções fail-closed (`commandTimeout`, sem fila offline, sem retry por comando, conexão em segundo plano, `disconnect()` quando o `quit` falha, validação de `redis://`/`rediss://` e de host). `valkeyClientFromEnv(env, options)` lê `TECTON_VALKEY_URL` e `TECTON_REVOCATION_TIMEOUT_MS` (o mesmo tempo limite para todo uso do Valkey; o nome da variável continua por compatibilidade).
+  - [x] O store de revogação aceita o cliente compartilhado (`{ client }`) além da URL, sem mudar o comportamento da 2.5 (os testes da 2.5 continuam passando). Um store que recebe o cliente não o fecha.
+- [x] **T2. Porta e adaptador do bloqueio (AC: 1 a 5, 8)** — `packages/providers/src/lockout/`
+  - [x] Porta `LoginLockout`:
     - `check(identifier)` → `{ locked: false }` ou `{ locked: true, retryAfterSeconds }`;
     - `recordFailure(identifier)` → `{ lockedNow: boolean, retryAfterSeconds? }` (atômico);
     - `reset(identifier)` (sucesso e `unlock`);
     - `close()`.
-  - [ ] `LoginLockoutUnavailableError` (Valkey inacessível, lento ou resposta inesperada), sem URL.
-  - [ ] Adaptador Valkey `createValkeyLoginLockout({ client | url, maxFailures = 5, windowSeconds = 900, lockSeconds = 900, keyPrefix = 'tecton:lockout:' })`:
+  - [x] `LoginLockoutUnavailableError` (Valkey inacessível, lento ou resposta inesperada), sem URL.
+  - [x] Adaptador Valkey `createValkeyLoginLockout({ client | url, maxFailures = 5, windowSeconds = 900, lockSeconds = 900, keyPrefix = 'tecton:lockout:' })`:
     - chaves pelo SHA-256 em hexadecimal do identificador normalizado (o login não fica em texto no Valkey e o tamanho da chave é fixo): `<prefixo>fail:<hash>` e `<prefixo>lock:<hash>`;
     - `recordFailure` num script Lua: `INCR` do contador, `PEXPIRE` da janela na primeira falha; ao atingir `maxFailures`, grava a chave de bloqueio com `PX` = duração e apaga o contador; devolve se bloqueou agora e o TTL;
     - `check`: `PTTL` da chave de bloqueio (> 0 é bloqueado; `Retry-After` = `ceil(pttl/1000)`);
     - `reset`: `DEL` das duas chaves;
     - todo erro do cliente vira `LoginLockoutUnavailableError`;
     - limites validados na criação: `maxFailures` 1 a 100, janela e duração de 60 a 86400 s.
-  - [ ] `loginLockoutFromEnv(env, { client })`: `TECTON_AUTH_LOCKOUT_MAX_FAILURES`, `TECTON_AUTH_LOCKOUT_WINDOW_SECONDS`, `TECTON_AUTH_LOCKOUT_DURATION_SECONDS` (inteiros decimais, mensagens com o nome da variável).
-  - [ ] Exportar no `index.ts` do `@tecton/providers`.
-- [ ] **T3. Login (AC: 1 a 6, 8)** — `packages/auth/src/core/login.ts` e `service.ts`
-  - [ ] `LoginDependencies.lockout: LoginLockout` (obrigatório).
-  - [ ] Ordem: normalizar → `check` (bloqueado: `LoginLockedError(retryAfterSeconds)`, sem consulta ao banco nem Argon2id) → buscar a credencial e verificar a senha como hoje (um Argon2id sempre) → recusa: `recordFailure` (se bloqueou agora, `onLocked({ identifier, lockSeconds })`) e o `InvalidCredentialsError` de sempre → sucesso: `reset` e a emissão de hoje.
-  - [ ] Login malformado (não normaliza): não conta e não consulta o Valkey (não há identificador; a regra de formato é pública). Continua com o Argon2id fictício e o 401 de sempre.
-  - [ ] `LoginLockoutUnavailableError` em qualquer passo: 503 (`frameworkErrors.authUnavailable()`), sem verificar a senha quando falha no `check`.
-  - [ ] `@tecton/core`: `frameworkErrors.tooManyRequests(retryAfterSeconds)` (429, `too-many-requests`, `tecton.error.tooManyRequests`, `Retry-After`, mensagem genérica) e 429 no esquema das rotas (o Gateway da 3.7 também responde 429).
-  - [ ] Serviço: `onLocked` registra `warn` com `event: 'auth.login.locked'`, o identificador normalizado e a duração; `startAuthServiceFromEnv` cria um cliente Valkey compartilhado pela revogação e pelo bloqueio (uma conexão só), fecha o cliente no `onClose` e na falha de subida.
-- [ ] **T4. `tecton-admin auth unlock <identificador>` (AC: 7)** — `packages/cli`
-  - [ ] Mesmo padrão do `auth bootstrap`: `TECTON_VALKEY_URL` do ambiente (mensagem clara se faltar), identificador normalizado por `normalizeLogin` do `@tecton/auth` (inválido: falha com a mensagem do erro), `reset` pelo adaptador, fecha a conexão em todo caso, erros do Valkey sem a URL.
-  - [ ] Saída: `Unlocked "<identificador normalizado>"` (código 0); falha: código 1. Desbloquear um identificador sem bloqueio é sucesso (idempotente).
-  - [ ] Ajuda em inglês com exemplo, como o `auth bootstrap`.
-- [ ] **T5. README e workspace (AC: 6, 7)**
-  - [ ] README do `@tecton/auth`: bloqueio (padrões, variáveis, 429, inexistente igual, 503 com o Valkey fora), risco aceito do bloqueio provocado e o `auth unlock`; tabela de variáveis.
-  - [ ] Nada novo no `.env.example` (os padrões bastam; o `TECTON_VALKEY_URL` já está na raiz).
-- [ ] **T6. Testes (AC: todos)** — Test Design P0-016 (8) e a parte de lockout de P0-002 (R-09)
-  - [ ] `tests/support`: `createMemoryLoginLockout` com o mesmo contrato e o modo indisponível, usando a `Clock` para a janela e a duração.
-  - [ ] Unitários do adaptador (cliente falso) e do ambiente.
-  - [ ] Containers (Valkey real e Toxiproxy): N falhas bloqueiam com `PTTL` da duração; a janela expira (TTL do contador); sucesso zera; `reset` remove as duas chaves; chave é o hash (o login não aparece nas chaves); Valkey fora e lento → `LoginLockoutUnavailableError` no tempo limite.
-  - [ ] Núcleo (`login.test.ts`, bloqueio em memória): contagem por motivo (senha errada, desativada, inexistente, corrompida); malformado não conta; bloqueado não chama `findByLogin` nem `verifyPassword`; sucesso chama `reset`; `onLocked` uma vez, na tentativa que bloqueia.
-  - [ ] HTTP (`app.inject`): 5 falhas e a 6ª tentativa com a senha certa dá 429 com `Retry-After`; inexistente e existente têm a mesma sequência de respostas (byte a byte, menos `date`); origens diferentes (`x-forwarded-for` distintos) bloqueiam igual; o bloqueio expira pela `clock`; log do evento sem senha; Valkey fora → 503 com `Retry-After` sem Argon2id (P0-016).
-  - [ ] CLI: `auth unlock` normaliza, remove o bloqueio e o contador, é idempotente, falha sem `TECTON_VALKEY_URL` e com identificador inválido, nunca mostra a URL.
-  - [ ] Fase vermelha por mutação (A3), no mínimo: bloqueado verificando a senha; inexistente sem contar; sucesso sem zerar; contagem que não bloqueia no N; Valkey fora tratado como "não bloqueado"; `Retry-After` ausente; `unlock` sem apagar o contador; evento sem o identificador.
-- [ ] **T7. Verificação final**
-  - [ ] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder) e `test:generation`.
+  - [x] `loginLockoutFromEnv(env, { client })`: `TECTON_AUTH_LOCKOUT_MAX_FAILURES`, `TECTON_AUTH_LOCKOUT_WINDOW_SECONDS`, `TECTON_AUTH_LOCKOUT_DURATION_SECONDS` (inteiros decimais, mensagens com o nome da variável).
+  - [x] Exportar no `index.ts` do `@tecton/providers`.
+- [x] **T3. Login (AC: 1 a 6, 8)** — `packages/auth/src/core/login.ts` e `service.ts`
+  - [x] `LoginDependencies.lockout: LoginLockout` (obrigatório).
+  - [x] Ordem: normalizar → `check` (bloqueado: `LoginLockedError(retryAfterSeconds)`, sem consulta ao banco nem Argon2id) → buscar a credencial e verificar a senha como hoje (um Argon2id sempre) → recusa: `recordFailure` (se bloqueou agora, `onLocked({ identifier, lockSeconds })`) e o `InvalidCredentialsError` de sempre → sucesso: `reset` e a emissão de hoje.
+  - [x] Login malformado (não normaliza): não conta e não consulta o Valkey (não há identificador; a regra de formato é pública). Continua com o Argon2id fictício e o 401 de sempre.
+  - [x] `LoginLockoutUnavailableError` em qualquer passo: 503 (`frameworkErrors.authUnavailable()`), sem verificar a senha quando falha no `check`.
+  - [x] `@tecton/core`: `frameworkErrors.tooManyRequests(retryAfterSeconds)` (429, `too-many-requests`, `tecton.error.tooManyRequests`, `Retry-After`, mensagem genérica) e 429 no esquema das rotas (o Gateway da 3.7 também responde 429).
+  - [x] Serviço: `onLocked` registra `warn` com `event: 'auth.login.locked'`, o identificador normalizado e a duração; `startAuthServiceFromEnv` cria um cliente Valkey compartilhado pela revogação e pelo bloqueio (uma conexão só), fecha o cliente no `onClose` e na falha de subida.
+- [x] **T4. `tecton-admin auth unlock <identificador>` (AC: 7)** — `packages/cli`
+  - [x] Mesmo padrão do `auth bootstrap`: `TECTON_VALKEY_URL` do ambiente (mensagem clara se faltar), identificador normalizado por `normalizeLogin` do `@tecton/auth` (inválido: falha com a mensagem do erro), `reset` pelo adaptador, fecha a conexão em todo caso, erros do Valkey sem a URL.
+  - [x] Saída: `Unlocked "<identificador normalizado>"` (código 0); falha: código 1. Desbloquear um identificador sem bloqueio é sucesso (idempotente).
+  - [x] Ajuda em inglês com exemplo, como o `auth bootstrap`.
+- [x] **T5. README e workspace (AC: 6, 7)**
+  - [x] README do `@tecton/auth`: bloqueio (padrões, variáveis, 429, inexistente igual, 503 com o Valkey fora), risco aceito do bloqueio provocado e o `auth unlock`; tabela de variáveis.
+  - [x] Nada novo no `.env.example` (os padrões bastam; o `TECTON_VALKEY_URL` já está na raiz).
+- [x] **T6. Testes (AC: todos)** — Test Design P0-016 (8) e a parte de lockout de P0-002 (R-09)
+  - [x] `tests/support`: `createMemoryLoginLockout` com o mesmo contrato e o modo indisponível, usando a `Clock` para a janela e a duração.
+  - [x] Unitários do adaptador (cliente falso) e do ambiente.
+  - [x] Containers (Valkey real e Toxiproxy): N falhas bloqueiam com `PTTL` da duração; a janela expira (TTL do contador); sucesso zera; `reset` remove as duas chaves; chave é o hash (o login não aparece nas chaves); Valkey fora e lento → `LoginLockoutUnavailableError` no tempo limite.
+  - [x] Núcleo (`login.test.ts`, bloqueio em memória): contagem por motivo (senha errada, desativada, inexistente, corrompida); malformado não conta; bloqueado não chama `findByLogin` nem `verifyPassword`; sucesso chama `reset`; `onLocked` uma vez, na tentativa que bloqueia.
+  - [x] HTTP (`app.inject`): 5 falhas e a 6ª tentativa com a senha certa dá 429 com `Retry-After`; inexistente e existente têm a mesma sequência de respostas (byte a byte, menos `date`); origens diferentes (`x-forwarded-for` distintos) bloqueiam igual; o bloqueio expira pela `clock`; log do evento sem senha; Valkey fora → 503 com `Retry-After` sem Argon2id (P0-016).
+  - [x] CLI: `auth unlock` normaliza, remove o bloqueio e o contador, é idempotente, falha sem `TECTON_VALKEY_URL` e com identificador inválido, nunca mostra a URL.
+  - [x] Fase vermelha por mutação (A3), no mínimo: bloqueado verificando a senha; inexistente sem contar; sucesso sem zerar; contagem que não bloqueia no N; Valkey fora tratado como "não bloqueado"; `Retry-After` ausente; `unlock` sem apagar o contador; evento sem o identificador.
+- [x] **T7. Verificação final**
+  - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder) e `test:generation`.
   - [ ] Code review por story antes da 2.7 (retro A1).
 
 ## Dev Notes
@@ -119,14 +123,57 @@ Nenhuma.
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5)
+
 ### Debug Log References
+
+- **Cliente Valkey compartilhado:** `src/valkey/valkey-client.ts` (`createValkeyClient`, `closeValkeyClient`, `valkeyClientFromEnv`, `ValkeyConfigError`). O store de revogação da 2.5 passou a usá-lo; `RevocationStoreConfigError` virou subclasse de `ValkeyConfigError`, com as mesmas mensagens. Opção nova `shared` no store e no bloqueio: com ela, fechar o adaptador não fecha o cliente. Os 29 testes do store da 2.5 continuaram passando sem mudança.
+- **Uma conexão no Auth:** `startAuthServiceFromEnv` abre um cliente Valkey (dentro do `try`) e o passa à revogação e ao bloqueio como compartilhado; ele fecha no `onClose` e numa falha de subida.
+- **Reset pelo login da credencial:** o sucesso zera pelo `credential.login`, que é o identificador normalizado (a credencial foi achada por ele).
+- **Indentação das linhas inseridas nos testes:** os scripts que acrescentaram `lockout:` (e o `revocations:` da 2.5) nas chamadas de `createAuthService` deixaram a indentação errada; corrigida pela linha seguinte.
+- **Docker remoto inacessível:** o teste do bloqueio com Valkey real e Toxiproxy (`valkey-login-lockout.containers.test.ts`) roda no job `containers` do CI.
+- **Fase vermelha por mutação (A3),** cada uma restaurada:
+
+  | Mutação | Testes que falharam |
+  |---|---|
+  | bloqueado verificando a senha | 6 |
+  | inexistente sem contar | 2 |
+  | sucesso sem zerar | 2 |
+  | contagem que não bloqueia no N | 1 |
+  | Valkey fora tratado como "não bloqueado" | 1 |
+  | `Retry-After` ausente | 1 |
+  | `unlock` sem apagar o contador | 2 |
+  | evento sem o identificador | 1 |
+  | chave com o login em texto | 1 |
+  | `unlock` sem normalizar | 2 |
+
+  O script Lua do contador só se exercita com Valkey real: coberto pelo teste de containers (janela, bloqueio no limite, contador apagado ao bloquear).
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- **Porta e adaptador (`@tecton/providers`):** `LoginLockout` (`check`, `recordFailure`, `reset`, `close`), `LoginLockoutUnavailableError`, política com limites (`lockoutPolicy`), adaptador Valkey com chaves pelo SHA-256 do identificador e contador atômico em Lua, `lockoutPolicyFromEnv` com `TECTON_AUTH_LOCKOUT_MAX_FAILURES`, `TECTON_AUTH_LOCKOUT_WINDOW_SECONDS` e `TECTON_AUTH_LOCKOUT_DURATION_SECONDS`.
+- **Login:** identificador bloqueado é recusado antes de consultar o banco e de rodar Argon2id (`LoginLockedError`, 429 com `Retry-After`); toda recusa de identificador válido conta (inexistente igual a existente); a tentativa que bloqueia ainda é 401; sucesso zera; login malformado não conta; Valkey fora é 503.
+- **Evento de segurança:** `auth.login.locked` com o identificador e a duração.
+- **`@tecton/core`:** `frameworkErrors.tooManyRequests()` e 429 no esquema das rotas.
+- **CLI:** `tecton-admin auth unlock <identificador>`, com normalização, idempotente, sem mostrar a URL.
+- **README do `@tecton/auth`:** bloqueio, variáveis, risco aceito e o `auth unlock`.
+- **Testes:** adaptador (15 unitários e 3 com Valkey real), núcleo do login (8), HTTP (6), CLI (6), OpenAPI (429).
+- **Verificação local:** build, typecheck, `check:deps` (154 módulos), `lint:examples`, `validate:asyncapi`, `test` (856) e `test:generation` (3). `test:containers` e `test:persistence`: pelo CI.
+- **Pendente:** o code review (A1), próximo passo.
 
 ### File List
+
+- `packages/providers/src/valkey/valkey-client.ts` (novo); `src/revocation/valkey-token-revocation-store.ts`, `src/index.ts` (modificados)
+- `packages/providers/src/lockout/{login-lockout,valkey-login-lockout}.ts`, `valkey-login-lockout.test.ts`, `valkey-login-lockout.containers.test.ts` (novos)
+- `packages/core/src/errors/tecton-error.ts`, `src/routes.ts`, `src/openapi.test.ts` (modificados)
+- `packages/auth/src/core/login.ts`, `login.test.ts`, `src/service.ts`, `README.md` (modificados); `src/lockout-http.test.ts` (novo)
+- `packages/auth/src/{service,refresh-http,review-2-2b,revocation-http,revocation.containers}.test.ts`, `adapters/prisma/{prisma-credential-store,prisma-refresh-token-store}.persistence.test.ts` (modificados: bloqueio em memória)
+- `packages/cli/src/commands/auth-unlock.ts`, `auth-unlock.test.ts` (novos); `src/cli.ts` (modificado)
+- `tests/support/lockout.ts` (novo), `tests/support/index.ts` (modificado)
+- Esta story, `sprint-status.yaml`
 
 ## Change Log
 
 - 2026-10-21: Story criada (Create Story).
+- 2026-10-21: Story implementada (Dev Story); teste com Valkey real a confirmar no CI; status → review.

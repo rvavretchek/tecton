@@ -1,6 +1,6 @@
 import { createTokenVerifier, InvalidTokenError } from '@tecton/core';
-import { createArgon2idAuthProvider, createValkeyTokenRevocationStore } from '@tecton/providers';
-import { ed25519KeyPairPem, startValkey, type StartedValkey } from '#test-support';
+import { createArgon2idAuthProvider, createValkeyTokenRevocationStore, LoginLockoutUnavailableError } from '@tecton/providers';
+import { createMemoryLoginLockout, ed25519KeyPairPem, type StartedValkey, startValkey } from '#test-support';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
 import { buildSigningKeys } from './adapters/jose/signing-keys.js';
@@ -42,6 +42,7 @@ describe('token revocation end to end on a real Valkey', () => {
       close: async () => undefined,
     };
     app = await createAuthService({
+      lockout: createMemoryLoginLockout(() => new LoginLockoutUnavailableError('down'), () => new Date()),
       store,
       refreshTokens: createMemoryRefreshTokenStore().store,
       revocations: createValkeyTokenRevocationStore({ url: url() }),

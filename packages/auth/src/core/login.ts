@@ -1,4 +1,4 @@
-import type { AuthProvider, Clock } from '@tecton/providers';
+import type { AuthProvider, Clock, LoginLockout } from '@tecton/providers';
 import type { AccessTokenIssuer } from './access-token.js';
 import { InvalidCredentialError, InvalidLoginError, normalizeLogin, type Credential } from './credential.js';
 import type { CredentialStore } from './credential-store.js';
@@ -16,6 +16,17 @@ export class InvalidCredentialsError extends Error {
   }
 }
 
+/**
+ * Login refused before any check: the identifier is locked after too many failures (Story 2.6).
+ * The same for an existing and an unknown login.
+ */
+export class LoginLockedError extends Error {
+  override readonly name = 'LoginLockedError';
+  constructor(readonly retryAfterSeconds: number) {
+    super('login temporarily locked');
+  }
+}
+
 export interface LoginDependencies {
   store: CredentialStore;
   auth: AuthProvider;
@@ -25,6 +36,10 @@ export interface LoginDependencies {
   refreshTokens: RefreshTokenStore;
   /** Fixed lifetime of the family opened by this login. */
   refreshTtlSeconds: number;
+  /** Lockout by identifier (Story 2.6): counts failures, refuses a locked identifier. */
+  lockout: LoginLockout;
+  /** Called when a failure locks the identifier (security event). */
+  onLocked?: (event: { identifier: string; lockSeconds: number }) => void;
   /**
    * A hash made at startup with the current AuthProvider, verified when the login does not exist,
    * so Argon2id costs the same whether the account exists or not.
@@ -55,8 +70,14 @@ function normalizedOrUndefined(login: string): string | undefined {
  * token family (Story 2.3).
  */
 export async function login(dependencies: LoginDependencies, request: LoginRequest): Promise<SessionTokens> {
-  const { store, auth, issuer, clock, dummyHash } = dependencies;
+  const { store, auth, issuer, clock, dummyHash, lockout } = dependencies;
   const normalized = normalizedOrUndefined(request.login);
+  // A locked identifier is refused before anything else: no database lookup, no Argon2id (AC 2).
+  // A malformed login has no identifier: not counted (the format rule is public).
+  if (normalized !== undefined) {
+    const state = await lockout.check(normalized);
+    if (state.locked) throw new LoginLockedError(state.retryAfterSeconds);
+  }
   let credential: Credential | undefined;
   try {
     credential = normalized === undefined ? undefined : await store.findByLogin(normalized);
@@ -69,7 +90,15 @@ export async function login(dependencies: LoginDependencies, request: LoginReque
   }
   // Always exactly one Argon2id verification, whatever the outcome (Test Design P0-006).
   const verification = await auth.verifyPassword(request.password, credential?.passwordHash ?? dummyHash);
-  if (!credential || !verification.valid || credential.status !== 'active') throw new InvalidCredentialsError();
+  if (!credential || !verification.valid || credential.status !== 'active') {
+    // Every refusal of a valid identifier counts, existing or not (AC 3).
+    if (normalized !== undefined) {
+      const failure = await lockout.recordFailure(normalized);
+      if (failure.lockedNow) dependencies.onLocked?.({ identifier: normalized, lockSeconds: failure.lockSeconds });
+    }
+    throw new InvalidCredentialsError();
+  }
+  await lockout.reset(credential.login);
 
   if (verification.needsRehash) {
     try {

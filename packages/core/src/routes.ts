@@ -50,6 +50,7 @@ function routeSchema(domain: string, action: ManifestAction) {
       200: action.outputSchema,
       400: { description: 'Invalid or unreadable request body', ...ERROR_BODY_SCHEMA },
       401: { description: 'Missing or invalid credentials', ...ERROR_BODY_SCHEMA },
+      429: { description: 'Too many attempts (see Retry-After)', ...ERROR_BODY_SCHEMA },
       ...(protectedAction
         ? {
             403: { description: 'Missing a permission the action requires', ...ERROR_BODY_SCHEMA },

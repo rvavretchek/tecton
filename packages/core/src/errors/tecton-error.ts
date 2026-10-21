@@ -57,6 +57,15 @@ export const frameworkErrors = {
       // RFC 9110 15.5.2: a 401 names the authentication scheme it expects.
       headers: { 'www-authenticate': 'Bearer' },
     }),
+  /** Too many attempts: refused for `retryAfterSeconds` more (login lockout, Story 2.6; rate limit, 3.7). */
+  tooManyRequests: (retryAfterSeconds: number) =>
+    new TectonError({
+      status: 429,
+      slug: 'too-many-requests',
+      i18nKey: 'tecton.error.tooManyRequests',
+      message: 'too many attempts; try again later',
+      headers: { 'retry-after': String(Math.max(1, Math.ceil(retryAfterSeconds))) },
+    }),
   /** Authenticated, but missing a permission the action requires. Never lists which one. */
   forbidden: () =>
     new TectonError({ status: 403, slug: 'forbidden', i18nKey: 'tecton.error.forbidden', message: 'missing permission for this action' }),
