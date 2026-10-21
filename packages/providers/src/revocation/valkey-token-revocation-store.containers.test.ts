@@ -47,15 +47,15 @@ describe('Valkey token revocation store against a real Valkey', () => {
     }
   }
 
-  it('revokes a jti for the time the token has left, plus the tolerance (AC 1)', async () => {
+  it('revokes a jti for the time the token has left, plus the 60-s margin (AC 1)', async () => {
     await untilAvailable();
     const expiresAt = new Date(clock.now().getTime() + 600_000);
 
     await store.revokeToken({ tokenId: 'jti-ttl', expiresAt });
 
     const ttl = await raw.pttl('tecton:revocation:jti:jti-ttl');
-    expect(ttl).toBeGreaterThan(620_000);
-    expect(ttl).toBeLessThanOrEqual(630_000);
+    expect(ttl).toBeGreaterThan(650_000);
+    expect(ttl).toBeLessThanOrEqual(660_000);
     expect(await store.isRevoked({ tokenId: 'jti-ttl', subject: 'alice', issuedAt: clock.now() })).toBe(true);
     expect(await store.isRevoked({ tokenId: 'jti-other', subject: 'alice', issuedAt: clock.now() })).toBe(false);
   });

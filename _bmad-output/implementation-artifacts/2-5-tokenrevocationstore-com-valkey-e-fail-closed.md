@@ -14,7 +14,7 @@ para não precisar esperar a expiração natural quando uma sessão é compromet
 
 ## Acceptance Criteria
 
-1. **Revogação por `jti`.** Dado a porta `TokenRevocationStore` em `@tecton/providers` e o adaptador de referência Valkey, quando um token é revogado pelo `jti`, então a revogação é gravada no Valkey com tempo de vida igual ao que falta para o token expirar (mais a tolerância de relógio de 30 s da 2.4), sob chave com prefixo próprio do framework (`tecton:revocation:`). Um token já expirado não grava nada.
+1. **Revogação por `jti`.** Dado a porta `TokenRevocationStore` em `@tecton/providers` e o adaptador de referência Valkey, quando um token é revogado pelo `jti`, então a revogação é gravada no Valkey com tempo de vida igual ao que falta para o token expirar (mais a tolerância de relógio de 30 s da 2.4; **emenda do code review:** 60 s, somando 30 s para diferença de relógio entre serviços), sob chave com prefixo próprio do framework (`tecton:revocation:`). Um token já expirado não grava nada.
 2. **Rejeição em todo serviço.** Dado um token revogado, quando ele é apresentado a qualquer serviço depois da revogação, então o verificador da Story 2.4 o rejeita com 401, sem esperar o `exp` (FR-14).
 3. **Revogação por sujeito.** Dado uma revogação de todos os tokens de um sujeito (ex.: conta desativada), quando ela é registrada, então todo token desse sujeito com `iat` até o instante da revogação passa a ser rejeitado. Tokens emitidos depois continuam válidos. Uma revogação nova nunca recua o instante já gravado.
 4. **Fail-closed.** Dado um Valkey inacessível ou que não responde dentro do tempo limite configurado (padrão 500 ms), quando um serviço precisa checar a revogação, então a requisição é recusada com **503** e `Retry-After` (a mesma resposta da verificação indisponível da 2.4), nunca tratada como "não revogado" (FR-14, Constitution §9).
@@ -194,7 +194,7 @@ Claude Opus 5.5 (claude-opus-5-5)
 
 - **Code review (2026-10-21):**
   - **`close()` com o Valkey fora (P1):** no `ioredis` 6.0.0, sem fila offline, o `quit` é recusado ("Stream isn't writeable") antes do ramo que desconectaria; o erro era engolido e a reconexão seguia para sempre. Agora o `close` chama `disconnect()` quando o `quit` falha. O teste prova que, depois do `close`, nada reconecta em segundo plano.
-  - **Margem de relógio (P5):** a tolerância dos TTLs passou de 30 s para 60 s (os 30 s que o verificador aceita além do `exp`, mais 30 s para um serviço com relógio atrasado em relação ao Auth).
+  - **Margem de relógio (P5):** a tolerância dos TTLs passou de 30 s para 60 s (os 30 s que o verificador aceita além do `exp`, mais 30 s para um serviço com relógio atrasado em relação ao Auth). O primeiro CI depois do review pegou o teste com Valkey real ainda esperando 30 s (`PTTL` de 659999 contra o teto de 630000); o teste foi ajustado.
   - **Fonte única de `iss`/`aud` (P6):** a porta `AccessTokenIssuer` expõe `issuer` e `audience`; as opções `tokenIssuer`/`tokenAudience` do `createAuthService` saíram.
   - **Reuso aguardado (P2):** `onReuseDetected` pode ser assíncrono e é aguardado antes do 401; uma falha do Valkey continua só no log.
   - **Dono do store (P13):** só o verificador montado pelo `tokenVerifierFromEnv` tem `close()` e fecha o store; um store injetado fica com quem o injetou.
