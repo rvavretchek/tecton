@@ -55,7 +55,8 @@ export interface SessionDependencies extends OpenSessionDependencies {
   credentials: CredentialStore;
   issuer: AccessTokenIssuer;
   /** Called once for every reuse detected, including a replay into an already revoked family. */
-  onReuseDetected?: (event: RefreshReuseEvent) => void;
+  /** Awaited before the refresh is refused: the response never goes out before what it triggers. */
+  onReuseDetected?: (event: RefreshReuseEvent) => void | Promise<void>;
   /** Called when the credential of a session is corrupt; the refresh is refused. */
   onCorruptCredential?: (error: InvalidCredentialError) => void;
 }
@@ -103,7 +104,7 @@ export async function refreshSession(dependencies: SessionDependencies, presente
   });
 
   if (rotation.kind === 'reused' || (rotation.kind === 'revoked' && rotation.tokenWasUsed)) {
-    dependencies.onReuseDetected?.({ familyId: rotation.family.id, subject: rotation.family.credentialId });
+    await dependencies.onReuseDetected?.({ familyId: rotation.family.id, subject: rotation.family.credentialId });
   }
   if (rotation.kind !== 'rotated' || !access) throw new InvalidRefreshTokenError();
   return { access, refresh: { refreshToken: next.token, expiresAt: rotation.family.expiresAt } };

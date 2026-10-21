@@ -2,8 +2,11 @@ import { Redis } from 'ioredis';
 import { systemClock, type Clock } from '../clock.js';
 import { assertRevocationId, RevocationStoreUnavailableError, type TokenRevocationStore } from './token-revocation-store.js';
 
-/** Skew accepted on `exp` by the token verifier (Story 2.4): a revocation must outlive it. */
-export const REVOCATION_CLOCK_TOLERANCE_SECONDS = 30;
+/**
+ * How long a revocation outlives what it covers: the 30 s the verifier accepts past `exp`
+ * (Story 2.4) plus 30 s more for a verifier whose clock runs behind the Auth service's.
+ */
+export const REVOCATION_CLOCK_TOLERANCE_SECONDS = 60;
 export const DEFAULT_REVOCATION_TIMEOUT_MS = 500;
 export const REVOCATION_TIMEOUT_LIMITS = { min: 50, max: 5_000 } as const;
 export const DEFAULT_REVOCATION_KEY_PREFIX = 'tecton:revocation:';
@@ -21,6 +24,8 @@ export interface RevocationClient {
   eval(script: string, numKeys: number, ...args: Array<string | number>): Promise<unknown>;
   mget(...keys: string[]): Promise<Array<string | null>>;
   quit(): Promise<unknown>;
+  /** Drops the connection at once, also while connecting or reconnecting (where quit is refused). */
+  disconnect(): void;
 }
 
 export interface ValkeyTokenRevocationStoreOptions {
@@ -77,6 +82,8 @@ function createClient(url: string, timeoutMs: number, onError: (error: Error) =>
   if (parsed.protocol !== 'redis:' && parsed.protocol !== 'rediss:') {
     throw new RevocationStoreConfigError('the Valkey URL must use redis:// or rediss://');
   }
+  // ioredis would fall back to localhost:6379 without a word.
+  if (parsed.hostname === '') throw new RevocationStoreConfigError('the Valkey URL must name a host');
   const client = new Redis(url.trim(), {
     commandTimeout: timeoutMs,
     connectTimeout: Math.max(timeoutMs * 4, 1_000),
@@ -122,6 +129,7 @@ export function createValkeyTokenRevocationStore(options: ValkeyTokenRevocationS
   return {
     async revokeToken({ tokenId, expiresAt }) {
       assertRevocationId('tokenId', tokenId);
+      if (!Number.isFinite(expiresAt.getTime())) throw new RangeError('expiresAt must be a valid date');
       const remaining = expiresAt.getTime() + REVOCATION_CLOCK_TOLERANCE_SECONDS * 1000 - clock.now().getTime();
       if (remaining <= 0) return;
       await call(() => client.set(jtiKey(tokenId), '1', 'PX', Math.ceil(remaining)));
@@ -148,7 +156,14 @@ export function createValkeyTokenRevocationStore(options: ValkeyTokenRevocationS
     },
 
     close: async () => {
-      await client.quit().catch(() => undefined);
+      // quit() lets pending replies arrive, but it is refused while there is no connection (no
+      // offline queue) and stalls on a silent Valkey; then the client must be dropped, or it would
+      // keep reconnecting forever and the process would never exit.
+      try {
+        await client.quit();
+      } catch {
+        client.disconnect();
+      }
     },
   };
 }

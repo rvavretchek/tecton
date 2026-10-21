@@ -43,3 +43,7 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 ## Deferred from: code review da Story 2.4 (2026-10-20)
 
 - W1 401 e 403 sem os atributos do RFC 6750 no `WWW-Authenticate` (`error="invalid_token"`, `error="insufficient_scope"`) [packages/core/src/errors/tecton-error.ts] — adiado: formato de erro do Epic 5 (FR-24, RFC 9457)
+
+## Deferred from: code review da Story 2.5 (2026-10-21)
+
+- W1 O teste de geração prova o fail-closed (sem Valkey, o domínio responde 503 a um token válido), mas não o caminho feliz até o handler; com Valkey real, só o teste montado à mão (`packages/auth/src/revocation.containers.test.ts`) [packages/cli/src/commands/new.generation.test.ts] — adiado: `tecton-admin dev` (Story 3.13) sobe o Dev Services e permite o ponta a ponta do workspace gerado

@@ -34,6 +34,8 @@ export function createAccessTokenIssuer({
   if (issuer.trim() === '' || audience.trim() === '') throw new RangeError('issuer and audience must not be empty');
 
   return {
+    issuer,
+    audience,
     async issue(credential) {
       const issuedAt = Math.floor(clock.now().getTime() / 1000);
       const accessToken = await new SignJWT({ typ: 'user', perms: [...credential.permissions] })

@@ -165,7 +165,7 @@ describe('P1: previous Peppers from the environment', () => {
         return true;
       },
     };
-    const issuer = { issue: async () => ({ accessToken: 't', tokenType: 'Bearer' as const, expiresIn: 900 }) };
+    const issuer = { issuer: 'urn:tecton:auth', audience: 'urn:tecton:api', issue: async () => ({ accessToken: 't', tokenType: 'Bearer' as const, expiresIn: 900 }) };
 
     await login({ store, auth: rotated, issuer, clock: createTestClock(), dummyHash: await rotated.hashPassword('dummy-123'), refreshTokens: createMemoryRefreshTokenStore().store, refreshTtlSeconds: 604_800 }, { login: 'alice', password: PASSWORD });
     expect(updates).toHaveLength(1);
@@ -224,7 +224,7 @@ describe('P12: conditional re-hash', () => {
     const credential = await credentialOf();
     const update = vi.fn(async () => false);
     const store: CredentialStore = { ...storeWith({ alice: credential }), updatePasswordHash: update };
-    const issuer = { issue: async () => ({ accessToken: 't', tokenType: 'Bearer' as const, expiresIn: 900 }) };
+    const issuer = { issuer: 'urn:tecton:auth', audience: 'urn:tecton:api', issue: async () => ({ accessToken: 't', tokenType: 'Bearer' as const, expiresIn: 900 }) };
 
     await login({ store, auth: needsRehash, issuer, clock: createTestClock(), dummyHash: 'd', refreshTokens: createMemoryRefreshTokenStore().store, refreshTtlSeconds: 604_800 }, { login: 'alice', password: PASSWORD });
     expect(update).toHaveBeenCalledWith(credential.id, 'new-hash', expect.any(Date), credential.passwordHash);

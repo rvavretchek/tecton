@@ -16,7 +16,7 @@ import {
   type TokenVerifierOptions,
 } from './token-verifier.js';
 
-const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'));
+const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'), () => NOW);
 const NOW = new Date('2026-10-20T12:00:00.000Z');
 const key = createTestSigningKey();
 const tokens = tokenFactory(key, { now: NOW });
@@ -350,7 +350,7 @@ describe('verifier settings (Story 2.4 review)', () => {
 
 describe('revocation (Story 2.5, AC 2 to 4)', () => {
   it('refuses a token revoked by jti, and only that one', async () => {
-    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'));
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'), () => NOW);
     const v = verifier({ revocations: store });
     const revoked = tokens.valid({ jti: 'revoked-jti' });
     await store.revokeToken({ tokenId: 'revoked-jti', expiresAt: new Date(NOW.getTime() + 900_000) });
@@ -360,7 +360,7 @@ describe('revocation (Story 2.5, AC 2 to 4)', () => {
   });
 
   it('refuses tokens of a revoked subject issued at or before the instant, and accepts later ones', async () => {
-    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'));
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'), () => NOW);
     const v = verifier({ revocations: store });
     const iat = Math.floor(NOW.getTime() / 1000);
     await store.revokeSubject({ subject: 'user-a', at: NOW });
@@ -372,7 +372,7 @@ describe('revocation (Story 2.5, AC 2 to 4)', () => {
   });
 
   it('fails closed when the store cannot answer: unavailable, never "not revoked"', async () => {
-    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: timeout'));
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: timeout'), () => NOW);
     store.setUnavailable(true);
 
     const error = await verifier({ revocations: store })
@@ -386,7 +386,7 @@ describe('revocation (Story 2.5, AC 2 to 4)', () => {
   });
 
   it('checks revocation only for a token that is otherwise valid', async () => {
-    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'));
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'), () => NOW);
     const isRevoked = vi.spyOn(store, 'isRevoked');
 
     await expect(verifier({ revocations: store }).verify(bearer(tokens.forged()['tampered payload'] as string))).rejects.toBeInstanceOf(InvalidTokenError);
@@ -399,5 +399,27 @@ describe('revocation (Story 2.5, AC 2 to 4)', () => {
 
   it('requires TECTON_VALKEY_URL in the environment, naming it (AC 7)', () => {
     expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url })).toThrow(/^TECTON_VALKEY_URL is not set/);
+  });
+});
+
+describe('revocation review fixes (Story 2.5 review)', () => {
+  it('refuses with 401, not 500, a token whose jti the store cannot hold (P8)', async () => {
+    await expect(verifier().verify(bearer(tokens.valid({ jti: 'x'.repeat(200) })))).rejects.toBeInstanceOf(InvalidTokenError);
+  });
+
+  it('reports a bad Valkey setting as a TokenVerifierConfigError, naming the variable (P11)', () => {
+    expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url })).toThrow(TokenVerifierConfigError);
+    expect(() => tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, TECTON_VALKEY_URL: 'http://valkey' })).toThrow(/^TECTON_VALKEY_URL: /);
+  });
+
+  it('never closes a store its caller gave it; the one built from the environment owns its store (P13)', async () => {
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'), () => NOW);
+    const close = vi.spyOn(store, 'close');
+
+    expect(verifier({ revocations: store }).close).toBeUndefined();
+    const owned = tokenVerifierFromEnv({ TECTON_JWKS_URL: jwks.url, ...NO_VALKEY });
+    expect(typeof owned.close).toBe('function');
+    await owned.close?.();
+    expect(close).not.toHaveBeenCalled();
   });
 });

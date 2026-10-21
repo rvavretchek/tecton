@@ -49,6 +49,8 @@ function setup() {
     close: async () => undefined,
   };
   const issuer: AccessTokenIssuer = {
+    issuer: 'urn:tecton:auth',
+    audience: 'urn:tecton:api',
     issue: async (credential) => ({ accessToken: `token:${credential.permissions.join(',')}`, tokenType: 'Bearer', expiresIn: 900 }),
   };
   const onReuseDetected = vi.fn();

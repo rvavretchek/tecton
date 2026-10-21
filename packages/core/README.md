@@ -51,6 +51,11 @@ given instant, e.g. after a refresh token reuse). A revoked token is a 401. When
 unreachable or slower than the time limit, the request is a 503: a token is never accepted
 without checking revocation (FR-14, fail closed).
 
+A subject revocation covers every token with `iat` (whole seconds) at or before its instant: a
+token issued in the same second, even just after, is refused too (conservative). Revocations
+outlive the tokens they cover by 60 seconds: the 30 s the verifier accepts past `exp`, plus 30 s
+for a service whose clock runs behind the Auth service's.
+
 ### JWKS fetching
 
 - A redirect is never followed: any 3xx is refused, so no one on the internal network can hand

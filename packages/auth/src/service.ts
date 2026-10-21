@@ -34,7 +34,7 @@ import {
   tokenSettingsFromEnv,
 } from './adapters/env/config-from-env.js';
 import { clearRefreshCookie, readRefreshCookie, readRefreshCookies, serializeRefreshCookie } from './adapters/http/refresh-cookie.js';
-import { createAccessTokenIssuer, DEFAULT_AUDIENCE, DEFAULT_ISSUER } from './adapters/jose/access-token-issuer.js';
+import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
 import { createOwnAccessTokenReader } from './adapters/jose/own-access-token.js';
 import type { SigningKeys } from './adapters/jose/signing-keys.js';
 import { createAuthPrismaClient } from './adapters/prisma/client.js';
@@ -75,9 +75,6 @@ export interface AuthServiceOptions {
    * revokes every access token of the subject issued until then.
    */
   revocations: TokenRevocationStore;
-  /** `iss` and `aud` of the access tokens, to recognize this service's own tokens at logout. */
-  tokenIssuer?: string;
-  tokenAudience?: string;
   clock?: Clock;
   /** Fixed lifetime of a refresh token family, in seconds (default 7 days). */
   refreshTtlSeconds?: number;
@@ -101,8 +98,6 @@ export async function createAuthService({
   issuer,
   keys,
   revocations,
-  tokenIssuer = DEFAULT_ISSUER,
-  tokenAudience = DEFAULT_AUDIENCE,
   clock = systemClock,
   refreshTtlSeconds = REFRESH_TOKEN_TTL.default,
   logger,
@@ -121,14 +116,21 @@ export async function createAuthService({
     onCorruptCredential: corruptCredential('refresh'),
     // Security event (AC 4 of 2.3): the family and the subject, never the token or its hash. The
     // access tokens of the subject issued until now are revoked too (Story 2.5, AC 6).
-    onReuseDetected: ({ familyId, subject }) => {
+    onReuseDetected: async ({ familyId, subject }) => {
       app.log.warn({ event: 'auth.refresh_token.reuse', familyId, subject }, 'refresh token reuse detected; family revoked');
-      revocations.revokeSubject({ subject, at: clock.now() }).catch((error: unknown) =>
-        app.log.error({ event: 'auth.refresh_token.reuse.revocation_failed', familyId, subject, err: safeError(error) }, 'access tokens of the subject could not be revoked'),
-      );
+      // Awaited: the 401 never goes out before the access tokens of the subject are revoked.
+      try {
+        await revocations.revokeSubject({ subject, at: clock.now() });
+      } catch (error) {
+        app.log.error(
+          { event: 'auth.refresh_token.reuse.revocation_failed', familyId, subject, err: safeError(error) },
+          'access tokens of the subject could not be revoked',
+        );
+      }
     },
   };
-  const ownAccessToken = createOwnAccessTokenReader({ keys, clock, issuer: tokenIssuer, audience: tokenAudience });
+  // Same iss and aud as the tokens this service signs: one source, so logout recognizes them.
+  const ownAccessToken = createOwnAccessTokenReader({ keys, clock, issuer: issuer.issuer, audience: issuer.audience });
 
   registerActionRoutes(app, loadDomainManifest(AUTH_MANIFEST_PATH), {
     login: async (input, { reply }) => {
@@ -169,10 +171,17 @@ export async function createAuthService({
     logout: async (_input, { request, reply }) => {
       // Cleared first: even when the revocation fails (a 500), the browser drops the cookie.
       reply.header('set-cookie', clearRefreshCookie());
-      await endSession(sessions, readRefreshCookies(request.headers.cookie));
-      // The access token in use, when it is a valid one of this service (Story 2.5, AC 5).
-      const accessToken = await ownAccessToken(request.headers.authorization);
-      if (accessToken) {
+      // The access token in use, when it is a valid one of this service (Story 2.5, AC 5), is
+      // revoked even if revoking the family fails.
+      const revokeAccessToken = async () => {
+        const authorization = request.headers.authorization;
+        const accessToken = await ownAccessToken(authorization);
+        if (!accessToken) {
+          if (authorization !== undefined) {
+            app.log.info({ event: 'auth.logout.bearer_not_recognized' }, 'logout with a Bearer this service did not issue, or an expired one');
+          }
+          return;
+        }
         try {
           await revocations.revokeToken({ tokenId: accessToken.tokenId, expiresAt: accessToken.expiresAt });
         } catch (error) {
@@ -180,6 +189,11 @@ export async function createAuthService({
           app.log.error({ event: 'auth.logout.revocation_failed', err: safeError(error) }, 'access token could not be revoked at logout');
           throw frameworkErrors.authUnavailable();
         }
+      };
+      try {
+        await endSession(sessions, readRefreshCookies(request.headers.cookie));
+      } finally {
+        await revokeAccessToken();
       }
       return {};
     },
@@ -217,8 +231,6 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
   const tokens = tokenSettingsFromEnv(env);
   const refreshTtlSeconds = refreshTokenTtlFromEnv(env);
   const { port, host } = listenSettingsFromEnv(env);
-  // Last of the settings: it opens a connection (in the background).
-  const revocations = tokenRevocationStoreFromEnv(env);
   const auth = createArgon2idAuthProvider({ peppers: [pepper, ...previousPeppers], currentPepperId: pepper.id });
   const issuer = createAccessTokenIssuer({ keys, clock: systemClock, ...tokens });
   // One database client for both stores; it disconnects once, when the app closes.
@@ -226,7 +238,14 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
   const store = createPrismaCredentialStore({ client });
   const refreshTokens = createPrismaRefreshTokenStore({ client });
   let app: AuthServiceApp | undefined;
+  let revocations: TokenRevocationStore | undefined;
   try {
+    // Opens a connection in the background: created inside the try, so a failure closes it.
+    // Subject revocations last as long as the longest access token this service issues.
+    revocations = tokenRevocationStoreFromEnv(env, {
+      maxTokenLifetimeSeconds: tokens.ttlSeconds,
+      onError: (error) => app?.log.warn({ reason: error.message }, 'revocation store connection error'),
+    });
     app = await createAuthService({
       store,
       refreshTokens,
@@ -234,8 +253,6 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
       issuer,
       keys,
       revocations,
-      tokenIssuer: tokens.issuer,
-      tokenAudience: tokens.audience,
       refreshTtlSeconds,
       logger: { level: 'info', redact: LOG_REDACTION },
     });
@@ -243,7 +260,7 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
     return app;
   } catch (error) {
     // Closing the app closes the client and the store; without an app, close them directly.
-    await (app ? app.close() : Promise.all([client.close(), revocations.close()])).catch(() => undefined);
+    await (app ? app.close() : Promise.all([client.close(), revocations?.close()])).catch(() => undefined);
     throw error;
   }
 }

@@ -1,4 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { Writable } from 'node:stream';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { FastifyInstance } from 'fastify';
@@ -94,6 +95,36 @@ describe('startDomainServer token verification (Story 2.4)', () => {
     servers.push(app);
 
     expect((await app.inject({ method: 'POST', url: '/finance/close-month', payload: { month: '2026-10' } })).statusCode).toBe(501);
+  });
+});
+
+describe('startDomainServer revocation store (Story 2.5 review)', () => {
+  it('logs connection problems of its revocation store, without the URL password (P3)', async () => {
+    const lines: string[] = [];
+    const stream = new Writable({
+      write(chunk, _encoding, done) {
+        lines.push(chunk.toString());
+        done();
+      },
+    });
+    const env = { TECTON_JWKS_URL: 'http://127.0.0.1:1/auth/.well-known/jwks.json', TECTON_ENV: 'development', TECTON_VALKEY_URL: 'redis://:s3cret@127.0.0.1:1' };
+    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, env, logger: { level: 'warn', stream } });
+    servers.push(app);
+
+    const deadline = Date.now() + 10_000;
+    while (!lines.join('').includes('revocation store connection error') && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(lines.join('')).toContain('revocation store connection error');
+    expect(lines.join('')).not.toContain('s3cret');
+  });
+
+  it('closes everything it opened when startup fails after the verifier was built (P14)', async () => {
+    const env = { TECTON_JWKS_URL: 'http://127.0.0.1:1/auth/.well-known/jwks.json', TECTON_ENV: 'development', TECTON_VALKEY_URL: 'redis://127.0.0.1:1' };
+    const busy = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, env });
+    servers.push(busy);
+    const address = busy.server.address();
+    const port = typeof address === 'object' && address ? address.port : 0;
+
+    await expect(startDomainServer({ manifestPath: manifestFile(FINANCE), port, env })).rejects.toThrow(/EADDRINUSE/);
   });
 });
 

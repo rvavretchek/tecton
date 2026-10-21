@@ -40,7 +40,11 @@ function fakeClient(options: { fail?: Error } = {}) {
     },
     async quit() {
       calls.push({ command: 'quit', args: [] });
+      if (options.fail) throw options.fail;
       return 'OK';
+    },
+    disconnect() {
+      calls.push({ command: 'disconnect', args: [] });
     },
   };
   return { client, values, calls };
@@ -56,13 +60,13 @@ describe('Valkey token revocation store (Story 2.5, AC 1)', () => {
 
     await revocations.revokeToken({ tokenId: 'jti-1', expiresAt: new Date(NOW.getTime() + 600_000) });
 
-    expect(fake.calls).toEqual([{ command: 'set', args: ['tecton:revocation:jti:jti-1', '1', 'PX', 630_000] }]);
+    expect(fake.calls).toEqual([{ command: 'set', args: ['tecton:revocation:jti:jti-1', '1', 'PX', 660_000] }]);
   });
 
   it('writes nothing for a token that has already expired (beyond the tolerance)', async () => {
     const { fake, store: revocations } = store();
 
-    await revocations.revokeToken({ tokenId: 'jti-1', expiresAt: new Date(NOW.getTime() - 31_000) });
+    await revocations.revokeToken({ tokenId: 'jti-1', expiresAt: new Date(NOW.getTime() - 61_000) });
 
     expect(fake.calls).toEqual([]);
   });
@@ -92,7 +96,7 @@ describe('subject revocation (Story 2.5, AC 3)', () => {
     const { fake, store: revocations } = store();
     await revocations.revokeSubject({ subject: 'alice', at: NOW });
 
-    expect(fake.calls[0]).toEqual({ command: 'eval', args: [1, 'tecton:revocation:sub:alice', String(NOW.getTime()), 3_630] });
+    expect(fake.calls[0]).toEqual({ command: 'eval', args: [1, 'tecton:revocation:sub:alice', String(NOW.getTime()), 3_660] });
   });
 
   it('counts a corrupt subject value as revoked (fail closed)', async () => {
@@ -167,5 +171,38 @@ describe('configuration (Story 2.5, AC 7)', () => {
     } finally {
       await revocations.close();
     }
+  });
+});
+
+describe('review fixes (Story 2.5 review)', () => {
+  it('drops the connection when quit is refused (no connection, or Valkey silent) (P1)', async () => {
+    const fake = fakeClient({ fail: new Error("Stream isn't writeable and enableOfflineQueue options is false") });
+    const { store: revocations } = store(fake);
+
+    await revocations.close();
+
+    expect(fake.calls.map((call) => call.command)).toEqual(['quit', 'disconnect']);
+  });
+
+  it('really stops a client that cannot reach Valkey, so the process can exit (P1)', async () => {
+    const revocations = tokenRevocationStoreFromEnv({ TECTON_VALKEY_URL: 'redis://127.0.0.1:1' });
+    await revocations.close();
+    const started = Date.now();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+
+    // After close, every call fails at once and nothing reconnects in the background.
+    await expect(revocations.isRevoked({ tokenId: 'a', subject: 'alice', issuedAt: NOW })).rejects.toBeInstanceOf(RevocationStoreUnavailableError);
+    expect(Date.now() - started).toBeLessThan(1_500);
+  });
+
+  it('refuses an invalid expiry as a programming error, never sending it to Valkey (P9)', async () => {
+    const { fake, store: revocations } = store();
+
+    await expect(revocations.revokeToken({ tokenId: 'a', expiresAt: new Date(Number.NaN) })).rejects.toThrow(RangeError);
+    expect(fake.calls).toEqual([]);
+  });
+
+  it.each(['redis://', 'rediss://'])('refuses a URL without a host: %s (P10)', (url) => {
+    expect(() => tokenRevocationStoreFromEnv({ TECTON_VALKEY_URL: url })).toThrow(/^TECTON_VALKEY_URL: the Valkey URL must name a host$/);
   });
 });

@@ -2,7 +2,7 @@ import { X509Certificate } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
-import { RevocationStoreUnavailableError, tokenRevocationStoreFromEnv, type TokenRevocationStore } from '@tecton/providers';
+import { RevocationStoreConfigError, RevocationStoreUnavailableError, tokenRevocationStoreFromEnv, type TokenRevocationStore } from '@tecton/providers';
 import { createLocalJWKSet, decodeProtectedHeader, errors, jwtVerify, type FlattenedJWSInput, type JWK, type JWSHeaderParameters } from 'jose';
 
 // Local token verification of every service (Story 2.4, AD-7): EdDSA signatures checked against
@@ -60,7 +60,10 @@ export class TokenVerifierConfigError extends Error {
 export interface TokenVerifier {
   /** Verifies an Authorization header value (`Bearer <token>`). */
   verify(authorization: string | undefined): Promise<Principal>;
-  /** Releases what the verifier holds (the revocation store connection). */
+  /**
+   * Releases what the verifier owns: only a verifier built by tokenVerifierFromEnv owns its
+   * revocation store; one given a store by its caller leaves it to the caller.
+   */
   close?(): Promise<void>;
 }
 
@@ -254,7 +257,6 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
   };
 
   return {
-    close: () => revocations.close(),
     async verify(authorization) {
       const match = typeof authorization === 'string' && authorization.length <= MAX_TOKEN_LENGTH + 7 ? BEARER.exec(authorization) : null;
       const token = match?.[1];
@@ -302,6 +304,8 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
         if (error instanceof RevocationStoreUnavailableError) {
           throw new TokenVerificationUnavailableError(`revocation could not be checked: ${error.message}`, { cause: error });
         }
+        // An id the store cannot hold (too long, control characters) is not a token of ours.
+        if (error instanceof RangeError) throw new InvalidTokenError();
         throw error;
       }
       if (revoked) throw new InvalidTokenError();
@@ -316,7 +320,10 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
  * TECTON_ENV (only "development" allows an http JWKS URL), TECTON_JWKS_CA_FILE (optional PEM),
  * and the revocation store: TECTON_VALKEY_URL (required) and TECTON_REVOCATION_TIMEOUT_MS.
  */
-export function tokenVerifierFromEnv(env: NodeJS.ProcessEnv): TokenVerifier {
+export function tokenVerifierFromEnv(
+  env: NodeJS.ProcessEnv,
+  options: { onRevocationStoreError?: (error: Error) => void } = {},
+): TokenVerifier {
   const jwksUrl = env['TECTON_JWKS_URL']?.trim();
   if (!jwksUrl) {
     throw new TokenVerifierConfigError(
@@ -345,9 +352,16 @@ export function tokenVerifierFromEnv(env: NodeJS.ProcessEnv): TokenVerifier {
     throw error;
   }
   // TECTON_VALKEY_URL and TECTON_REVOCATION_TIMEOUT_MS: required, the store names its variables.
-  const revocations = tokenRevocationStoreFromEnv(env);
+  let revocations: TokenRevocationStore;
   try {
-    return createTokenVerifier({
+    revocations = tokenRevocationStoreFromEnv(env, options.onRevocationStoreError ? { onError: options.onRevocationStoreError } : {});
+  } catch (error) {
+    // One error class for every setting of the verifier.
+    if (error instanceof RevocationStoreConfigError) throw new TokenVerifierConfigError(error.message);
+    throw error;
+  }
+  try {
+    const verifier = createTokenVerifier({
       jwksUrl,
       issuer: text('TECTON_AUTH_ISSUER', DEFAULT_ISSUER),
       audience: text('TECTON_AUTH_AUDIENCE', DEFAULT_AUDIENCE),
@@ -355,6 +369,8 @@ export function tokenVerifierFromEnv(env: NodeJS.ProcessEnv): TokenVerifier {
       revocations,
       ...(ca === undefined ? {} : { ca }),
     });
+    // This verifier owns the store it opened.
+    return { verify: (authorization) => verifier.verify(authorization), close: () => revocations.close() };
   } catch (error) {
     // The store connects in the background: release it when the verifier cannot be built.
     void revocations.close();

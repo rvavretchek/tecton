@@ -13,8 +13,21 @@ export interface MemoryTokenRevocationStore {
   revokedSubjects(): Array<{ subject: string; at: Date }>;
 }
 
-/** `unavailable` builds the error the code under test expects (RevocationStoreUnavailableError). */
-export function createMemoryTokenRevocationStore(unavailable: () => Error): MemoryTokenRevocationStore {
+/** Same margin as the Valkey adapter: a revocation outlives the token by 60 s. */
+const TOLERANCE_MS = 60_000;
+
+/** Same id rule as the Valkey adapter (assertRevocationId of @tecton/providers). */
+function assertId(name: string, value: unknown): void {
+  if (typeof value !== 'string' || value === '' || value.length > 128 || /[\x00-\x1f\x7f]/.test(value)) {
+    throw new RangeError(`${name} must be a non-empty string of at most 128 characters without control characters`);
+  }
+}
+
+/**
+ * `unavailable` builds the error the code under test expects (RevocationStoreUnavailableError).
+ * `now` is the clock of the expiry rule (a token already expired is not recorded).
+ */
+export function createMemoryTokenRevocationStore(unavailable: () => Error, now: () => Date = () => new Date()): MemoryTokenRevocationStore {
   const tokens = new Map<string, Date>();
   const subjects = new Map<string, Date>();
   let down = false;
@@ -23,15 +36,20 @@ export function createMemoryTokenRevocationStore(unavailable: () => Error): Memo
   };
   return {
     async revokeToken({ tokenId, expiresAt }) {
+      assertId('tokenId', tokenId);
       check();
+      if (expiresAt.getTime() + TOLERANCE_MS <= now().getTime()) return;
       tokens.set(tokenId, new Date(expiresAt));
     },
     async revokeSubject({ subject, at }) {
+      assertId('subject', subject);
       check();
       const current = subjects.get(subject);
       if (!current || current.getTime() < at.getTime()) subjects.set(subject, new Date(at));
     },
     async isRevoked({ tokenId, subject, issuedAt }) {
+      assertId('tokenId', tokenId);
+      assertId('subject', subject);
       check();
       if (tokens.has(tokenId)) return true;
       const at = subjects.get(subject);

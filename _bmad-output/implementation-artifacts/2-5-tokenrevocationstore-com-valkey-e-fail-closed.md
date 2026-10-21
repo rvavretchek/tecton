@@ -4,7 +4,7 @@ baseline_commit: eabf516ee6a2507ba2afca751b93c92c8ca5a85a
 
 # Story 2.5: `TokenRevocationStore` com Valkey e fail-closed
 
-Status: review
+Status: done
 
 ## Story
 
@@ -74,7 +74,38 @@ para não precisar esperar a expiração natural quando uma sessão é compromet
   - [x] Fase vermelha por mutação (A3), no mínimo: revogado tratado como não revogado; erro do Valkey tratado como não revogado; TTL fixo em vez do restante; comparação de `iat` com `<` em vez de `≤`; instante do sujeito recuando; logout sem revogar o access token; reuso sem revogar o sujeito; verificador sem a checagem.
 - [x] **T7. Verificação final**
   - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:containers` e `test:persistence` (local pelo túnel se o ubt-host02 responder; no CI em todo caso) e `test:generation`.
-  - [ ] Code review por story antes da 2.6 (retro A1).
+  - [x] Code review por story antes da 2.6 (retro A1).
+
+### Review Findings (code review da Story 2.5, 2026-10-21)
+
+> Camadas: Blind Hunter, Edge Case Hunter e Acceptance Auditor.
+
+- [x] [Review][Patch] P1 (alta) `close()` não para o `ioredis` com o Valkey fora: sem fila offline, o `quit` é recusado antes de desconectar, o erro é engolido e a reconexão segue para sempre (vazamento e processo que não encerra; Blind e Edge, conferido no código do `ioredis` 6.0.0). Correção: `disconnect()` quando o `quit` falha [valkey-token-revocation-store.ts]
+- [x] [Review][Patch] P2 (média) Revogação do sujeito no reuso sem `await`: o 401 sai antes de a revogação ser gravada [packages/auth/src/service.ts, core/session.ts]
+- [x] [Review][Patch] P3 (média) `onError` nunca ligado: queda do Valkey, senha errada ou erro de TLS não aparecem em log nenhum. Correção: o Auth e o servidor de domínio passam um `onError` que registra `warn` sem a URL [service.ts, domain-server.ts, token-verifier.ts]
+- [x] [Review][Patch] P4 (média) Na subida do Auth, o store é criado antes de código fora do `try`: falha no provider, no emissor ou no cliente Prisma deixa a conexão viva [service.ts]
+- [x] [Review][Patch] P5 (média) TTLs da revogação sem margem para diferença de relógio entre o Auth e os outros serviços: um verificador atrasado volta a aceitar o token revogado. Correção: 30 s a mais nos dois TTLs (60 s no total) [valkey-token-revocation-store.ts]
+- [x] [Review][Patch] P6 (média) `iss`/`aud` do logout vêm de opções separadas do emissor: com emissor personalizado e opções omitidas, o logout responde 200 e não revoga. Correção: o emissor expõe `issuer` e `audience` (fonte única), e um Bearer presente mas não reconhecido gera log [service.ts, core/access-token.ts, adapters/jose]
+- [x] [Review][Patch] P7 (baixa) Falha do `endSession` (banco) pula a revogação do access token no logout [service.ts]
+- [x] [Review][Patch] P8 (baixa) `jti`/`sub` fora do formato aceito pelo store dá 500 no verificador em vez de 401 [token-verifier.ts]
+- [x] [Review][Patch] P9 (baixa) `expiresAt` inválido manda `PX NaN` ao Valkey (vira 503 em vez de erro de programação) [valkey-token-revocation-store.ts]
+- [x] [Review][Patch] P10 (baixa) URL do Valkey sem host (`redis://`) cai em `localhost` sem aviso [valkey-token-revocation-store.ts]
+- [x] [Review][Patch] P11 (baixa) Erro de configuração do Valkey pelo `tokenVerifierFromEnv` sai como `RevocationStoreConfigError`, não `TokenVerifierConfigError` [token-verifier.ts]
+- [x] [Review][Patch] P12 (baixa) A duração da revogação por sujeito é uma cópia fixa do teto do Auth; o Auth não passa a duração real dos tokens [service.ts]
+- [x] [Review][Patch] P13 (baixa) `TokenVerifier.close()` fecha um store que o chamador injetou e pode ainda usar. Correção: só o verificador montado pelo ambiente fecha o store [token-verifier.ts]
+- [x] [Review][Patch] P14 (baixa) O servidor de domínio vaza o verificador próprio se a criação do app falhar [domain-server.ts]
+- [x] [Review][Patch] P15 (baixa) O store em memória diverge do adaptador: grava token já expirado e não valida identificadores [tests/support/revocations.ts]
+- [x] [Review][Patch] P16 (baixa) AC 7 sem teste do lado do Auth (`startAuthServiceFromEnv` sem `TECTON_VALKEY_URL`) [testes]
+- [x] [Review][Patch] P17 (baixa) O 503 do logout não confere o `Retry-After` [revocation-http.test.ts]
+- [x] [Review][Patch] P18 (baixa) Registros: a mutação "verificador sem a checagem" da T6 não foi rodada com esse nome (só "sem exigir o store"); o caso do mesmo segundo (`iat` em segundos contra o instante em ms) não está no README [story, READMEs]
+- [x] [Review][Defer] W1 O teste de geração deixou de provar o caminho feliz (com Valkey indisponível, o domínio dá 503); o caminho feliz com Valkey real só existe montado à mão (`revocation.containers.test.ts`) [new.generation.test.ts] — adiado: `tecton-admin dev` sobe o Dev Services (Story 3.13) e permite o teste ponta a ponta do workspace gerado
+- Descartados:
+  - token emitido no mesmo segundo do reuso também é recusado (decisão conservadora registrada nas Dev Notes; o `iat` não tem precisão menor; vai para o README na P18);
+  - teste do CA dependente da mensagem do erro (o motivo é parte do contrato do 503 e está documentado);
+  - `EVAL` com o script a cada revogação de sujeito (só no reuso; `EVALSHA` fica para quando houver volume);
+  - o barril do `@tecton/providers` carrega o `ioredis` mesmo para quem só usa Argon2id (custo de import só);
+  - dependência `core` → `providers` (permitida pela emenda de 2026-10-01 da Spine, registrada no Debug Log);
+  - versão fixa do `ioredis` (mesma convenção do `jose`).
 
 ## Dev Notes
 
@@ -161,6 +192,32 @@ Claude Opus 5.5 (claude-opus-5-5)
 
   A mutação "instante do sujeito recuando" mora no script Lua e só se exercita com Valkey real: coberta pelo teste de containers (`revokeSubject` com instante anterior não muda o valor gravado).
 
+- **Code review (2026-10-21):**
+  - **`close()` com o Valkey fora (P1):** no `ioredis` 6.0.0, sem fila offline, o `quit` é recusado ("Stream isn't writeable") antes do ramo que desconectaria; o erro era engolido e a reconexão seguia para sempre. Agora o `close` chama `disconnect()` quando o `quit` falha. O teste prova que, depois do `close`, nada reconecta em segundo plano.
+  - **Margem de relógio (P5):** a tolerância dos TTLs passou de 30 s para 60 s (os 30 s que o verificador aceita além do `exp`, mais 30 s para um serviço com relógio atrasado em relação ao Auth).
+  - **Fonte única de `iss`/`aud` (P6):** a porta `AccessTokenIssuer` expõe `issuer` e `audience`; as opções `tokenIssuer`/`tokenAudience` do `createAuthService` saíram.
+  - **Reuso aguardado (P2):** `onReuseDetected` pode ser assíncrono e é aguardado antes do 401; uma falha do Valkey continua só no log.
+  - **Dono do store (P13):** só o verificador montado pelo `tokenVerifierFromEnv` tem `close()` e fecha o store; um store injetado fica com quem o injetou.
+  - **Log da conexão (P3):** o servidor de domínio e o Auth registram `revocation store connection error` (motivo, sem a URL nem a senha).
+  - **Store em memória (P15):** segue o contrato do adaptador (não grava token já expirado, valida identificadores) e recebe o relógio do teste.
+  - **Script Python e caracteres de controle:** uma regex com `\x00` foi gravada com caracteres de controle reais (o mesmo problema de escape das stories anteriores); reescrita montando a barra invertida por código e conferida com uma varredura de todos os `.ts`.
+  - **Fase vermelha das correções (A3),** cada uma restaurada:
+
+    | Mutação | Testes que falharam |
+    |---|---|
+    | `close` sem `disconnect` (P1) | 1 |
+    | reuso sem `await` (P2) | 1 |
+    | sem log do store no domínio (P3) | 1 |
+    | sem a margem extra de relógio (P5) | 2 |
+    | `iss`/`aud` fixos no logout (P6) | 1 |
+    | access token só depois do `endSession` (P7) | 1 |
+    | `RangeError` virando 500 (P8) | 1 |
+    | `expiresAt` inválido aceito (P9) | 1 |
+    | URL sem host aceita (P10) | 2 |
+    | classe do erro de configuração (P11) | 1 |
+    | verificador fechando store injetado (P13) | 1 |
+    | verificador sem a checagem de revogação (T6) | 6 |
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
@@ -171,19 +228,21 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **Workspace gerado:** nada novo no `.env.example` (o `TECTON_VALKEY_URL` já estava na raiz). O teste de geração prova o fail-closed: sem Valkey, o domínio responde 401 sem token e 503 com token válido.
 - **Testes:** store (24 unitários e 4 com Valkey real), verificador (6), rotas (1), servidor de domínio (1), Auth HTTP (8), ponta a ponta com Valkey real (1), geração.
 - **Verificação local:** build, typecheck, `check:deps` (145 módulos), `lint:examples`, `validate:asyncapi`, `test` (804) e `test:generation` (3). `test:containers` e `test:persistence`: pelo CI.
-- **Pendente:** o code review (A1), próximo passo.
+- **Code review (A1):** 18 patches (P1 a P18), 1 adiado (W1 no `deferred-work.md`) e 6 descartados, com as três camadas de revisão.
+- **Verificação depois do review:** build, typecheck, `check:deps`, `lint:examples`, `validate:asyncapi`, `test` (820) e `test:generation` (3).
 
 ### File List
 
 - `packages/providers/package.json` (`ioredis` 6.0.0), `pnpm-lock.yaml`
 - `packages/providers/src/revocation/{token-revocation-store,valkey-token-revocation-store}.ts`, `valkey-token-revocation-store.test.ts`, `valkey-token-revocation-store.containers.test.ts` (novos); `src/index.ts` (modificado)
 - `packages/core/package.json`, `tsconfig.json` (dependência de `@tecton/providers`), `src/auth/token-verifier.ts`, `token-verifier.test.ts`, `src/domain-server.ts`, `domain-server.test.ts`, `src/routes-auth.test.ts`, `README.md` (modificados)
-- `packages/auth/src/adapters/jose/own-access-token.ts`, `src/revocation-http.test.ts`, `src/revocation.containers.test.ts` (novos); `src/service.ts`, `service.test.ts`, `review-2-2b.test.ts`, `refresh-http.test.ts`, `adapters/prisma/{prisma-credential-store,prisma-refresh-token-store}.persistence.test.ts`, `README.md` (modificados)
+- `packages/auth/src/adapters/jose/own-access-token.ts`, `src/revocation-http.test.ts`, `src/revocation.containers.test.ts` (novos); `src/core/{access-token,session}.ts`, `adapters/jose/access-token-issuer.ts`, `core/{login,session}.test.ts` (modificados no review); `src/service.ts`, `service.test.ts`, `review-2-2b.test.ts`, `refresh-http.test.ts`, `adapters/prisma/{prisma-credential-store,prisma-refresh-token-store}.persistence.test.ts`, `README.md` (modificados)
 - `packages/cli/src/commands/new.generation.test.ts` (modificado)
 - `tests/support/revocations.ts` (novo), `tests/support/index.ts` (modificado)
-- Esta story, `sprint-status.yaml`
+- Esta story, `sprint-status.yaml`, `deferred-work.md`
 
 ## Change Log
 
 - 2026-10-20: Story criada (Create Story), com as decisões do Boss sobre `ioredis` e revogação obrigatória.
 - 2026-10-21: Story implementada (Dev Story); testes com Valkey real a confirmar no CI; status → review.
+- 2026-10-21: Code review: P1 a P18 aplicados, W1 adiado; status → done.

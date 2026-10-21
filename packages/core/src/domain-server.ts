@@ -42,15 +42,21 @@ export function loadDomainManifest(manifestPath: string): TectonManifest {
 export async function startDomainServer(options: DomainServerOptions): Promise<FastifyInstance> {
   const manifest = loadDomainManifest(options.manifestPath);
   const needsVerifier = manifest.actions.some((action) => !isPublicAction(action));
-  // A verifier built here (from the environment) belongs to this server: it closes with it.
-  const owned = options.verifier === undefined && needsVerifier ? tokenVerifierFromEnv(options.env ?? process.env) : undefined;
-  const verifier = options.verifier ?? owned;
   const app = createTectonServer(options.logger === undefined ? {} : { logger: options.logger });
-  if (owned?.close) {
-    const close = owned.close.bind(owned);
-    app.addHook('onClose', async () => close());
-  }
   try {
+    // A verifier built here (from the environment) belongs to this server: it closes with it.
+    // Its revocation store reports connection problems in the service log, without the URL.
+    const owned =
+      options.verifier === undefined && needsVerifier
+        ? tokenVerifierFromEnv(options.env ?? process.env, {
+            onRevocationStoreError: (error) => app.log.warn({ reason: error.message }, 'revocation store connection error'),
+          })
+        : undefined;
+    const verifier = options.verifier ?? owned;
+    if (owned?.close) {
+      const close = owned.close.bind(owned);
+      app.addHook('onClose', async () => close());
+    }
     registerActionRoutes(app, manifest, options.handlers ?? {}, verifier ? { verifier } : {});
     await app.listen({ port: options.port ?? 3000, host: options.host ?? '127.0.0.1' });
   } catch (error) {

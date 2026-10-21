@@ -38,6 +38,8 @@ async function setup(options: { status?: 'active' | 'disabled'; auth?: AuthProvi
     close: async () => undefined,
   };
   const issuer: AccessTokenIssuer = {
+    issuer: 'urn:tecton:auth',
+    audience: 'urn:tecton:api',
     issue: async (issuedFor) => ({ accessToken: `token-for-${issuedFor.id}`, tokenType: 'Bearer', expiresIn: 900 }),
   };
   const dummyHash = await realAuth.hashPassword('dummy-password-value');

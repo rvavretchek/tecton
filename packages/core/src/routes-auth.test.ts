@@ -30,7 +30,7 @@ actions:
     auth: { public: true }
 `);
 
-const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'));
+const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'), () => NOW);
 const NOW = new Date('2026-10-20T12:00:00.000Z');
 const USER_A = '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5a';
 const key = createTestSigningKey();
@@ -264,7 +264,7 @@ describe('review fixes (Story 2.4 review)', () => {
 
 describe('revocation through the routes (Story 2.5, AC 2, AC 4)', () => {
   it('answers 401 to a revoked token and 503 when the revocation store is down', async () => {
-    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: timeout'));
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: timeout'), () => NOW);
     const verifier = createTokenVerifier({ revocations: store, jwksUrl: jwks.url, ca: jwks.ca, clock: createTestClock(NOW) });
     const { call, closeMonth, logs } = await serve({ verifier });
     const token = tokens.valid({ jti: 'jti-revoked', perms: ALL_PERMS });

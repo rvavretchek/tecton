@@ -67,7 +67,7 @@ development_status:
   2-2b-servico-tecton-auth-login-access-token-eddsa-e-jwks: done
   2-3-refresh-token-opaco-com-rotacao-e-logout: done
   2-4-verificacao-local-do-token-em-todo-servico: done
-  2-5-tokenrevocationstore-com-valkey-e-fail-closed: review
+  2-5-tokenrevocationstore-com-valkey-e-fail-closed: done
   2-6-bloqueio-de-login-por-identificador: backlog
   2-7-token-de-servico-para-chamadas-entre-servicos: backlog
   2-8-interface-keycustodyprovider-e-aviso-de-sensitive-quorum-sem-provider: backlog

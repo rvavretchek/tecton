@@ -2,13 +2,13 @@ import { Writable } from 'node:stream';
 import { createArgon2idAuthProvider, RevocationStoreUnavailableError } from '@tecton/providers';
 import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, createTestSigningKey, ed25519KeyPairPem, tokenFactory } from '#test-support';
 import { decodeJwt } from 'jose';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
 import { buildSigningKeys } from './adapters/jose/signing-keys.js';
 import type { Credential } from './core/credential.js';
 import type { CredentialStore } from './core/credential-store.js';
 import { createMemoryRefreshTokenStore } from './core/memory-refresh-token-store.test-helper.js';
-import { createAuthService, LOG_REDACTION, type AuthServiceApp } from './service.js';
+import { createAuthService, LOG_REDACTION, startAuthServiceFromEnv, type AuthServiceApp } from './service.js';
 
 const PEPPER = 'revocation-test-pepper-with-32-bytes';
 const PASSWORD = 'alice-password-123';
@@ -21,7 +21,7 @@ afterEach(async () => {
   for (const app of apps.splice(0)) await app.close();
 });
 
-async function service() {
+async function service(options: { issuer?: string; audience?: string } = {}) {
   const keys = await buildSigningKeys({ privateKeyPem: ed25519KeyPairPem().privatePem });
   const credential: Credential = {
     id: SUBJECT,
@@ -49,14 +49,14 @@ async function service() {
     },
   });
   const clock = createTestClock(new Date('2026-10-21T12:00:00.000Z'));
-  const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'));
+  const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('revocation store unavailable: down'), () => clock.now());
   const refresh = createMemoryRefreshTokenStore();
   const app = await createAuthService({
     store,
     refreshTokens: refresh.store,
     revocations,
     auth,
-    issuer: createAccessTokenIssuer({ keys, clock }),
+    issuer: createAccessTokenIssuer({ keys, clock, ...options }),
     keys,
     clock,
     logger: { level: 'trace', redact: LOG_REDACTION, stream },
@@ -142,5 +142,78 @@ describe('refresh token reuse revokes the access tokens of the subject (Story 2.
     await new Promise((resolve) => setImmediate(resolve));
     expect(logs()).toContain('auth.refresh_token.reuse.revocation_failed');
     assertNoSecretsLeaked(logs(), { cookie });
+  });
+});
+
+describe('review fixes (Story 2.5 review)', () => {
+  it('waits for the subject revocation before answering the reused refresh (P2)', async () => {
+    const { login, refreshWith, revocations } = await service();
+    const { cookie } = await login();
+    await refreshWith(cookie);
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const original = revocations.revokeSubject.bind(revocations);
+    vi.spyOn(revocations, 'revokeSubject').mockImplementation(async (revocation) => {
+      await gate;
+      return original(revocation);
+    });
+
+    let answered = false;
+    const pending = refreshWith(cookie).then((response) => {
+      answered = true;
+      return response;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(answered).toBe(false);
+    release();
+    expect((await pending).statusCode).toBe(401);
+    expect(revocations.revokedSubjects()).toHaveLength(1);
+  });
+
+  it('recognizes its own tokens with a custom iss and aud: one source, the issuer (P6)', async () => {
+    const { login, logout, revocations } = await service({ issuer: 'https://auth.acme.test', audience: 'acme' });
+    const { accessToken } = await login();
+
+    expect((await logout({ authorization: `Bearer ${accessToken}` })).statusCode).toBe(200);
+    expect(revocations.revokedTokens()).toHaveLength(1);
+  });
+
+  it('logs a Bearer it does not recognize at logout (P6)', async () => {
+    const { logout, logs } = await service();
+
+    await logout({ authorization: 'Bearer not-a-token' });
+    expect(logs()).toContain('auth.logout.bearer_not_recognized');
+  });
+
+  it('still revokes the access token when revoking the family fails (P7)', async () => {
+    const { login, logout, revocations, refresh } = await service();
+    const { accessToken, cookie } = await login();
+    vi.spyOn(refresh.store, 'revokeFamilyOf').mockRejectedValueOnce(new Error('database down'));
+
+    expect((await logout({ authorization: `Bearer ${accessToken}`, cookie: `tecton_refresh=${cookie}` })).statusCode).toBe(500);
+    expect(revocations.revokedTokens()).toHaveLength(1);
+  });
+
+  it('sends Retry-After with the logout 503 (P17)', async () => {
+    const { login, logout, revocations } = await service();
+    const { accessToken } = await login();
+    revocations.setUnavailable(true);
+
+    const response = await logout({ authorization: `Bearer ${accessToken}` });
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['retry-after']).toBe('5');
+  });
+
+  it('refuses to start without TECTON_VALKEY_URL, naming it (AC 7, P16)', async () => {
+    const env = {
+      TECTON_AUTH_DATABASE_URL: 'postgresql://u:p@127.0.0.1:1/auth',
+      TECTON_AUTH_PEPPER: PEPPER,
+      TECTON_AUTH_SIGNING_KEY: ed25519KeyPairPem().privatePem,
+      PORT: '0',
+    };
+
+    await expect(startAuthServiceFromEnv(env)).rejects.toThrow(/^TECTON_VALKEY_URL is not set/);
   });
 });
