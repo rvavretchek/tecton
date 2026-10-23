@@ -908,6 +908,8 @@ para que quem recebe saiba qual serviço está chamando e em nome de qual usuár
 
 > **Risco aceito (auditoria de segurança de 2026-10-06):** um serviço comprometido pode reaproveitar, até expirarem (15 minutos), tokens de usuário que recebeu. É inerente à propagação de token; a exigência de `call:<domínio>` limita para onde ele pode usá-los. Registrado na documentação de operação.
 
+> **Divisão (Create Story de 2026-10-23, decisão do Boss):** a Story 2.7 foi dividida em **2.7a** (credencial de serviço no Auth: registro com `tecton-admin auth register-service`, rotação com revogação, `POST /auth/service-token`, `typ: service`, `call:<domínio>` a partir de `dependencies`, recusa em login e refresh) e **2.7b** (verificação em todo serviço: aceitar `typ: service`, `Tecton-On-Behalf-Of` com os dois tokens verificados, `auth.requires` contra o usuário ou o serviço, `call:<domínio>` exigido e 403). Os critérios acima são os originais, redistribuídos sem perda. **EQ-5 decidido:** o `register-service` faz login no próprio comando (`--login`, senha por variável de ambiente ou entrada padrão, como o `auth bootstrap`), usa o access token só em memória e faz logout no fim; nenhum token gravado em disco. **Permissões do serviço:** dadas pelo administrador no registro (`--permission`, repetível), além de `call:<domínio>`.
+
 ### Story 2.8: Interface `KeyCustodyProvider` e aviso de `sensitive.quorum` sem provider
 
 Como **dev que marcou uma action como `sensitive.quorum`**,
