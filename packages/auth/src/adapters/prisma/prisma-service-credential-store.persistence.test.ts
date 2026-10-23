@@ -70,6 +70,16 @@ describe(`Service credential store on ${selectedDatabase()} (Story 2.7a)`, () =>
     expect(await store.findByDomain('never-registered')).toBeUndefined();
   });
 
+  it('re-hashes only while the stored hash is the expected one, keeping updatedAt', async () => {
+    const original = credentialOf('rehashed');
+    await store.register(original);
+
+    expect(await store.updateSecretHash('rehashed', `${HASH}y`, `${HASH}-not-current`)).toBe(false);
+    expect(await store.updateSecretHash('rehashed', `${HASH}y`, HASH)).toBe(true);
+    expect(await store.findByDomain('rehashed')).toEqual({ ...original, secretHash: `${HASH}y` });
+    expect(await store.updateSecretHash('never-registered', `${HASH}y`, HASH)).toBe(false);
+  });
+
   it('refuses to write an invalid credential', async () => {
     await expect(store.register(credentialOf('bad-status', { status: 'paused' as ServiceCredential['status'] }))).rejects.toThrow(InvalidCredentialError);
     expect(await store.findByDomain('bad-status')).toBeUndefined();
@@ -105,6 +115,6 @@ describe(`Service credential store on ${selectedDatabase()} (Story 2.7a)`, () =>
     await expect(issue(first.secret)).rejects.toThrow(InvalidServiceCredentialsError);
     await issue(second.secret);
     expect(issued).toEqual([['call:tenant'], ['invoice:write', 'call:catalog']]);
-    expect(revocations.revokedSubjects()).toEqual([{ subject: 'service:end-to-end', at: clock.now() }]);
+    expect(revocations.revokedSubjects()).toEqual([{ subject: 'service:end-to-end', at: new Date(clock.now().getTime() + 1000) }]);
   });
 });

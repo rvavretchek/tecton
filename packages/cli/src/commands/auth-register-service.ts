@@ -57,8 +57,30 @@ function authUrlFromEnv(env: NodeJS.ProcessEnv): URL {
   if (url.protocol !== 'https:' && !(development && url.protocol === 'http:')) {
     throw new CommandError(`${AUTH_URL_VARIABLE} must use https (http is accepted only with TECTON_ENV=development)`);
   }
+  if (url.search !== '' || url.hash !== '') throw new CommandError(`${AUTH_URL_VARIABLE} must not contain a query or fragment`);
+  // A path prefix is kept (an Auth service behind a Gateway under /tecton, for example).
+  if (!url.pathname.endsWith('/')) url.pathname = `${url.pathname}/`;
   return url;
 }
+
+/** A permission travels in a comma-separated list: no comma, no surrounding spaces, not empty. */
+function assertPermissionArgument(permission: string): void {
+  if (permission === '' || permission.trim() !== permission || permission.includes(',')) {
+    throw new CommandError(`--permission ${JSON.stringify(permission)} is invalid: give one permission per --permission, without commas or surrounding spaces`);
+  }
+}
+
+/** The refresh cookie the login set (name=value only), so the logout can end that session too. */
+function refreshCookieOf(response: Response): string | undefined {
+  for (const header of response.headers.getSetCookie()) {
+    const pair = header.split(';', 1)[0]?.trim();
+    if (pair?.startsWith('tecton_refresh=')) return pair;
+  }
+  return undefined;
+}
+
+/** The JSON body, or undefined when it is not JSON (a proxy error page, an empty body). */
+const jsonOf = (response: Response): Promise<unknown> => response.json().catch(() => undefined);
 
 /** The dependencies of the domain, from apps/domains/<domain>/tecton.yaml of the workspace. */
 function dependenciesOf(cwd: string, domain: string): string[] {
@@ -106,11 +128,17 @@ export async function authRegisterServiceCommand(
 ): Promise<number> {
   const env = io.env ?? process.env;
   let accessToken: string | undefined;
+  let refreshCookie: string | undefined;
+  let accessTokenLifetime = 'until it expires';
   let base: URL | undefined;
-  const call = (path: string, body: unknown, token?: string) =>
+  const call = (path: string, body: unknown, token?: string, cookie?: string) =>
     dependencies.fetch(new URL(path, base), {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) },
+      headers: {
+        'content-type': 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(cookie ? { cookie } : {}),
+      },
       body: JSON.stringify(body),
       redirect: 'error',
       signal: AbortSignal.timeout(AUTH_REQUEST_TIMEOUT_MS),
@@ -123,6 +151,8 @@ export async function authRegisterServiceCommand(
 
   try {
     if (!DOMAIN_NAME.test(domain)) throw new CommandError(`"${domain}" is not a valid domain name (kebab-case)`);
+    const permissions = options.permission ?? [];
+    for (const permission of permissions) assertPermissionArgument(permission);
     const callees = dependenciesOf(io.cwd, domain);
     base = authUrlFromEnv(env);
     const password = await readSecret(io, env, {
@@ -131,28 +161,36 @@ export async function authRegisterServiceCommand(
       timeoutMs: dependencies.stdinTimeoutMs ?? 10_000,
     });
 
-    const login = await call('/auth/login', { login: options.login, password }).catch(unreachable);
+    const login = await call('auth/login', { login: options.login, password }).catch(unreachable);
     if (login.status === 401) throw new CommandError('login refused: wrong login or password');
     if (login.status === 429) throw new CommandError(`login locked after too many failures; wait or run tecton-admin auth unlock ${options.login}`);
     if (login.status !== 200) throw new CommandError(`login failed with status ${login.status}`);
-    const token = ((await login.json()) as { accessToken?: unknown }).accessToken;
-    if (typeof token !== 'string') throw new CommandError('login answered without an access token');
-    accessToken = token;
+    refreshCookie = refreshCookieOf(login);
+    const session = (await jsonOf(login)) as { accessToken?: unknown; expiresIn?: unknown } | undefined;
+    if (typeof session?.accessToken !== 'string') throw new CommandError('login answered without an access token');
+    accessToken = session.accessToken;
+    if (typeof session.expiresIn === 'number') accessTokenLifetime = `for up to ${session.expiresIn} seconds`;
 
-    const permissions = options.permission ?? [];
     const registration = await call(
-      '/auth/register-service',
+      'auth/register-service',
       { domain, dependencies: callees.join(','), permissions: permissions.join(','), rotate: options.rotate === true },
       accessToken,
-    ).catch(unreachable);
+    ).catch((error: unknown): never => {
+      // The request may have reached the service and been applied: its secret would be lost.
+      const kind = error instanceof Error ? error.name : 'unexpected error';
+      throw new CommandError(
+        `no answer from the Auth service to the registration (${kind}); it may have been applied. ` +
+          `Run the command again: if it says the service is already registered, add --rotate to get a usable secret`,
+      );
+    });
     if (registration.status === 409) {
       throw new CommandError(`service "${domain}" is already registered; nothing changed (use --rotate to replace its secret)`, EXIT_ALREADY_REGISTERED);
     }
     if (registration.status === 403) throw new CommandError(`"${options.login}" lacks the permission auth:service:register`);
-    if (registration.status === 400) throw new CommandError(`registration refused${reasonsOf(await registration.json().catch(() => undefined))}`);
+    if (registration.status === 400) throw new CommandError(`registration refused${reasonsOf(await jsonOf(registration))}`);
     if (registration.status !== 200) throw new CommandError(`registration failed with status ${registration.status}`);
-    const result = (await registration.json()) as { secret?: unknown; rotated?: unknown };
-    if (typeof result.secret !== 'string') throw new CommandError('registration answered without a secret');
+    const result = (await jsonOf(registration)) as { secret?: unknown; rotated?: unknown } | undefined;
+    if (typeof result?.secret !== 'string') throw new CommandError('registration answered without a secret; it may have been applied, run the command again with --rotate');
 
     const rotated = result.rotated === true;
     const lines = [
@@ -177,11 +215,12 @@ export async function authRegisterServiceCommand(
   } finally {
     if (accessToken) {
       // The administrator token never outlives the command (EQ-5).
-      const loggedOut = await call('/auth/logout', {}, accessToken).then(
+      // With the refresh cookie of the login: the session it opened ends too.
+      const loggedOut = await call('auth/logout', {}, accessToken, refreshCookie).then(
         (response) => response.status === 200,
         () => false,
       );
-      if (!loggedOut) io.stderr.write('warning: could not log out; the administrator token stays valid until it expires (15 minutes)\n');
+      if (!loggedOut) io.stderr.write(`warning: could not log out; the administrator token stays valid ${accessTokenLifetime}\n`);
     }
   }
 }

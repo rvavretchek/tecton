@@ -4,7 +4,7 @@ baseline_commit: 55249654baa6490050551bf3e2e28fd41e2c9ca4
 
 # Story 2.7a: Token de serviço, parte 1: credencial e emissão no Auth
 
-Status: review
+Status: done
 
 ## Story
 
@@ -63,7 +63,34 @@ para que toda chamada entre serviços possa levar uma credencial verificável do
   - [x] Fase vermelha por mutação (A3), no mínimo: registro sem exigir a permissão; sobrescrita sem `rotate`; rotação sem revogar; `call:` de domínio fora de `dependencies`; refresh emitido para serviço; inexistente sem Argon2id; segredo guardado em texto; CLI sem logout.
 - [x] **T7. Verificação final**
   - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:containers`, `test:persistence` (no CI se o ubt-host02 não responder) e `test:generation`.
-  - [ ] Code review por story antes da 2.7b (retro A1).
+  - [x] Code review por story antes da 2.7b (retro A1).
+
+### Review Findings
+
+Code review de 2026-10-23 (Blind Hunter, Edge Case Hunter e Acceptance Auditor). 16 patches, 4 adiados, 5 descartados.
+
+- [x] [Review][Patch] P1 (alta) Token emitido com o segredo novo no mesmo segundo da rotação nasce revogado (`at` em ms contra `iat` em s) [packages/auth/src/core/service-credential.ts:144]
+- [x] [Review][Patch] P2 (alta) Rotação grava o segredo novo e depois falha na revogação (Valkey fora): o segredo novo se perde, o antigo já não vale e os tokens antigos não são revogados. Revogar antes de trocar [packages/auth/src/core/service-credential.ts:142]
+- [x] [Review][Patch] P3 Troca do segredo antigo em andamento durante a rotação pode gerar token que sobrevive a ela: reler a credencial depois do Argon2id [packages/auth/src/core/service-credential.ts:179]
+- [x] [Review][Patch] P4 O CLI deixa uma família de refresh de administrador viva a cada execução (o cookie do login não volta no logout) [packages/cli/src/commands/auth-register-service.ts]
+- [x] [Review][Patch] P5 Segredo de serviço nunca é re-hasheado: retirar um Pepper derruba todos os serviços (o login re-hasheia) [packages/auth/src/core/service-credential.ts:179]
+- [x] [Review][Patch] P6 `--rotate` num domínio sem credencial, em corrida com outro registro, responde 409 a quem pediu rotação: tentar `replace` de novo [packages/auth/src/core/service-credential.ts:143]
+- [x] [Review][Patch] P7 Todo 400 do registro aponta `/domain`, mesmo para dependência ou permissão [packages/auth/src/service.ts]
+- [x] [Review][Patch] P8 Timeout ou erro de rede depois do envio do registro diz "could not reach" e pode esconder um registro aplicado (segredo perdido) [packages/cli/src/commands/auth-register-service.ts]
+- [x] [Review][Patch] P9 Resposta 200 que não é JSON derruba o CLI com stack trace [packages/cli/src/commands/auth-register-service.ts]
+- [x] [Review][Patch] P10 Caminho em `TECTON_AUTH_URL` (ex.: `https://gw/tecton`) é descartado por `new URL('/auth/...', base)` [packages/cli/src/commands/auth-register-service.ts]
+- [x] [Review][Patch] P11 `--permission` com vírgula ou espaços nas pontas é alterado em silêncio [packages/cli/src/commands/auth-register-service.ts]
+- [x] [Review][Patch] P12 Aviso de logout falho com "15 minutes" fixo; usar o `expiresIn` do login [packages/cli/src/commands/auth-register-service.ts]
+- [x] [Review][Patch] P13 Registro recusado ou falho (409, 400, 503) não deixa trilha de auditoria [packages/auth/src/service.ts]
+- [x] [Review][Patch] P14 Só um de `services`/`serviceTokens` configurado desliga as duas actions sem erro [packages/auth/src/service.ts]
+- [x] [Review][Patch] P15 `isDomainTaken` depende de "domain" no `meta` do P2002; o `id` é UUID v7, então todo P2002 do `create` é domínio repetido [packages/auth/src/adapters/prisma/prisma-service-credential-store.ts]
+- [x] [Review][Patch] P16 README diz que `call:` "cannot be granted by hand", mas o servidor aceita `dependencies` de quem tem `auth:service:register`; e o teste do logout com token de serviço não confere `revokedSubjects` [packages/auth/README.md]
+- [x] [Review][Defer] W1 `POST /auth/service-token` público faz um Argon2id por chamada, sem limite por origem [packages/auth/src/service.ts] — deferred, limite de taxa do Gateway (Story 3.7)
+- [x] [Review][Defer] W2 Status `revoked` modelado sem fluxo que o defina, e a rotação reativa uma credencial revogada [packages/auth/src/core/service-credential.ts] — deferred, revogação de credencial de serviço fica para o admin do Directory (Epic 4)
+- [x] [Review][Defer] W3 Listas como texto separado por vírgula no contrato da action [packages/auth/tecton.yaml] — deferred, o manifest não tem tipo lista (decisão da story); entra quando o formato de API ganhar arrays (Epic 5)
+- [x] [Review][Defer] W4 Dependências declaradas pelo chamador da API, não lidas de uma fonte em que o Auth confie [packages/auth/src/service.ts] — deferred, o Directory (Epic 4) passa a ser a fonte
+
+Descartados (5): leitor próprio mais estrito no logout (todo token deste emissor tem `iat` e `perms` desde a 2.2b); trocar permissões exige `--rotate` (AC 6, decisão do Boss); `.env.example` do workspace gerado (é o que a task quer); testes de persistência sem evidência (CI verde no `0b477ac`, run 40016429779, nos três bancos); mutações sem artefato (o roteiro fica fora do repositório, como nas stories anteriores).
 
 ## Dev Notes
 
@@ -134,6 +161,15 @@ Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
 - **T5:** seção "Service credentials" no README do `@tecton/auth` (registro, rotação, `service-token`, `perms`, `call:`, TTL e o risco aceito); `TECTON_AUTH_URL=http://127.0.0.1:3001` no `.env.example` da raiz do workspace gerado.
 - **T6:** testes de núcleo (17), HTTP (17), emissor e variável de TTL, persistência (6, pelo CI nos três bancos) e CLI contra um Auth real em processo (20).
 
+- **Code review (2026-10-23):** 3 revisores (Blind Hunter, Edge Case Hunter, Acceptance Auditor); 16 patches aplicados, 4 adiados (`deferred-work.md`), 5 descartados. Os principais:
+  - **P1/P2, rotação.** A revogação vem antes da troca do segredo (Valkey fora: 503 e nada muda). O instante revogado cobre os tokens do segredo antigo, inclusive os datados à frente do relógio depois de um registro ou rotação recente. Os tokens do segredo novo saem com `iat` estritamente depois dele (`issuedAfter` no emissor, `ROTATION_REVOCATION_MARGIN_MS` = 1 s), por isso o `updatedAt` de uma rotação pode ficar 1 a 2 s à frente do relógio. O primeiro patch (revogar em `updatedAt` + 1 s) deixava sobreviver os tokens do segredo antigo numa rotação menos de 1 s depois da anterior; o teste HTTP de rotação no mesmo instante pegou, e a revogação passou a considerar a credencial anterior.
+  - **P3:** a credencial é relida depois do Argon2id; um segredo rotacionado no meio da verificação é recusado.
+  - **P4:** o CLI devolve no logout o cookie de refresh do seu login, e a sessão aberta também termina.
+  - **P5:** porta `updateSecretHash` (condicional ao hash esperado, sem mexer em `updatedAt`); o segredo de serviço é re-hasheado depois de uma rotação de Pepper, como a senha no login.
+  - Demais: 400 com o campo certo (`/domain`, `/dependencies`, `/permissions`); `auth.service.register_refused` com motivo; `services` e `serviceTokens` só juntos; todo P2002 do `create` é domínio repetido; CLI com mensagem própria para timeout do registro, corpo não JSON tratado, prefixo de caminho em `TECTON_AUTH_URL` mantido, `--permission` com vírgula ou espaços recusado, aviso com o `expiresIn` real; README sobre a origem dos `call:` e o re-hash.
+  - Fase vermelha (A3): 16 mutações dos patches, todas mortas. P15 (`isDomainTaken`) só tem cobertura nos testes de persistência, pelo CI.
+- Verificação depois da revisão: `pnpm test` 59 arquivos, 964 testes; `test:generation` 3; build, typecheck e `check:deps` limpos.
+
 ### File List
 
 - `packages/auth/prisma/postgresql/schema.prisma`, `packages/auth/prisma/mysql/schema.prisma` (modificados)
@@ -160,3 +196,4 @@ Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
 
 - 2026-10-23: Story criada (Create Story), com a divisão da 2.7 e as decisões do Boss sobre o EQ-5 e as permissões do serviço.
 - 2026-10-23: Dev Story concluída (T1 a T7, salvo o code review); status `review`.
+- 2026-10-23: Code review: 16 patches aplicados, 4 adiados, 5 descartados; status `done`.

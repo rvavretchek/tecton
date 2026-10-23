@@ -60,6 +60,7 @@ function memoryServices() {
       rows.set(credential.domain, credential);
       return true;
     },
+    updateSecretHash: async () => false,
     close: async () => undefined,
   };
   return { store, rows };
@@ -303,6 +304,67 @@ describe('tecton-admin auth register-service (Story 2.7a, AC 1, 3, 5, 6, 9)', ()
     expect(output().stderr).not.toContain('127.0.0.1');
   });
 
+  it('P4: sends the refresh cookie of its login back on logout, so that session ends too', async () => {
+    const root = workspace({ billing: manifest('billing') });
+    const { io } = harness(root, devEnv());
+    const sent: Array<{ path: string; cookie: string | undefined }> = [];
+    const dependencies: AuthRegisterServiceDependencies = {
+      fetch: (input, init) => {
+        sent.push({ path: new URL(String(input)).pathname, cookie: (init?.headers as Record<string, string> | undefined)?.['cookie'] });
+        return fetch(input, init);
+      },
+    };
+
+    expect(await authRegisterServiceCommand('billing', { login: 'admin' }, io, dependencies)).toBe(0);
+    expect(sent.at(-1)).toEqual({ path: '/auth/logout', cookie: expect.stringMatching(/^tecton_refresh=[A-Za-z0-9_-]{43}$/) });
+    expect(sent[0]?.cookie).toBeUndefined();
+  });
+
+  it('P8: no answer to the registration says it may have been applied', async () => {
+    const root = workspace({ billing: manifest('billing') });
+    const { io, output } = harness(root, devEnv());
+    const dependencies: AuthRegisterServiceDependencies = {
+      fetch: (input, init) =>
+        new URL(String(input)).pathname === '/auth/register-service' ? Promise.reject(new DOMException('timed out', 'TimeoutError')) : fetch(input, init),
+    };
+
+    expect(await authRegisterServiceCommand('billing', { login: 'admin' }, io, dependencies)).toBe(1);
+    expect(output().stderr).toMatch(/no answer from the Auth service to the registration \(TimeoutError\); it may have been applied\. .*add --rotate/);
+  });
+
+  it('P9: a login answer that is not JSON is a clean failure', async () => {
+    const root = workspace({ billing: manifest('billing') });
+    const { io, output } = harness(root, devEnv());
+    const dependencies: AuthRegisterServiceDependencies = { fetch: async () => new Response('<html>proxy</html>', { status: 200 }) };
+
+    expect(await authRegisterServiceCommand('billing', { login: 'admin' }, io, dependencies)).toBe(1);
+    expect(output().stderr).toBe('auth register-service failed: login answered without an access token\n');
+  });
+
+  it('P10: keeps a path prefix of TECTON_AUTH_URL', async () => {
+    const root = workspace({ billing: manifest('billing') });
+    const { io } = harness(root, devEnv({ TECTON_AUTH_URL: 'https://gateway.example.com/tecton' }));
+    const urls: string[] = [];
+    const dependencies: AuthRegisterServiceDependencies = {
+      fetch: async (input) => {
+        urls.push(String(input));
+        return new Response('{}', { status: 401 });
+      },
+    };
+
+    expect(await authRegisterServiceCommand('billing', { login: 'admin' }, io, dependencies)).toBe(1);
+    expect(urls).toEqual(['https://gateway.example.com/tecton/auth/login']);
+  });
+
+  it.each(['invoice:write,tenant:read', ' invoice:write', ''])('P11: refuses --permission %j before any request', async (permission) => {
+    const root = workspace({ billing: manifest('billing') });
+    const { io, dependencies, calls, output } = harness(root, devEnv());
+
+    expect(await authRegisterServiceCommand('billing', { login: 'admin', permission: [permission] }, io, dependencies)).toBe(1);
+    expect(output().stderr).toMatch(/--permission .* is invalid: give one permission per --permission/);
+    expect(calls).toEqual([]);
+  });
+
   it('warns when the final logout fails, keeping the outcome', async () => {
     const root = workspace({ billing: manifest('billing') });
     const { io, output } = harness(root, devEnv());
@@ -311,6 +373,6 @@ describe('tecton-admin auth register-service (Story 2.7a, AC 1, 3, 5, 6, 9)', ()
     };
 
     expect(await authRegisterServiceCommand('billing', { login: 'admin' }, io, dependencies)).toBe(0);
-    expect(output().stderr).toBe('warning: could not log out; the administrator token stays valid until it expires (15 minutes)\n');
+    expect(output().stderr).toBe('warning: could not log out; the administrator token stays valid for up to 900 seconds\n');
   });
 });

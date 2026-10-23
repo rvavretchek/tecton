@@ -33,9 +33,18 @@ export class ServiceAlreadyRegisteredError extends Error {
   }
 }
 
+/** Field of the registration request an InvalidServiceRegistrationError is about. */
+export type ServiceRegistrationField = 'domain' | 'dependencies' | 'permissions';
+
 /** A registration with an invalid domain, dependency or permission. The message says which. */
 export class InvalidServiceRegistrationError extends Error {
   override readonly name = 'InvalidServiceRegistrationError';
+  constructor(
+    message: string,
+    readonly field: ServiceRegistrationField,
+  ) {
+    super(message);
+  }
 }
 
 /** Service token refused. One error for every reason (unknown service, wrong secret, revoked). */
@@ -54,6 +63,11 @@ export interface ServiceCredentialStore {
   register(credential: ServiceCredential): Promise<void>;
   /** Replaces the credential of `credential.domain` atomically; resolves false when there was none. */
   replace(credential: ServiceCredential): Promise<boolean>;
+  /**
+   * Re-hashes the secret (Pepper rotation), only while the stored hash is still `expectedHash`;
+   * resolves false otherwise. Never changes `updatedAt`, which dates the secret.
+   */
+  updateSecretHash(domain: string, newHash: string, expectedHash: string): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -66,33 +80,49 @@ export const callPermission = (domain: string) => `call:${domain}`;
 /** Bytes of a service secret: 256 random bits, shown once at registration. */
 export const SERVICE_SECRET_BYTES = 32;
 
+/**
+ * A rotation revokes the tokens of the service issued until `updatedAt` plus this margin, so a
+ * token signed with the old secret while the rotation is written is revoked too. Tokens of the new
+ * secret are dated after it (`issuedAfter`), so they are never born revoked: token instants have
+ * second precision, the revocation instant has millisecond precision.
+ */
+export const ROTATION_REVOCATION_MARGIN_MS = 1_000;
+
+/** The instant every token of `credential` must be issued after (see ROTATION_REVOCATION_MARGIN_MS). */
+export const tokensIssuedAfter = (credential: Pick<ServiceCredential, 'updatedAt'>) =>
+  new Date(credential.updatedAt.getTime() + ROTATION_REVOCATION_MARGIN_MS);
+
+/** The earliest `iat` (in ms) a token of `credential` can carry: the second after tokensIssuedAfter. */
+const earliestTokenInstant = (credential: Pick<ServiceCredential, 'updatedAt'>) =>
+  (Math.floor(tokensIssuedAfter(credential).getTime() / 1000) + 1) * 1000;
+
 const DOMAIN_NAME = new RegExp(DOMAIN_NAME_PATTERN);
 /** Ready-made services that are not domains and never get a service credential. */
 const RESERVED_SERVICES: readonly string[] = ['auth'];
 
-function assertDomain(name: string, value: string): void {
-  if (!DOMAIN_NAME.test(value)) throw new InvalidServiceRegistrationError(`${name} "${value}" is not a valid domain name (kebab-case)`);
+function assertDomain(name: string, value: string, field: ServiceRegistrationField): void {
+  if (!DOMAIN_NAME.test(value)) throw new InvalidServiceRegistrationError(`${name} "${value}" is not a valid domain name (kebab-case)`, field);
 }
 
 /** Validates and normalizes a registration request; the lists come de-duplicated and sorted. */
 export function validatedRegistration(request: { domain: string; dependencies: readonly string[]; permissions: readonly string[] }) {
-  assertDomain('domain', request.domain);
-  if (RESERVED_SERVICES.includes(request.domain)) throw new InvalidServiceRegistrationError(`"${request.domain}" is a ready-made service, not a domain`);
+  assertDomain('domain', request.domain, 'domain');
+  if (RESERVED_SERVICES.includes(request.domain)) throw new InvalidServiceRegistrationError(`"${request.domain}" is a ready-made service, not a domain`, 'domain');
   const callees = [...new Set(request.dependencies)].sort();
   for (const callee of callees) {
-    assertDomain('dependency', callee);
-    if (callee === request.domain) throw new InvalidServiceRegistrationError('a service cannot depend on itself');
+    assertDomain('dependency', callee, 'dependencies');
+    if (callee === request.domain) throw new InvalidServiceRegistrationError('a service cannot depend on itself', 'dependencies');
   }
   const permissions = [...new Set(request.permissions)].sort();
   try {
     assertValidPermissions(permissions);
   } catch (error) {
-    if (error instanceof InvalidCredentialError) throw new InvalidServiceRegistrationError(error.message);
+    if (error instanceof InvalidCredentialError) throw new InvalidServiceRegistrationError(error.message, 'permissions');
     throw error;
   }
   // call:<domain> comes only from the dependencies, never granted by hand.
   const handmade = permissions.find((permission) => permission.startsWith('call:'));
-  if (handmade) throw new InvalidServiceRegistrationError(`"${handmade}" is derived from the manifest dependencies and cannot be granted`);
+  if (handmade) throw new InvalidServiceRegistrationError(`"${handmade}" is derived from the manifest dependencies and cannot be granted`, 'permissions');
   return { domain: request.domain, callees, permissions };
 }
 
@@ -138,16 +168,35 @@ export async function registerService(
     await services.register(credential);
     return { domain, secret, rotated: false };
   }
-  // The old secret stops working at once; tokens already issued with it are revoked too.
-  const replaced = await services.replace(credential);
-  if (!replaced) await services.register(credential);
-  await revocations.revokeSubject({ subject: serviceSubject(domain), at: now });
-  return { domain, secret, rotated: replaced };
+  // The revocation instant covers every token of the old secret: those it signs while the
+  // replacement is written (now plus the margin) and, after a recent registration or rotation,
+  // those dated ahead of the clock (earliestTokenInstant). The new secret dates its tokens after
+  // that instant, so its updatedAt may be a second or two ahead of the clock.
+  const previous = await services.findByDomain(domain).catch((error: unknown) => {
+    if (error instanceof InvalidCredentialError) return undefined;
+    throw error;
+  });
+  const revokedAt = Math.max(now.getTime() + ROTATION_REVOCATION_MARGIN_MS, previous ? earliestTokenInstant(previous) : 0);
+  credential.updatedAt = new Date(revokedAt - ROTATION_REVOCATION_MARGIN_MS);
+  // Revoked first: if the revocation store is down, the rotation fails with nothing changed, never
+  // with the new secret written and lost.
+  await revocations.revokeSubject({ subject: serviceSubject(domain), at: new Date(revokedAt) });
+  // The old secret stops working at once.
+  if (await services.replace(credential)) return { domain, secret, rotated: true };
+  try {
+    await services.register(credential);
+    return { domain, secret, rotated: false };
+  } catch (error) {
+    // Registered by a concurrent request in between: still a rotation, not a conflict.
+    if (!(error instanceof ServiceAlreadyRegisteredError) || !(await services.replace(credential))) throw error;
+    return { domain, secret, rotated: true };
+  }
 }
 
 /** Port for signing service tokens (AD-7): same key, issuer and audience as user tokens. */
 export interface ServiceTokenIssuer {
-  issue(service: { domain: string; permissions: readonly string[] }): Promise<IssuedAccessToken>;
+  /** `issuedAfter`: the token's `iat` is strictly after this instant (see tokensIssuedAfter). */
+  issue(service: { domain: string; permissions: readonly string[]; issuedAfter: Date }): Promise<IssuedAccessToken>;
 }
 
 export interface IssueServiceTokenDependencies {
@@ -157,6 +206,8 @@ export interface IssueServiceTokenDependencies {
   /** A hash made at startup, verified when the service does not exist (same Argon2id cost). */
   dummyHash: string;
   onCorruptCredential?: (error: InvalidCredentialError) => void;
+  /** The re-hash after a Pepper rotation failed; the token is issued anyway. */
+  onRehashFailure?: (error: unknown) => void;
 }
 
 /** Exchanges a service credential for a short-lived service token (AC 4 to 7). Never a refresh. */
@@ -178,7 +229,26 @@ export async function issueServiceToken(
   // Always exactly one Argon2id verification, whatever the outcome (no enumeration).
   const verification = await auth.verifyPassword(request.secret, credential?.secretHash ?? dummyHash);
   if (!credential || !verification.valid || credential.status !== 'active') throw new InvalidServiceCredentialsError();
-  return tokens.issue({ domain: credential.domain, permissions: [...credential.permissions, ...credential.callees.map(callPermission)] });
+  // Read again after the slow verification: a rotation in between makes this secret the old one,
+  // and a token signed now could outlive the rotation's revocation.
+  const current = await services.findByDomain(credential.domain).catch((error: unknown) => {
+    if (!(error instanceof InvalidCredentialError)) throw error;
+    dependencies.onCorruptCredential?.(error);
+    return undefined;
+  });
+  if (!current || current.secretHash !== credential.secretHash || current.status !== 'active') throw new InvalidServiceCredentialsError();
+  if (verification.needsRehash) {
+    try {
+      await services.updateSecretHash(current.domain, await auth.hashPassword(request.secret), current.secretHash);
+    } catch (error) {
+      dependencies.onRehashFailure?.(error);
+    }
+  }
+  return tokens.issue({
+    domain: current.domain,
+    permissions: [...current.permissions, ...current.callees.map(callPermission)],
+    issuedAfter: tokensIssuedAfter(current),
+  });
 }
 
 /** Fail closed on a service credential that breaks the model (a row edited by hand). */

@@ -51,3 +51,11 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 ## Deferred from: code review da Story 2.6 (2026-10-21)
 
 - W1 Logins com muitos identificadores inexistentes criam uma chave de contagem cada (até a janela) no mesmo Valkey das revogações; com uma política de despejo como `allkeys-lru`, revogações poderiam ser despejadas [packages/providers/src/lockout/valkey-login-lockout.ts] — adiado: limite de taxa do Gateway (Story 3.7); o README do `@tecton/auth` pede `maxmemory-policy noeviction` (a falta de memória vira 503, fail-closed)
+
+## Deferred from: code review da Story 2.7a (2026-10-23)
+
+- W1 `POST /auth/service-token` é público e faz um Argon2id por chamada, mesmo para `serviceId` inexistente, sem limite por origem: caminho barato para gastar CPU do Auth (força bruta não é o risco, o segredo tem 256 bits) [packages/auth/src/service.ts] — adiado: limite de taxa do Gateway (Story 3.7)
+- W2 O status `revoked` da credencial de serviço existe no modelo, mas nada o define, e uma rotação reativaria uma credencial revogada [packages/auth/src/core/service-credential.ts] — adiado: revogação de credencial de serviço pelo admin do Directory (Epic 4), que decide também se rotacionar uma revogada é permitido
+- W3 `dependencies` e `permissions` da action `registerService` são texto separado por vírgula, porque o manifest não tem tipo lista [packages/auth/tecton.yaml] — adiado: quando o formato de API ganhar arrays (Epic 5)
+- W4 O Auth aceita as `dependencies` de quem chama `register-service` (com `auth:service:register`); só o CLI as lê do manifest [packages/auth/src/service.ts] — adiado: o Directory (Epic 4) passa a ser a fonte confiável das dependências
+

@@ -26,8 +26,8 @@ interface ServiceCredentialDelegate {
   findUnique(args: { where: { domain: string } }): Promise<ServiceCredentialRow | null>;
   create(args: { data: ServiceCredentialRow }): Promise<unknown>;
   updateMany(args: {
-    where: { domain: string };
-    data: Pick<ServiceCredentialRow, 'secretHash' | 'permissions' | 'callees' | 'status' | 'updatedAt'>;
+    where: { domain: string; secretHash?: string };
+    data: Partial<Pick<ServiceCredentialRow, 'secretHash' | 'permissions' | 'callees' | 'status' | 'updatedAt'>>;
   }): Promise<{ count: number }>;
 }
 
@@ -57,11 +57,11 @@ function toServiceCredential(row: ServiceCredentialRow): ServiceCredential {
   return credential;
 }
 
-/** A unique violation on the domain column. */
-function isDomainTaken(error: unknown): boolean {
-  if (errorCode(error) !== 'P2002') return false;
-  return /domain/.test(JSON.stringify((error as { meta?: unknown }).meta ?? {}));
-}
+/**
+ * A unique violation on create. The id is a fresh UUID v7, so the only unique key that can collide
+ * is the domain, whatever each driver adapter puts in the error metadata.
+ */
+const isDomainTaken = (error: unknown) => errorCode(error) === 'P2002';
 
 /** ServiceCredentialStore backed by the Auth database through Prisma 7 (Story 2.7a). */
 export function createPrismaServiceCredentialStore(options: PrismaServiceCredentialStoreOptions): ServiceCredentialStore {
@@ -94,6 +94,11 @@ export function createPrismaServiceCredentialStore(options: PrismaServiceCredent
           updatedAt: credential.updatedAt,
         },
       });
+      return count === 1;
+    },
+    async updateSecretHash(domain, newHash, expectedHash) {
+      // Conditional: a rotation in between wins, and updatedAt (the secret's date) is kept.
+      const { count } = await services.updateMany({ where: { domain, secretHash: expectedHash }, data: { secretHash: newHash } });
       return count === 1;
     },
     close: () => client.close(),

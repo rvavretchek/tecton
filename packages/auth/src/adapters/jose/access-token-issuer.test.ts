@@ -1,5 +1,5 @@
 import { createTestClock, ed25519KeyPairPem as ed25519Pem } from '#test-support';
-import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
+import { createLocalJWKSet, decodeJwt, decodeProtectedHeader, jwtVerify } from 'jose';
 import { describe, expect, it } from 'vitest';
 import type { Credential } from '../../core/credential.js';
 import { createAccessTokenIssuer, createServiceTokenIssuer } from './access-token-issuer.js';
@@ -76,7 +76,7 @@ describe('createServiceTokenIssuer (Story 2.7a, AC 4)', () => {
   it('signs typ service, sub service:<domain> and the permissions, with the user-token key and header', async () => {
     const keys = await buildSigningKeys({ privateKeyPem: ed25519Pem().privatePem });
     const clock = createTestClock(new Date('2026-10-23T12:00:00.000Z'));
-    const issued = await createServiceTokenIssuer({ keys, clock }).issue({ domain: 'billing', permissions: ['invoice:write', 'call:tenant'] });
+    const issued = await createServiceTokenIssuer({ keys, clock }).issue({ domain: 'billing', permissions: ['invoice:write', 'call:tenant'], issuedAfter: new Date(0) });
 
     expect(issued).toEqual({ accessToken: expect.any(String), tokenType: 'Bearer', expiresIn: 300 });
     expect(decodeProtectedHeader(issued.accessToken)).toEqual({ alg: 'EdDSA', kid: keys.current.kid, typ: 'at+jwt' });
@@ -101,7 +101,7 @@ describe('createServiceTokenIssuer (Story 2.7a, AC 4)', () => {
 
   it('uses the configured lifetime', async () => {
     const keys = await buildSigningKeys({ privateKeyPem: ed25519Pem().privatePem });
-    const issued = await createServiceTokenIssuer({ keys, clock: createTestClock(), ttlSeconds: 60 }).issue({ domain: 'billing', permissions: [] });
+    const issued = await createServiceTokenIssuer({ keys, clock: createTestClock(), ttlSeconds: 60 }).issue({ domain: 'billing', permissions: [], issuedAfter: new Date(0) });
 
     expect(issued.expiresIn).toBe(60);
   });
@@ -110,5 +110,20 @@ describe('createServiceTokenIssuer (Story 2.7a, AC 4)', () => {
     const keys = await buildSigningKeys({ privateKeyPem: ed25519Pem().privatePem });
 
     expect(() => createServiceTokenIssuer({ keys, clock: createTestClock(), ttlSeconds })).toThrow(RangeError);
+  });
+});
+
+describe('createServiceTokenIssuer issuedAfter (Story 2.7a review P1)', () => {
+  it('dates the token strictly after issuedAfter, even in the same second or slightly ahead of the clock', async () => {
+    const keys = await buildSigningKeys({ privateKeyPem: ed25519Pem().privatePem });
+    const clock = createTestClock(new Date('2026-10-23T12:00:00.400Z'));
+    const issuer = createServiceTokenIssuer({ keys, clock });
+    const iat = async (issuedAfter: string) =>
+      decodeJwt((await issuer.issue({ domain: 'billing', permissions: [], issuedAfter: new Date(issuedAfter) })).accessToken).iat as number;
+    const second = Date.parse('2026-10-23T12:00:00.000Z') / 1000;
+
+    expect(await iat('2026-10-23T11:59:00.000Z')).toBe(second);
+    expect(await iat('2026-10-23T12:00:00.300Z')).toBe(second + 1);
+    expect(await iat('2026-10-23T12:00:01.300Z')).toBe(second + 2);
   });
 });

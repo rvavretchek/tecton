@@ -30,6 +30,12 @@ export function createMemoryServiceCredentialStore() {
       rows.set(credential.domain, { ...copy(credential), id: current.id, createdAt: current.createdAt });
       return true;
     },
+    async updateSecretHash(domain, newHash, expectedHash) {
+      const current = rows.get(domain);
+      if (!current || current.secretHash !== expectedHash) return false;
+      rows.set(domain, { ...current, secretHash: newHash });
+      return true;
+    },
     async close() {},
   };
   /** Writes a row as is, bypassing validation (a row edited by hand). */

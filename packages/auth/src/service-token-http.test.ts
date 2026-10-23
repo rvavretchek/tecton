@@ -231,6 +231,7 @@ describe('POST /auth/service-token (Story 2.7a, AC 4 to 8, P0-018)', () => {
     const before = revocations.revokedTokens().length;
     expect((await app.inject({ method: 'POST', url: '/auth/logout', headers: bearer(accessToken) })).statusCode).toBe(200);
     expect(revocations.revokedTokens()).toHaveLength(before);
+    expect(revocations.revokedSubjects()).toEqual([]);
   });
 });
 
@@ -253,3 +254,88 @@ describe('closing', () => {
     expect(closeServices).toHaveBeenCalledOnce();
   });
 });
+
+describe('Story 2.7a review fixes (HTTP)', () => {
+  it('P1: right after a rotation, at the same instant, the new token is not revoked and the old one is', async () => {
+    const { login, register, serviceToken, revocations } = await service();
+    const token = await login();
+    const first = (await register({ domain: 'billing' }, bearer(token))).json() as { secret: string };
+    const old = decodeJwt(((await serviceToken('billing', first.secret)).json() as { accessToken: string }).accessToken);
+
+    const second = (await register({ domain: 'billing', rotate: true }, bearer(token))).json() as { secret: string };
+    const fresh = decodeJwt(((await serviceToken('billing', second.secret)).json() as { accessToken: string }).accessToken);
+
+    const revoked = (claims: typeof old) =>
+      revocations.isRevoked({ tokenId: claims.jti as string, subject: 'service:billing', issuedAt: new Date((claims.iat as number) * 1000) });
+    expect(await revoked(old)).toBe(true);
+    expect(await revoked(fresh)).toBe(false);
+
+    // A second rotation at the same instant still revokes the tokens of the secret it replaces.
+    const third = (await register({ domain: 'billing', rotate: true }, bearer(token))).json() as { secret: string };
+    const newest = decodeJwt(((await serviceToken('billing', third.secret)).json() as { accessToken: string }).accessToken);
+    expect(await revoked(fresh)).toBe(true);
+    expect(await revoked(newest)).toBe(false);
+  });
+
+  it('P2: a rotation with the revocation store down answers 503 and keeps the old secret working', async () => {
+    const { login, register, serviceToken, revocations } = await service();
+    const token = await login();
+    const { secret } = (await register({ domain: 'billing' }, bearer(token))).json() as { secret: string };
+    // The administrator token is checked before the rotation: only the rotation's revocation fails.
+    const isRevoked = revocations.isRevoked.bind(revocations);
+    revocations.setUnavailable(true);
+    revocations.isRevoked = async () => false;
+
+    const response = await register({ domain: 'billing', rotate: true }, bearer(token));
+
+    expect(response.statusCode).toBe(503);
+    revocations.setUnavailable(false);
+    revocations.isRevoked = isRevoked;
+    expect((await serviceToken('billing', secret)).statusCode).toBe(200);
+  });
+
+  it.each([
+    [{ domain: 'Billing' }, '/domain'],
+    [{ domain: 'billing', dependencies: 'billing' }, '/dependencies'],
+    [{ domain: 'billing', permissions: 'call:tenant' }, '/permissions'],
+  ])('P7: the 400 names the field (%j)', async (payload, name) => {
+    const { login, register } = await service();
+
+    const response = await register(payload, bearer(await login()));
+
+    expect(response.json()).toMatchObject({ status: 400, details: [{ name }] });
+  });
+
+  it('P13: logs refused registrations with the administrator and the reason, never a secret', async () => {
+    const { login, register, logs } = await service();
+    const token = await login();
+    const { secret } = (await register({ domain: 'billing' }, bearer(token))).json() as { secret: string };
+
+    await register({ domain: 'billing' }, bearer(token));
+    await register({ domain: 'billing', permissions: 'call:tenant', rotate: true }, bearer(token));
+
+    expect(logs()).toMatch(/"event":"auth.service.register_refused","domain":"billing","by":"0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5f","reason":"already_registered"/);
+    expect(logs()).toContain('"reason":"invalid_permissions"');
+    assertNoSecretsLeaked(logs(), { secret });
+  });
+
+  it('P14: refuses services without serviceTokens (and the reverse)', async () => {
+    const keys = await buildSigningKeys({ privateKeyPem: ed25519KeyPairPem().privatePem });
+    const clock = createTestClock();
+    const base = {
+      store: { count: async () => 0, findByLogin: async () => undefined, findById: async () => undefined, create: async () => undefined, createIfEmpty: async () => false, updatePasswordHash: async () => true, close: async () => undefined },
+      refreshTokens: createMemoryRefreshTokenStore().store,
+      revocations: createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'), () => clock.now()),
+      lockout: createMemoryLoginLockout(() => new LoginLockoutUnavailableError('down'), () => clock.now()),
+      auth,
+      issuer: createAccessTokenIssuer({ keys, clock }),
+      keys,
+      clock,
+      logger: false as const,
+    };
+
+    await expect(createAuthService({ ...base, services: createMemoryServiceCredentialStore().store })).rejects.toThrow(/services and serviceTokens go together/);
+    await expect(createAuthService({ ...base, serviceTokens: createServiceTokenIssuer({ keys, clock }) })).rejects.toThrow(/services and serviceTokens go together/);
+  });
+});
+

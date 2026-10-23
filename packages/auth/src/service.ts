@@ -138,6 +138,9 @@ export async function createAuthService({
   logger,
 }: AuthServiceOptions): Promise<AuthServiceApp> {
   assertRefreshTokenTtl(refreshTtlSeconds);
+  if ((services === undefined) !== (serviceTokens === undefined)) {
+    throw new TypeError('services and serviceTokens go together: give both to enable service credentials, or neither');
+  }
   // Verified when the login does not exist: same Argon2id cost as a real account (P0-006).
   const dummyHash = await auth.hashPassword(randomBytes(32).toString('base64'));
   const app = createTectonServer(logger === undefined ? {} : { logger });
@@ -176,6 +179,10 @@ export async function createAuthService({
     services && serviceTokens
       ? {
           registerService: async (input: Record<string, unknown>, { principal }: { principal?: { subject: string } }) => {
+            // Audit of a refused or failed attempt of this administrator action: who, which domain,
+            // why. Never the secret.
+            const refused = (reason: string) =>
+              app.log.warn({ event: 'auth.service.register_refused', domain: input['domain'], by: principal?.subject, reason }, 'service registration refused');
             try {
               const result = await registerService(
                 { services, auth, revocations, clock },
@@ -192,16 +199,33 @@ export async function createAuthService({
               );
               return result;
             } catch (error) {
-              if (error instanceof ServiceAlreadyRegisteredError) throw frameworkErrors.conflict(error.message);
-              if (error instanceof InvalidServiceRegistrationError) throw frameworkErrors.validationFailed([{ name: '/domain', reason: error.message }]);
-              if (error instanceof RevocationStoreUnavailableError) throw frameworkErrors.authUnavailable();
+              if (error instanceof ServiceAlreadyRegisteredError) {
+                refused('already_registered');
+                throw frameworkErrors.conflict(error.message);
+              }
+              if (error instanceof InvalidServiceRegistrationError) {
+                refused(`invalid_${error.field}`);
+                throw frameworkErrors.validationFailed([{ name: `/${error.field}`, reason: error.message }]);
+              }
+              if (error instanceof RevocationStoreUnavailableError) {
+                refused('revocation_unavailable');
+                throw frameworkErrors.authUnavailable();
+              }
+              refused('unexpected_error');
               throw error;
             }
           },
           serviceToken: async (input: Record<string, unknown>) => {
             try {
               return await issueServiceToken(
-                { services, auth, tokens: serviceTokens, dummyHash: serviceDummyHash, onCorruptCredential: corruptCredential('service token') },
+                {
+                  services,
+                  auth,
+                  tokens: serviceTokens,
+                  dummyHash: serviceDummyHash,
+                  onCorruptCredential: corruptCredential('service token'),
+                  onRehashFailure: (error) => app.log.warn({ err: safeError(error) }, 'service secret re-hash failed'),
+                },
                 { serviceId: input['serviceId'] as string, secret: input['secret'] as string },
               );
             } catch (error) {

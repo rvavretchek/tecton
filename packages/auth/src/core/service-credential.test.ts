@@ -21,7 +21,7 @@ function setup() {
   const clock = createTestClock(NOW);
   const services = createMemoryServiceCredentialStore();
   const revocations = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'), () => clock.now());
-  const issued: Array<{ domain: string; permissions: readonly string[] }> = [];
+  const issued: Array<{ domain: string; permissions: readonly string[]; issuedAfter: Date }> = [];
   const tokens: ServiceTokenIssuer = {
     async issue(service): Promise<IssuedAccessToken> {
       issued.push(service);
@@ -100,7 +100,7 @@ describe('registerService (AC 1, 3, 6)', () => {
     expect(row).toMatchObject({ callees: ['catalog'], permissions: ['invoice:write'], updatedAt: clock.now(), createdAt: NOW });
     expect((await auth.verifyPassword(first.secret, row?.secretHash ?? '')).valid).toBe(false);
     expect((await auth.verifyPassword(rotated.secret, row?.secretHash ?? '')).valid).toBe(true);
-    expect(revocations.revokedSubjects()).toEqual([{ subject: 'service:billing', at: clock.now() }]);
+    expect(revocations.revokedSubjects()).toEqual([{ subject: 'service:billing', at: new Date(clock.now().getTime() + 1000) }]);
   });
 
   it('rotating a domain without a credential registers it (rotated: false)', async () => {
@@ -132,7 +132,7 @@ describe('issueServiceToken (AC 4, 5, 7)', () => {
     const { issue, secret, issued } = await registered();
 
     expect(await issue('billing', secret)).toEqual({ accessToken: 'token-for-billing', tokenType: 'Bearer', expiresIn: 300 });
-    expect(issued).toEqual([{ domain: 'billing', permissions: ['invoice:write', 'call:catalog', 'call:tenant'] }]);
+    expect(issued).toEqual([{ domain: 'billing', permissions: ['invoice:write', 'call:catalog', 'call:tenant'], issuedAfter: new Date(NOW.getTime() + 1000) }]);
   });
 
   it('without --permission, the service has only its call: permissions (AC 6)', async () => {
@@ -141,7 +141,7 @@ describe('issueServiceToken (AC 4, 5, 7)', () => {
     const dummyHash = await auth.hashPassword('dummy-secret');
     await issueServiceToken({ services: context.services.store, auth, tokens: context.tokens, dummyHash }, { serviceId: 'catalog', secret });
 
-    expect(context.issued).toEqual([{ domain: 'catalog', permissions: ['call:tenant'] }]);
+    expect(context.issued).toEqual([{ domain: 'catalog', permissions: ['call:tenant'], issuedAfter: new Date(NOW.getTime() + 1000) }]);
   });
 
   it('refuses an unknown service, a wrong secret and a revoked credential with the same error and one Argon2id each', async () => {
@@ -179,5 +179,111 @@ describe('issueServiceToken (AC 4, 5, 7)', () => {
     ).rejects.toThrow(InvalidServiceCredentialsError);
     expect(reported).toHaveLength(1);
     expect(reported[0]).toBeInstanceOf(InvalidCredentialError);
+  });
+});
+
+describe('Story 2.7a review fixes', () => {
+  it('P2: a rotation with the revocation store down changes nothing and keeps the old secret', async () => {
+    const { register, services, revocations } = setup();
+    const first = await register({ domain: 'billing' });
+    const before = services.rows.get('billing');
+    revocations.setUnavailable(true);
+
+    await expect(register({ domain: 'billing', rotate: true })).rejects.toThrow(RevocationStoreUnavailableError);
+    expect(services.rows.get('billing')).toEqual(before);
+    expect((await auth.verifyPassword(first.secret, before?.secretHash ?? '')).valid).toBe(true);
+  });
+
+  it('P1: the revocation of a rotation ends before the first token of the new secret', async () => {
+    const { register, services, revocations, tokens, issued } = setup();
+    await register({ domain: 'billing' });
+    const rotated = await register({ domain: 'billing', rotate: true });
+    await issueServiceToken({ services: services.store, auth, tokens, dummyHash: await auth.hashPassword('dummy') }, { serviceId: 'billing', secret: rotated.secret });
+
+    const revokedAt = revocations.revokedSubjects()[0]?.at.getTime() ?? Number.NaN;
+    const issuedAfter = issued[0]?.issuedAfter.getTime() ?? Number.NaN;
+    expect(revokedAt).toBe(issuedAfter);
+    // A token dated strictly after issuedAfter (what the issuer guarantees) is not revoked.
+    expect(await revocations.isRevoked({ tokenId: 't', subject: 'service:billing', issuedAt: new Date((Math.floor(issuedAfter / 1000) + 1) * 1000) })).toBe(false);
+    expect(await revocations.isRevoked({ tokenId: 't', subject: 'service:billing', issuedAt: NOW })).toBe(true);
+  });
+
+  it('P3: a rotation during the verification of the old secret refuses the token', async () => {
+    const { register, services, tokens, issued, clock, revocations } = setup();
+    const { secret } = await register({ domain: 'billing' });
+    const slow = {
+      ...auth,
+      verifyPassword: async (password: string, hash: string) => {
+        const result = await auth.verifyPassword(password, hash);
+        await registerService({ services: services.store, auth, revocations, clock }, { domain: 'billing', dependencies: [], permissions: [], rotate: true });
+        return result;
+      },
+    };
+
+    await expect(issueServiceToken({ services: services.store, auth: slow, tokens, dummyHash: 'x' }, { serviceId: 'billing', secret })).rejects.toThrow(InvalidServiceCredentialsError);
+    expect(issued).toEqual([]);
+  });
+
+  it('P5: re-hashes a secret hashed with a previous Pepper, keeping updatedAt', async () => {
+    const oldPepper = { id: '1', key: Buffer.from('service-credential-pepper-32-bytes', 'utf8') };
+    const rotatedAuth = createArgon2idAuthProvider({ peppers: [oldPepper, { id: '2', key: Buffer.from('service-credential-pepper-two-32-by', 'utf8') }], currentPepperId: '2' });
+    const { register, services, tokens } = setup();
+    const { secret } = await register({ domain: 'billing' });
+    const before = services.rows.get('billing');
+
+    await issueServiceToken({ services: services.store, auth: rotatedAuth, tokens, dummyHash: 'x' }, { serviceId: 'billing', secret });
+
+    const after = services.rows.get('billing');
+    expect(after?.secretHash).not.toBe(before?.secretHash);
+    expect(after?.updatedAt).toEqual(before?.updatedAt);
+    expect(await rotatedAuth.verifyPassword(secret, after?.secretHash ?? '')).toEqual({ valid: true, needsRehash: false });
+  });
+
+  it('P5: a failed re-hash is reported and the token is still issued', async () => {
+    const rotatedAuth = createArgon2idAuthProvider({
+      peppers: [{ id: '1', key: Buffer.from('service-credential-pepper-32-bytes', 'utf8') }, { id: '2', key: Buffer.from('service-credential-pepper-two-32-by', 'utf8') }],
+      currentPepperId: '2',
+    });
+    const { register, services, tokens, issued } = setup();
+    const { secret } = await register({ domain: 'billing' });
+    const failure = new Error('database down');
+    services.store.updateSecretHash = async () => Promise.reject(failure);
+    const reported: unknown[] = [];
+
+    await issueServiceToken({ services: services.store, auth: rotatedAuth, tokens, dummyHash: 'x', onRehashFailure: (error) => reported.push(error) }, { serviceId: 'billing', secret });
+
+    expect(reported).toEqual([failure]);
+    expect(issued).toHaveLength(1);
+  });
+
+  it('P6: a rotation racing a registration of the same new domain is still a rotation', async () => {
+    const { services, revocations, clock } = setup();
+    const store = services.store;
+    let replaceCalls = 0;
+    const racing = {
+      ...store,
+      replace: async (credential: Parameters<typeof store.replace>[0]) => {
+        replaceCalls += 1;
+        return replaceCalls === 1 ? false : store.replace(credential);
+      },
+      register: async (credential: Parameters<typeof store.register>[0]) => {
+        // Another request registered the domain just before this one.
+        await store.register({ ...credential, id: '0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e00' }).catch(() => undefined);
+        return store.register(credential);
+      },
+    };
+
+    const result = await registerService({ services: racing, auth, revocations, clock }, { domain: 'billing', dependencies: [], permissions: [], rotate: true });
+
+    expect(result.rotated).toBe(true);
+    expect((await auth.verifyPassword(result.secret, services.rows.get('billing')?.secretHash ?? '')).valid).toBe(true);
+  });
+
+  it.each([
+    [{ domain: 'Billing', dependencies: [], permissions: [] }, 'domain'],
+    [{ domain: 'billing', dependencies: ['billing'], permissions: [] }, 'dependencies'],
+    [{ domain: 'billing', dependencies: [], permissions: ['call:tenant'] }, 'permissions'],
+  ])('P7: names the field of the invalid registration (%j)', (request, field) => {
+    expect(() => validatedRegistration(request)).toThrow(expect.objectContaining({ field }));
   });
 });

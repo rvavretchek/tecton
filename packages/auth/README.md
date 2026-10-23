@@ -239,14 +239,21 @@ printf '%s' "$ADMIN_PASSWORD" | tecton-admin auth register-service billing --log
   from `TECTON_AUTH_ADMIN_PASSWORD` or standard input, never from an argument.
 - The domains the service calls come from `dependencies` in `apps/domains/<domain>/tecton.yaml`.
   The service token carries `call:<domain>` for each of them, and only for them; the callee
-  checks it (Story 2.7b). `call:` permissions cannot be granted by hand.
+  checks it (Story 2.7b). `--permission call:...` is refused: `call:` comes from the
+  `dependencies` the registration sends. The CLI reads them from the manifest; the endpoint
+  itself trusts the administrator who calls it (`auth:service:register`), so grant that
+  permission as you would grant any other.
 - `--permission` (repeatable) grants other permissions. Without it, the service has only its
   `call:` permissions.
 - The secret is printed once. The Auth service cannot show it again.
 - A domain registered already answers 409, and the command exits 2 with nothing changed.
   `--rotate` replaces the credential: a new secret, and the old one stops working at once. Every
   token issued to `service:<domain>` until then is revoked. Changing the permissions or the
-  dependencies of a service also needs `--rotate`.
+  dependencies of a service also needs `--rotate`. The revocation is written before the new
+  secret: if Valkey is down, the rotation answers 503 and nothing changes.
+- If the command gets no answer to the registration (a timeout), the registration may have been
+  applied and its secret lost: run it again, with `--rotate` if it says the service is already
+  registered.
 
 The service exchanges its credential for a token:
 
@@ -298,7 +305,8 @@ No old private key is needed: tokens signed with it are verified with its public
 
 Set the new Pepper as `TECTON_AUTH_PEPPER` with a new `TECTON_AUTH_PEPPER_ID`, and keep the old one in
 `TECTON_AUTH_PREVIOUS_PEPPERS` (`{"<old id>": "<old value>"}`). Passwords hashed with the old Pepper
-keep working and are re-hashed with the new one at each user's next login. Remove the old Pepper only
+keep working and are re-hashed with the new one at each user's next login. Service secrets are
+re-hashed the same way, at the service's next `service-token` call. Remove the old Pepper only
 when no stored hash uses it any more.
 
 ## Capacity

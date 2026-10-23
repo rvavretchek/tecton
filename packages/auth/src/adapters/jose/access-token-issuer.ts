@@ -73,8 +73,10 @@ export function createServiceTokenIssuer({
   }
   if (issuer.trim() === '' || audience.trim() === '') throw new RangeError('issuer and audience must not be empty');
   return {
-    async issue({ domain, permissions }) {
-      const issuedAt = Math.floor(clock.now().getTime() / 1000);
+    async issue({ domain, permissions, issuedAfter }) {
+      // Strictly after `issuedAfter` (a rotation's revocation instant), at most a second or two
+      // ahead of the clock: well within the 30-s tolerance of every verifier.
+      const issuedAt = Math.max(Math.floor(clock.now().getTime() / 1000), Math.floor(issuedAfter.getTime() / 1000) + 1);
       const accessToken = await new SignJWT({ typ: 'service', perms: [...permissions] })
         .setProtectedHeader({ alg: 'EdDSA', kid: keys.current.kid, typ: 'at+jwt' })
         .setIssuer(issuer)
