@@ -24,7 +24,12 @@ actions:
     output: {}
     auth: { public: true }
   - name: serviceToken
-    description: "Issues a service access token for a registered service credential."
+    description: "Exchanges a service credential (domain and secret) for a short-lived service token (typ service, no refresh)."
     input: { serviceId: string, secret: string }
     output: { accessToken: string, tokenType: string, expiresIn: integer }
     auth: { public: true }
+  - name: registerService
+    description: "Registers the credential of a domain service, or rotates it (revoking its tokens); the secret is returned only here. Lists are comma-separated."
+    input: { domain: string, dependencies: string?, permissions: string?, rotate: boolean? }
+    output: { domain: string, secret: string, rotated: boolean }
+    auth: { requires: [auth:service:register] }

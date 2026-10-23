@@ -1,5 +1,6 @@
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 import { authBootstrapCommand } from './commands/auth-bootstrap.js';
+import { authRegisterServiceCommand } from './commands/auth-register-service.js';
 import { authUnlockCommand } from './commands/auth-unlock.js';
 import { generateDomainCommand } from './commands/generate-domain.js';
 import { lintCommand, type OutputFormat } from './commands/lint.js';
@@ -83,6 +84,36 @@ function buildProgram(io: CliIo, setExitCode: (code: number) => void): Command {
     )
     .action(async (options: { login: string }) => {
       setExitCode(await authBootstrapCommand(options, io));
+    });
+  auth
+    .command('register-service')
+    .description(
+      'Register the service credential of a domain in the Auth service and print its secret once. ' +
+        'Logs in as the administrator for the duration of the command and logs out at the end.',
+    )
+    .argument('<domain>', 'domain in apps/domains of this workspace; its manifest dependencies become call:<domain> permissions')
+    .requiredOption('--login <identifier>', 'login of an administrator with auth:service:register')
+    .option('--permission <permission>', 'permission granted to the service (repeatable)', (value: string, previous: string[]) => [...previous, value], [] as string[])
+    .option('--rotate', 'replace an existing credential: new secret, the old one and its tokens stop working')
+    .addHelpText(
+      'after',
+      [
+        '',
+        'Environment:',
+        '  TECTON_AUTH_URL             Auth service base URL (https, or http with TECTON_ENV=development)',
+        '  TECTON_AUTH_ADMIN_PASSWORD  administrator password (optional; otherwise read from standard input)',
+        '',
+        'Changing the permissions or the dependencies of a registered service needs --rotate.',
+        'Exit codes: 0 registered or rotated, 2 already registered (nothing changed), 1 failure.',
+        '',
+        'Examples:',
+        `  $ printf '%s' "$PASSWORD" | tecton-admin auth register-service billing --login admin`,
+        `  $ tecton-admin auth register-service billing --login admin --permission invoice:write --rotate`,
+        '',
+      ].join('\n'),
+    )
+    .action(async (domain: string, options: { login: string; permission: string[]; rotate?: boolean }) => {
+      setExitCode(await authRegisterServiceCommand(domain, options, io));
     });
   auth
     .command('unlock')

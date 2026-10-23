@@ -82,6 +82,8 @@ export const frameworkErrors = {
       message: 'authentication is temporarily unavailable',
       headers: { 'retry-after': '5' },
     }),
+  /** The resource already exists; replacing it needs an explicit request (e.g. a rotation). */
+  conflict: (message: string) => new TectonError({ status: 409, slug: 'conflict', i18nKey: 'tecton.error.conflict', message }),
   notFound: () =>
     new TectonError({ status: 404, slug: 'not-found', i18nKey: 'tecton.error.notFound', message: 'route not found' }),
   notImplemented: (domain: string, action: string) =>

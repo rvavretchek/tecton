@@ -24,7 +24,7 @@ describe('Prisma schema parity', () => {
   it('declares the same models, fields, types and attributes in PostgreSQL and MySQL', () => {
     const postgresql = models('postgresql');
 
-    expect(Object.keys(postgresql)).toEqual(['Credential', 'RefreshFamily', 'RefreshToken']);
+    expect(Object.keys(postgresql)).toEqual(['Credential', 'RefreshFamily', 'RefreshToken', 'ServiceCredential']);
     expect(models('mysql')).toEqual(postgresql);
   });
 
@@ -41,7 +41,7 @@ describe('Prisma schema parity', () => {
         .map((entry) => entry.name)
         .sort();
 
-    expect(names('postgresql')).toEqual(['0001_init', '0002_refresh_tokens']);
+    expect(names('postgresql')).toEqual(['0001_init', '0002_refresh_tokens', '0003_service_credentials']);
     expect(names('mysql')).toEqual(names('postgresql'));
     for (const name of names('postgresql')) {
       const sql = readFileSync(join(prismaDir, 'postgresql', 'migrations', name, 'migration.sql'), 'utf8');

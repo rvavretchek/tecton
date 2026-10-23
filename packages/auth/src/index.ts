@@ -24,6 +24,23 @@ export { applyAuthMigrations, type ApplyAuthMigrationsOptions } from './adapters
 export { createAuthPrismaClient, type AuthPrismaClient } from './adapters/prisma/client.js';
 export { createPrismaCredentialStore, type PrismaCredentialStoreOptions } from './adapters/prisma/prisma-credential-store.js';
 export { createPrismaRefreshTokenStore, type PrismaRefreshTokenStoreOptions } from './adapters/prisma/prisma-refresh-token-store.js';
+export { createPrismaServiceCredentialStore, type PrismaServiceCredentialStoreOptions } from './adapters/prisma/prisma-service-credential-store.js';
+export {
+  assertValidServiceCredential,
+  callPermission,
+  InvalidServiceCredentialsError,
+  InvalidServiceRegistrationError,
+  issueServiceToken,
+  registerService,
+  SERVICE_SECRET_BYTES,
+  ServiceAlreadyRegisteredError,
+  serviceSubject,
+  validatedRegistration,
+  type ServiceCredential,
+  type ServiceCredentialStatus,
+  type ServiceCredentialStore,
+  type ServiceTokenIssuer,
+} from './core/service-credential.js';
 export type { AccessTokenIssuer, IssuedAccessToken } from './core/access-token.js';
 export { InvalidCredentialsError, login, type LoginDependencies, type LoginRequest } from './core/login.js';
 export { generateRefreshToken, hashRefreshToken, isWellFormedRefreshToken, REFRESH_TOKEN_BYTES } from './core/refresh-token.js';
@@ -55,8 +72,10 @@ export { buildSigningKeys, SigningKeyConfigError, type PublishedJwk, type Signin
 export {
   ACCESS_TOKEN_TTL,
   createAccessTokenIssuer,
+  createServiceTokenIssuer,
   DEFAULT_AUDIENCE,
   DEFAULT_ISSUER,
+  SERVICE_TOKEN_TTL,
   type AccessTokenIssuerOptions,
 } from './adapters/jose/access-token-issuer.js';
 export {
@@ -64,8 +83,9 @@ export {
   listenSettingsFromEnv,
   previousPeppersFromEnv,
   refreshTokenTtlFromEnv,
+  serviceTokenTtlFromEnv,
   signingKeysFromEnv,
   tokenSettingsFromEnv,
   type TokenSettings,
 } from './adapters/env/config-from-env.js';
-export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOGIN_PATH, LOGOUT_PATH, LOG_REDACTION, REFRESH_PATH, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';
+export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOGIN_PATH, LOGOUT_PATH, LOG_REDACTION, REFRESH_PATH, REGISTER_SERVICE_PATH, SERVICE_TOKEN_PATH, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';

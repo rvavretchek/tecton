@@ -140,6 +140,7 @@ describe('Dev Services and the Auth service (Story 2.2b, AC 5)', () => {
 
     expect(env).toMatch(/^TECTON_ENV=development$/m);
     expect(env).toMatch(/^TECTON_JWKS_URL=http:\/\/127\.0\.0\.1:3001\/auth\/\.well-known\/jwks\.json$/m);
+    expect(env).toMatch(/^TECTON_AUTH_URL=http:\/\/127\.0\.0\.1:3001$/m);
   });
 
   it('keeps secrets and database URLs out of the shared file, and each app to its own (Story 2.4 review D1)', async () => {

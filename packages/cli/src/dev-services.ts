@@ -224,6 +224,8 @@ export function rootEnvExample(): string {
     '# TECTON_ENV=development allows the http URL below; outside development it must be https.',
     'TECTON_ENV=development',
     `TECTON_JWKS_URL=http://127.0.0.1:${AUTH_DEV_PORT}/auth/.well-known/jwks.json`,
+    '# Base URL of apps/auth for tecton-admin (auth register-service); export it in your shell.',
+    `TECTON_AUTH_URL=http://127.0.0.1:${AUTH_DEV_PORT}`,
     '',
   ].join('\n');
 }

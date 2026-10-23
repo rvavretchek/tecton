@@ -54,3 +54,19 @@ model RefreshToken {
   @@index([familyId])
   @@map("refresh_tokens")
 }
+
+// Story 2.7a: the credential of a service (client credentials). Only the hash of its secret is
+// stored (AuthProvider: Argon2id with the Pepper). `callees` are the domains of its manifest
+// `dependencies`; the service token carries call:<domain> for each of them.
+model ServiceCredential {
+  id          String   @id @db.Char(36)
+  domain      String   @unique @db.VarChar(63)
+  secretHash  String   @map("secret_hash") @db.VarChar(256)
+  permissions Json
+  callees     Json
+  status      String   @db.VarChar(16)
+  createdAt   DateTime @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @map("updated_at") @db.Timestamptz(3)
+
+  @@map("service_credentials")
+}

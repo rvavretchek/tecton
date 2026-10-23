@@ -10,8 +10,8 @@ import { dialectOf, withScheme } from './dialect.js';
  * however many stores share the client.
  */
 export interface AuthPrismaClient {
-  readonly delegates: Record<'credential' | 'refreshFamily' | 'refreshToken', unknown>;
-  transaction<T>(run: (tx: Record<'credential' | 'refreshFamily' | 'refreshToken', unknown>) => Promise<T>, options?: { isolationLevel: 'Serializable' }): Promise<T>;
+  readonly delegates: Record<'credential' | 'refreshFamily' | 'refreshToken' | 'serviceCredential', unknown>;
+  transaction<T>(run: (tx: Record<'credential' | 'refreshFamily' | 'refreshToken' | 'serviceCredential', unknown>) => Promise<T>, options?: { isolationLevel: 'Serializable' }): Promise<T>;
   close(): Promise<void>;
 }
 
@@ -19,6 +19,7 @@ interface GeneratedClient {
   credential: unknown;
   refreshFamily: unknown;
   refreshToken: unknown;
+  serviceCredential: unknown;
   $transaction<T>(run: (tx: GeneratedClient) => Promise<T>, options?: { isolationLevel: 'Serializable' }): Promise<T>;
   $disconnect(): Promise<void>;
 }

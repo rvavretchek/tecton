@@ -26,8 +26,8 @@ describe('@tecton/auth manifest', () => {
     expect(parsed.ok && parsed.manifest).toMatchObject({ domain: 'auth', version: packageJson.version });
   });
 
-  it('declares login, refresh, logout and service-token, and no JWKS action', () => {
-    expect(parsed.ok && parsed.manifest.actions.map((action) => action.name)).toEqual(['login', 'refresh', 'logout', 'serviceToken']);
+  it('declares login, refresh, logout, service-token and register-service, and no JWKS action', () => {
+    expect(parsed.ok && parsed.manifest.actions.map((action) => action.name)).toEqual(['login', 'refresh', 'logout', 'serviceToken', 'registerService']);
   });
 
   it('never declares a refresh token in an output: the response serializer drops it from bodies (Story 2.3, AC 1, AC 7)', () => {
@@ -38,6 +38,7 @@ describe('@tecton/auth manifest', () => {
       refresh: ['accessToken', 'expiresIn', 'tokenType'],
       logout: [],
       serviceToken: ['accessToken', 'expiresIn', 'tokenType'],
+      registerService: ['domain', 'rotated', 'secret'],
     });
   });
 

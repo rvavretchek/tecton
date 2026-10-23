@@ -2,7 +2,7 @@ import { createTestClock, ed25519KeyPairPem as ed25519Pem } from '#test-support'
 import { createLocalJWKSet, decodeProtectedHeader, jwtVerify } from 'jose';
 import { describe, expect, it } from 'vitest';
 import type { Credential } from '../../core/credential.js';
-import { createAccessTokenIssuer } from './access-token-issuer.js';
+import { createAccessTokenIssuer, createServiceTokenIssuer } from './access-token-issuer.js';
 import { buildSigningKeys } from './signing-keys.js';
 
 const credential: Credential = {
@@ -69,5 +69,46 @@ describe('createAccessTokenIssuer (AC 1)', () => {
     const keys = await buildSigningKeys({ privateKeyPem: ed25519Pem().privatePem });
 
     expect(() => createAccessTokenIssuer({ keys, clock: createTestClock(), ttlSeconds })).toThrow(RangeError);
+  });
+});
+
+describe('createServiceTokenIssuer (Story 2.7a, AC 4)', () => {
+  it('signs typ service, sub service:<domain> and the permissions, with the user-token key and header', async () => {
+    const keys = await buildSigningKeys({ privateKeyPem: ed25519Pem().privatePem });
+    const clock = createTestClock(new Date('2026-10-23T12:00:00.000Z'));
+    const issued = await createServiceTokenIssuer({ keys, clock }).issue({ domain: 'billing', permissions: ['invoice:write', 'call:tenant'] });
+
+    expect(issued).toEqual({ accessToken: expect.any(String), tokenType: 'Bearer', expiresIn: 300 });
+    expect(decodeProtectedHeader(issued.accessToken)).toEqual({ alg: 'EdDSA', kid: keys.current.kid, typ: 'at+jwt' });
+    const { payload } = await jwtVerify(issued.accessToken, createLocalJWKSet({ keys: [...keys.publicJwks] }), {
+      issuer: 'urn:tecton:auth',
+      audience: 'urn:tecton:api',
+      algorithms: ['EdDSA'],
+      currentDate: clock.now(),
+    });
+    const iat = Date.parse('2026-10-23T12:00:00.000Z') / 1000;
+    expect(payload).toEqual({
+      iss: 'urn:tecton:auth',
+      sub: 'service:billing',
+      aud: 'urn:tecton:api',
+      iat,
+      exp: iat + 300,
+      jti: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+      typ: 'service',
+      perms: ['invoice:write', 'call:tenant'],
+    });
+  });
+
+  it('uses the configured lifetime', async () => {
+    const keys = await buildSigningKeys({ privateKeyPem: ed25519Pem().privatePem });
+    const issued = await createServiceTokenIssuer({ keys, clock: createTestClock(), ttlSeconds: 60 }).issue({ domain: 'billing', permissions: [] });
+
+    expect(issued.expiresIn).toBe(60);
+  });
+
+  it.each([59, 901, 1.5])('rejects a lifetime of %s seconds', async (ttlSeconds) => {
+    const keys = await buildSigningKeys({ privateKeyPem: ed25519Pem().privatePem });
+
+    expect(() => createServiceTokenIssuer({ keys, clock: createTestClock(), ttlSeconds })).toThrow(RangeError);
   });
 });

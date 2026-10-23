@@ -211,7 +211,7 @@ describe('P4, P9, P15: login responses', () => {
     await app.close();
   });
 
-  it('answers 501 for serviceToken until Story 2.7', async () => {
+  it('answers 501 for serviceToken when the service has no service credentials (Story 2.7a)', async () => {
     const { app } = await serviceWith({});
 
     expect((await app.inject({ method: 'POST', url: '/auth/service-token', payload: { serviceId: 'billing', secret: 'x' } })).statusCode).toBe(501);

@@ -1,7 +1,7 @@
 import { assertNoSecretsLeaked, ed25519KeyPairPem } from '#test-support';
 import { describe, expect, it } from 'vitest';
 import { SigningKeyConfigError } from '../jose/signing-keys.js';
-import { AuthConfigError, listenSettingsFromEnv, refreshTokenTtlFromEnv, signingKeysFromEnv, tokenSettingsFromEnv } from './config-from-env.js';
+import { AuthConfigError, listenSettingsFromEnv, refreshTokenTtlFromEnv, serviceTokenTtlFromEnv, signingKeysFromEnv, tokenSettingsFromEnv } from './config-from-env.js';
 
 describe('signingKeysFromEnv (AC 4)', () => {
   it('fails clearly when TECTON_AUTH_SIGNING_KEY is missing', async () => {
@@ -70,6 +70,20 @@ describe('refreshTokenTtlFromEnv (Story 2.3, AC 2)', () => {
   it.each(['3599', '7776001', '0x15180', '6e5', '86400.5', '-3600', 'week'])('refuses %s, naming the variable', (value) => {
     expect(() => refreshTokenTtlFromEnv({ TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS: value })).toThrow(
       /^TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS must be a decimal integer between 3600 and 7776000$/,
+    );
+  });
+});
+
+describe('serviceTokenTtlFromEnv (Story 2.7a, AC 4)', () => {
+  it('defaults to 5 minutes and accepts decimal integers from 60 to 900', () => {
+    expect(serviceTokenTtlFromEnv({})).toBe(300);
+    expect(serviceTokenTtlFromEnv({ TECTON_AUTH_SERVICE_TOKEN_TTL_SECONDS: '60' })).toBe(60);
+    expect(serviceTokenTtlFromEnv({ TECTON_AUTH_SERVICE_TOKEN_TTL_SECONDS: ' 900 ' })).toBe(900);
+  });
+
+  it.each(['59', '901', '3600', '5m', '120.5'])('refuses %s, naming the variable', (value) => {
+    expect(() => serviceTokenTtlFromEnv({ TECTON_AUTH_SERVICE_TOKEN_TTL_SECONDS: value })).toThrow(
+      /^TECTON_AUTH_SERVICE_TOKEN_TTL_SECONDS must be a decimal integer between 60 and 900$/,
     );
   });
 });

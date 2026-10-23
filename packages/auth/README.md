@@ -74,12 +74,13 @@ printf '%s' "$PASSWORD" | tecton-admin auth bootstrap --login admin
 - Database errors are reported in one line, without the connection string.
 - It writes directly to the database. There is no HTTP endpoint for bootstrapping (AD-7).
 - The administrator gets `BOOTSTRAP_ADMIN_PERMISSIONS`:
-  - `auth:service:register`, to register services (Story 2.7);
+  - `auth:service:register`, to register services (see Service credentials);
   - `auth:credential:create`, to create credentials (Story 4.3).
 
 ## Manifest
 
-The package ships its own `tecton.yaml` (actions `login`, `refresh`, `logout`, `serviceToken`),
+The package ships its own `tecton.yaml` (actions `login`, `refresh`, `logout`, `serviceToken`,
+`registerService`),
 declared in `package.json` under `"tecton": { "manifests": ["./tecton.yaml"] }`. A domain that
 lists `auth` in `dependencies` resolves through the installed package (`tecton-admin lint`). The
 JWKS endpoint is infrastructure, not an action, so it is not in the manifest.
@@ -110,6 +111,7 @@ their own, never this one, so no domain can sign a token.
 | `TECTON_AUTH_ISSUER` | `iss` claim; default `urn:tecton:auth` |
 | `TECTON_AUTH_AUDIENCE` | `aud` claim, one audience for the whole workspace; default `urn:tecton:api` |
 | `TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS` | access token lifetime, 60-3600; default 900 (15 minutes) |
+| `TECTON_AUTH_SERVICE_TOKEN_TTL_SECONDS` | service token lifetime, 60-900; default 300 (5 minutes) |
 | `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` | fixed lifetime of a session (refresh token family), 3600-7776000; default 604800 (7 days) |
 | `TECTON_VALKEY_URL` | Valkey of the token revocations, shared with every service; required |
 | `TECTON_VALKEY_TIMEOUT_MS` | time limit of every Valkey call (revocation and lockout), 50-5000; default 500 (`TECTON_REVOCATION_TIMEOUT_MS`, its former name, is still read) |
@@ -217,6 +219,51 @@ ones included, in the same Valkey as the token revocations. Configure Valkey wit
 `maxmemory-policy noeviction`: under memory pressure, writes then fail and logins answer 503 (fail
 closed), instead of evicting revocations. Concurrent attempts already past the check when the lock
 is set still finish; the Gateway rate limit (Story 3.7) bounds that volume.
+
+## Service credentials
+
+A domain service authenticates to other services with a service token (client credentials, FR-13).
+Only the Auth service holds service credentials: one per domain, with the Argon2id hash of its
+secret (the same `AuthProvider` and Pepper as passwords), the permissions an administrator granted
+and the domains it may call.
+
+Register a service from the workspace, as an administrator with `auth:service:register`:
+
+```bash
+export TECTON_AUTH_URL=http://127.0.0.1:3001   # https outside TECTON_ENV=development
+printf '%s' "$ADMIN_PASSWORD" | tecton-admin auth register-service billing --login admin --permission invoice:write
+```
+
+- The command logs in, calls `POST /auth/register-service` with the access token, and logs out at
+  the end, also on failure: the token is revoked and never written to disk. The password comes
+  from `TECTON_AUTH_ADMIN_PASSWORD` or standard input, never from an argument.
+- The domains the service calls come from `dependencies` in `apps/domains/<domain>/tecton.yaml`.
+  The service token carries `call:<domain>` for each of them, and only for them; the callee
+  checks it (Story 2.7b). `call:` permissions cannot be granted by hand.
+- `--permission` (repeatable) grants other permissions. Without it, the service has only its
+  `call:` permissions.
+- The secret is printed once. The Auth service cannot show it again.
+- A domain registered already answers 409, and the command exits 2 with nothing changed.
+  `--rotate` replaces the credential: a new secret, and the old one stops working at once. Every
+  token issued to `service:<domain>` until then is revoked. Changing the permissions or the
+  dependencies of a service also needs `--rotate`.
+
+The service exchanges its credential for a token:
+
+```http
+POST /auth/service-token
+{ "serviceId": "billing", "secret": "<secret>" }
+```
+
+The answer is an access token (`typ: service`, `sub: service:billing`, `perms`, same key, issuer
+and audience as user tokens), valid for `TECTON_AUTH_SERVICE_TOKEN_TTL_SECONDS` (5 minutes by
+default). There is no refresh: the service asks for a new token. An unknown service, a wrong
+secret and a revoked credential get the same 401, after the same Argon2id work. A service token is
+never a user session: `refresh` and `login` refuse it, and `logout` revokes nothing for it.
+
+**Accepted risk.** A service that receives a user token to act on the user's behalf can reuse it
+until it expires (15 minutes) if the service is compromised. This comes with token propagation;
+the `call:<domain>` check of the callee limits where the token can be used.
 
 ## Token revocation
 

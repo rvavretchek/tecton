@@ -25,6 +25,15 @@ import type { CredentialStore } from './core/credential-store.js';
 import { InvalidCredentialsError, login, LoginLockedError } from './core/login.js';
 import type { RefreshTokenStore } from './core/refresh-token-store.js';
 import {
+  InvalidServiceCredentialsError,
+  InvalidServiceRegistrationError,
+  issueServiceToken,
+  registerService,
+  ServiceAlreadyRegisteredError,
+  type ServiceCredentialStore,
+  type ServiceTokenIssuer,
+} from './core/service-credential.js';
+import {
   assertRefreshTokenTtl,
   endSession,
   InvalidRefreshTokenError,
@@ -38,16 +47,18 @@ import {
   listenSettingsFromEnv,
   previousPeppersFromEnv,
   refreshTokenTtlFromEnv,
+  serviceTokenTtlFromEnv,
   signingKeysFromEnv,
   tokenSettingsFromEnv,
 } from './adapters/env/config-from-env.js';
 import { clearRefreshCookie, readRefreshCookie, readRefreshCookies, serializeRefreshCookie } from './adapters/http/refresh-cookie.js';
-import { createAccessTokenIssuer } from './adapters/jose/access-token-issuer.js';
-import { createOwnAccessTokenReader } from './adapters/jose/own-access-token.js';
+import { createAccessTokenIssuer, createServiceTokenIssuer } from './adapters/jose/access-token-issuer.js';
+import { createOwnAccessTokenReader, createOwnTokenVerifier } from './adapters/jose/own-access-token.js';
 import type { SigningKeys } from './adapters/jose/signing-keys.js';
 import { createAuthPrismaClient } from './adapters/prisma/client.js';
 import { createPrismaCredentialStore } from './adapters/prisma/prisma-credential-store.js';
 import { createPrismaRefreshTokenStore } from './adapters/prisma/prisma-refresh-token-store.js';
+import { createPrismaServiceCredentialStore } from './adapters/prisma/prisma-service-credential-store.js';
 
 /** The Fastify instance the Auth service runs on (same type @tecton/core creates). */
 export type AuthServiceApp = ReturnType<typeof createTectonServer>;
@@ -58,12 +69,14 @@ export const JWKS_PATH = '/auth/.well-known/jwks.json';
 export const LOGIN_PATH = '/auth/login';
 export const REFRESH_PATH = '/auth/refresh';
 export const LOGOUT_PATH = '/auth/logout';
+export const SERVICE_TOKEN_PATH = '/auth/service-token';
+export const REGISTER_SERVICE_PATH = '/auth/register-service';
 
 /** Responses carrying or revoking tokens, never to be cached. */
 /** How long the service waits for Valkey at startup before listening anyway. */
 const VALKEY_READY_WAIT_MS = 2_000;
 
-const NO_STORE_PATHS = new Set([LOGIN_PATH, REFRESH_PATH, LOGOUT_PATH]);
+const NO_STORE_PATHS = new Set([LOGIN_PATH, REFRESH_PATH, LOGOUT_PATH, SERVICE_TOKEN_PATH, REGISTER_SERVICE_PATH]);
 
 /** Name and code of an error, never its message, which may carry query or connection details. */
 function safeError(error: unknown): { name: string; code?: string } {
@@ -88,6 +101,12 @@ export interface AuthServiceOptions {
   revocations: TokenRevocationStore;
   /** Lockout by identifier after too many failed logins (Story 2.6). */
   lockout: LoginLockout;
+  /**
+   * Service credentials and service tokens (Story 2.7a). Without them, `registerService` and
+   * `serviceToken` answer 501.
+   */
+  services?: ServiceCredentialStore;
+  serviceTokens?: ServiceTokenIssuer;
   clock?: Clock;
   /** Fixed lifetime of a refresh token family, in seconds (default 7 days). */
   refreshTtlSeconds?: number;
@@ -112,6 +131,8 @@ export async function createAuthService({
   keys,
   revocations,
   lockout,
+  services,
+  serviceTokens,
   clock = systemClock,
   refreshTtlSeconds = REFRESH_TOKEN_TTL.default,
   logger,
@@ -146,7 +167,56 @@ export async function createAuthService({
   // Same iss and aud as the tokens this service signs: one source, so logout recognizes them.
   const ownAccessToken = createOwnAccessTokenReader({ keys, clock, issuer: issuer.issuer, audience: issuer.audience });
 
+  // Service credentials: a hash made at startup, verified for an unknown service (same Argon2id cost).
+  const serviceDummyHash = services ? await auth.hashPassword(randomBytes(32).toString('base64')) : '';
+  /** Comma-separated list of the registerService input (the manifest has no list type). */
+  const list = (value: unknown) =>
+    typeof value === 'string' && value.trim() !== '' ? value.split(',').map((item) => item.trim()).filter((item) => item !== '') : [];
+  const serviceHandlers =
+    services && serviceTokens
+      ? {
+          registerService: async (input: Record<string, unknown>, { principal }: { principal?: { subject: string } }) => {
+            try {
+              const result = await registerService(
+                { services, auth, revocations, clock },
+                {
+                  domain: input['domain'] as string,
+                  dependencies: list(input['dependencies']),
+                  permissions: list(input['permissions']),
+                  rotate: input['rotate'] === true,
+                },
+              );
+              app.log.info(
+                { event: result.rotated ? 'auth.service.rotated' : 'auth.service.registered', domain: result.domain, by: principal?.subject },
+                result.rotated ? 'service credential rotated; its tokens are revoked' : 'service credential registered',
+              );
+              return result;
+            } catch (error) {
+              if (error instanceof ServiceAlreadyRegisteredError) throw frameworkErrors.conflict(error.message);
+              if (error instanceof InvalidServiceRegistrationError) throw frameworkErrors.validationFailed([{ name: '/domain', reason: error.message }]);
+              if (error instanceof RevocationStoreUnavailableError) throw frameworkErrors.authUnavailable();
+              throw error;
+            }
+          },
+          serviceToken: async (input: Record<string, unknown>) => {
+            try {
+              return await issueServiceToken(
+                { services, auth, tokens: serviceTokens, dummyHash: serviceDummyHash, onCorruptCredential: corruptCredential('service token') },
+                { serviceId: input['serviceId'] as string, secret: input['secret'] as string },
+              );
+            } catch (error) {
+              if (error instanceof InvalidServiceCredentialsError) throw frameworkErrors.unauthorized();
+              throw error;
+            }
+          },
+        }
+      : {};
+  // The protected registerService is checked with this service's own tokens, locally, and
+  // against revocation (an administrator who logged out cannot register anymore).
+  const verifier = createOwnTokenVerifier({ keys, clock, issuer: issuer.issuer, audience: issuer.audience, revocations });
+
   registerActionRoutes(app, loadDomainManifest(AUTH_MANIFEST_PATH), {
+    ...serviceHandlers,
     login: async (input, { reply }) => {
       try {
         const { access, refresh } = await login(
@@ -223,7 +293,7 @@ export async function createAuthService({
       }
       return {};
     },
-  });
+  }, { verifier });
   // Responses carrying tokens must never be cached (RFC 6749 5.1), success and failure alike.
   app.addHook('onSend', async (request, reply) => {
     if (NO_STORE_PATHS.has(request.routeOptions.url ?? '')) reply.header('cache-control', 'no-store').header('pragma', 'no-cache');
@@ -234,7 +304,7 @@ export async function createAuthService({
     return jwks;
   });
   app.addHook('onClose', async () => {
-    await Promise.all([store.close(), refreshTokens.close(), revocations.close(), lockout.close()]);
+    await Promise.all([store.close(), refreshTokens.close(), revocations.close(), lockout.close(), services?.close()]);
   });
   return app;
 }
@@ -261,10 +331,18 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
   const { port, host } = listenSettingsFromEnv(env);
   const auth = createArgon2idAuthProvider({ peppers: [pepper, ...previousPeppers], currentPepperId: pepper.id });
   const issuer = createAccessTokenIssuer({ keys, clock: systemClock, ...tokens });
+  const serviceTokens = createServiceTokenIssuer({
+    keys,
+    clock: systemClock,
+    issuer: tokens.issuer,
+    audience: tokens.audience,
+    ttlSeconds: serviceTokenTtlFromEnv(env),
+  });
   // One database client for both stores; it disconnects once, when the app closes.
   const client = createAuthPrismaClient(databaseUrl);
   const store = createPrismaCredentialStore({ client });
   const refreshTokens = createPrismaRefreshTokenStore({ client });
+  const services = createPrismaServiceCredentialStore({ client });
   let app: AuthServiceApp | undefined;
   let valkey: ValkeyClient | undefined;
   try {
@@ -281,6 +359,8 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
       keys,
       revocations,
       lockout,
+      services,
+      serviceTokens,
       refreshTtlSeconds,
       logger: { level: 'info', redact: LOG_REDACTION },
     });
