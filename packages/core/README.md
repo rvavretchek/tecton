@@ -38,7 +38,7 @@ at startup when a setting is missing or invalid:
 | `TECTON_AUTH_ISSUER`, `TECTON_AUTH_AUDIENCE` | expected `iss` and `aud`; defaults `urn:tecton:auth` and `urn:tecton:api`, the same as the Auth service |
 | `TECTON_JWKS_CA_FILE` | optional PEM file of the CA that signs the JWKS certificate, trusted for that request only |
 | `TECTON_VALKEY_URL` | Valkey of the token revocations (`redis://` or `rediss://`); required |
-| `TECTON_REVOCATION_TIMEOUT_MS` | time limit of a revocation check, 50-5000; default 500 |
+| `TECTON_VALKEY_TIMEOUT_MS` | time limit of a revocation check, 50-5000; default 500 (`TECTON_REVOCATION_TIMEOUT_MS`, its former name, is still read) |
 
 In a generated workspace these come from the workspace `.env` (shared, no secrets), and the
 domain's own database from `apps/domains/<domain>/.env`.

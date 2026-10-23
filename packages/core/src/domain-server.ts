@@ -39,6 +39,9 @@ export function loadDomainManifest(manifestPath: string): TectonManifest {
  * Starts a domain service from its manifest: the walking skeleton of every generated domain.
  * Routes come from the manifest actions; actions without a handler answer 501.
  */
+/** How long a domain service waits for its revocation store at startup before listening anyway. */
+const VALKEY_READY_WAIT_MS = 2_000;
+
 export async function startDomainServer(options: DomainServerOptions): Promise<FastifyInstance> {
   const manifest = loadDomainManifest(options.manifestPath);
   const needsVerifier = manifest.actions.some((action) => !isPublicAction(action));
@@ -58,6 +61,11 @@ export async function startDomainServer(options: DomainServerOptions): Promise<F
       app.addHook('onClose', async () => close());
     }
     registerActionRoutes(app, manifest, options.handlers ?? {}, verifier ? { verifier } : {});
+    // Waits a little for Valkey before taking traffic; if it is down, the service starts anyway
+    // and refuses protected actions with 503 until it is reachable (fail closed).
+    if (owned?.ready && !(await owned.ready(VALKEY_READY_WAIT_MS))) {
+      app.log.warn({ event: 'revocation_store_not_ready' }, 'revocation store not reachable at startup; protected actions answer 503 until it is');
+    }
     await app.listen({ port: options.port ?? 3000, host: options.host ?? '127.0.0.1' });
   } catch (error) {
     await app.close().catch(() => undefined);

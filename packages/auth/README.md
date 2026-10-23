@@ -112,7 +112,7 @@ their own, never this one, so no domain can sign a token.
 | `TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS` | access token lifetime, 60-3600; default 900 (15 minutes) |
 | `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` | fixed lifetime of a session (refresh token family), 3600-7776000; default 604800 (7 days) |
 | `TECTON_VALKEY_URL` | Valkey of the token revocations, shared with every service; required |
-| `TECTON_REVOCATION_TIMEOUT_MS` | time limit of every Valkey call (revocation and lockout), 50-5000; default 500 |
+| `TECTON_VALKEY_TIMEOUT_MS` | time limit of every Valkey call (revocation and lockout), 50-5000; default 500 (`TECTON_REVOCATION_TIMEOUT_MS`, its former name, is still read) |
 | `TECTON_AUTH_LOCKOUT_MAX_FAILURES` | failed logins of one identifier that lock it, 1-100; default 5 |
 | `TECTON_AUTH_LOCKOUT_WINDOW_SECONDS` | window those failures are counted in, 60-86400; default 900 (15 minutes) |
 | `TECTON_AUTH_LOCKOUT_DURATION_SECONDS` | how long a lock lasts, 60-86400; default 900 (15 minutes) |
@@ -183,7 +183,9 @@ does.
 ## Login lockout
 
 After 5 failed logins of one identifier within 15 minutes (configurable), from any origin, that
-identifier is locked for 15 minutes (Story 2.6). The count lives in Valkey, shared by every
+identifier is locked for 15 minutes (Story 2.6). The window is fixed: it starts at the first
+failure and is not renewed by the next ones, so right at its turn up to 2 x (N - 1) failures can
+fit in a short span without a lock; the Gateway rate limit (Story 3.7) bounds that. The count lives in Valkey, shared by every
 instance of the Auth service; keys hold the SHA-256 of the normalized login, never the login.
 
 - Every refused login of a valid identifier counts: wrong password, disabled credential, unknown
@@ -192,7 +194,9 @@ instance of the Auth service; keys hold the SHA-256 of the normalized login, nev
 - The attempt that reaches the limit still gets the usual 401. While locked, every login of that
   identifier, even with the right password, gets **429** with `Retry-After` (seconds left), and
   the password is not checked.
-- A successful login clears the count.
+- A successful login clears the count, but never a lock set meanwhile by concurrent failures:
+  only its expiry or `tecton-admin auth unlock` lifts a lock.
+- While locked, failures are not counted and never extend the lock.
 - A lock is logged as a security event (`event: "auth.login.locked"`, with the identifier and the
   duration, never a password).
 - If Valkey is unreachable or slow, logins are refused with 503 (fail closed), never let through
@@ -206,7 +210,12 @@ TECTON_VALKEY_URL=redis://... tecton-admin auth unlock alice@example.com
 ```
 
 It removes the lock and the count of that identifier (normalized like a login), directly in
-Valkey; there is no HTTP endpoint for it. Concurrent attempts already past the check when the lock
+Valkey; there is no HTTP endpoint for it. It says whether there was anything to remove.
+
+**Valkey memory:** the lockout keeps one short-lived key per identifier that fails a login, unknown
+ones included, in the same Valkey as the token revocations. Configure Valkey with
+`maxmemory-policy noeviction`: under memory pressure, writes then fail and logins answer 503 (fail
+closed), instead of evicting revocations. Concurrent attempts already past the check when the lock
 is set still finish; the Gateway rate limit (Story 3.7) bounds that volume.
 
 ## Token revocation

@@ -47,3 +47,7 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 ## Deferred from: code review da Story 2.5 (2026-10-21)
 
 - W1 O teste de geração prova o fail-closed (sem Valkey, o domínio responde 503 a um token válido), mas não o caminho feliz até o handler; com Valkey real, só o teste montado à mão (`packages/auth/src/revocation.containers.test.ts`) [packages/cli/src/commands/new.generation.test.ts] — adiado: `tecton-admin dev` (Story 3.13) sobe o Dev Services e permite o ponta a ponta do workspace gerado
+
+## Deferred from: code review da Story 2.6 (2026-10-21)
+
+- W1 Logins com muitos identificadores inexistentes criam uma chave de contagem cada (até a janela) no mesmo Valkey das revogações; com uma política de despejo como `allkeys-lru`, revogações poderiam ser despejadas [packages/providers/src/lockout/valkey-login-lockout.ts] — adiado: limite de taxa do Gateway (Story 3.7); o README do `@tecton/auth` pede `maxmemory-policy noeviction` (a falta de memória vira 503, fail-closed)

@@ -23,11 +23,13 @@ function fakeClient(options: { fail?: Error } = {}) {
       calls.push(`eval ${args.slice(0, 2).join(' ')}`);
       failIfAsked();
       const [failures, lock, windowMs, maxFailures, lockMs] = args as [string, string, number, number, number];
+      const locked = live(lock);
+      if (locked) return [2, locked.expiresAt - now];
       const current = live(failures);
       const count = (current?.value ?? 0) + 1;
       values.set(failures, { value: count, expiresAt: current?.expiresAt ?? now + windowMs });
       if (count >= maxFailures) {
-        values.set(lock, { value: 1, expiresAt: now + lockMs });
+        if (!live(lock)) values.set(lock, { value: 1, expiresAt: now + lockMs });
         values.delete(failures);
         return [1, lockMs];
       }
@@ -37,7 +39,16 @@ function fakeClient(options: { fail?: Error } = {}) {
       calls.push(`pttl ${key}`);
       failIfAsked();
       const entry = live(key);
-      return entry ? entry.expiresAt - now : -2;
+      if (!entry) return -2;
+      return Number.isFinite(entry.expiresAt) ? entry.expiresAt - now : -1;
+    },
+    async pexpire(key, ms) {
+      calls.push(`pexpire ${key}`);
+      failIfAsked();
+      const entry = live(key);
+      if (!entry) return 0;
+      entry.expiresAt = now + ms;
+      return 1;
     },
     async del(...keys) {
       calls.push(`del ${keys.join(' ')}`);
@@ -98,15 +109,15 @@ describe('Valkey login lockout (Story 2.6, AC 1, 2, 5)', () => {
     await lockout.check('alice@example.com');
 
     expect(fake.calls).toEqual([
-      `eval tecton:lockout:fail:${hash('alice@example.com')} tecton:lockout:lock:${hash('alice@example.com')}`,
-      `pttl tecton:lockout:lock:${hash('alice@example.com')}`,
+      `eval tecton:lockout:{${hash('alice@example.com')}}:fail tecton:lockout:{${hash('alice@example.com')}}:lock`,
+      `pttl tecton:lockout:{${hash('alice@example.com')}}:lock`,
     ]);
     expect(fake.calls.join(' ')).not.toContain('alice');
   });
 });
 
 describe('failures (Story 2.6, AC 8)', () => {
-  it.each(['check', 'recordFailure', 'reset'] as const)('turns a client error into LoginLockoutUnavailableError: %s', async (method) => {
+  it.each(['check', 'recordFailure', 'clearFailures', 'reset'] as const)('turns a client error into LoginLockoutUnavailableError: %s', async (method) => {
     const lockout = createValkeyLoginLockout({ client: fakeClient({ fail: new Error('Command timed out') }).client });
 
     await expect(lockout[method]('alice')).rejects.toBeInstanceOf(LoginLockoutUnavailableError);
@@ -151,5 +162,47 @@ describe('policy (Story 2.6)', () => {
   ])('refuses %s=%s, naming the variable', (variable, value) => {
     expect(() => lockoutPolicyFromEnv({ [variable]: value })).toThrow(LoginLockoutConfigError);
     expect(() => lockoutPolicyFromEnv({ [variable]: value })).toThrow(new RegExp(`^${variable} must be a decimal integer`));
+  });
+});
+
+describe('review fixes (Story 2.6 review)', () => {
+  it('neither counts nor extends while locked (attempts already past the check) (P5)', async () => {
+    const fake = fakeClient();
+    const lockout = createValkeyLoginLockout({ client: fake.client, maxFailures: 2 });
+    await lockout.recordFailure('alice');
+    await lockout.recordFailure('alice');
+    fake.advance(600_000);
+
+    for (let i = 0; i < 5; i += 1) expect(await lockout.recordFailure('alice')).toEqual({ lockedNow: false });
+    expect(await lockout.check('alice')).toEqual({ locked: true, retryAfterSeconds: 300 });
+  });
+
+  it('clears only the failure count on success, keeping a lock set meanwhile (P4)', async () => {
+    const fake = fakeClient();
+    const lockout = createValkeyLoginLockout({ client: fake.client, maxFailures: 2 });
+    await lockout.recordFailure('alice');
+    await lockout.recordFailure('alice');
+
+    await lockout.clearFailures('alice');
+    expect(await lockout.check('alice')).toMatchObject({ locked: true });
+  });
+
+  it('tells whether a reset removed anything (P16)', async () => {
+    const fake = fakeClient();
+    const lockout = createValkeyLoginLockout({ client: fake.client });
+    await lockout.recordFailure('alice');
+
+    expect(await lockout.reset('alice')).toBe(true);
+    expect(await lockout.reset('alice')).toBe(false);
+  });
+
+  it('gives a lock key without expiry the lock duration instead of locking forever (P6)', async () => {
+    const fake = fakeClient();
+    const lockout = createValkeyLoginLockout({ client: fake.client });
+    fake.values.set(`tecton:lockout:{${hash('alice')}}:lock`, { value: 1, expiresAt: Number.POSITIVE_INFINITY });
+
+    expect(await lockout.check('alice')).toEqual({ locked: true, retryAfterSeconds: 900 });
+    fake.advance(900_000);
+    expect(await lockout.check('alice')).toEqual({ locked: false });
   });
 });

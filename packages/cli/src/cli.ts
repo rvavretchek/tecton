@@ -100,10 +100,11 @@ function buildProgram(io: CliIo, setExitCode: (code: number) => void): Command {
         '',
         'A lockout follows too many failed logins of one identifier, whoever made them: someone can',
         'lock another person out on purpose. This command is the remedy.',
-        'Exit codes: 0 unlocked (also when it was not locked), 1 failure.',
+        'Exit codes: 0 done (it says whether there was anything to remove), 1 failure.',
         '',
-        'Example:',
+        'Examples:',
         '  $ tecton-admin auth unlock alice@example.com',
+        '  $ tecton-admin auth unlock -- -alice      (an identifier starting with "-" goes after --)',
         '',
       ].join('\n'),
     )

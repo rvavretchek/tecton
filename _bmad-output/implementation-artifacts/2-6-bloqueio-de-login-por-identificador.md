@@ -4,7 +4,7 @@ baseline_commit: 7e28eb841bcb69929efd9493f92fc5eaca68ebbf
 
 # Story 2.6: Bloqueio de login por identificador
 
-Status: review
+Status: done
 
 ## Story
 
@@ -72,7 +72,40 @@ para que um ataque distribuído contra uma única conta não escape do rate limi
   - [x] Fase vermelha por mutação (A3), no mínimo: bloqueado verificando a senha; inexistente sem contar; sucesso sem zerar; contagem que não bloqueia no N; Valkey fora tratado como "não bloqueado"; `Retry-After` ausente; `unlock` sem apagar o contador; evento sem o identificador.
 - [x] **T7. Verificação final**
   - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder) e `test:generation`.
-  - [ ] Code review por story antes da 2.7 (retro A1).
+  - [x] Code review por story antes da 2.7 (retro A1).
+
+### Review Findings (code review da Story 2.6, 2026-10-21)
+
+> Camadas: Blind Hunter, Edge Case Hunter e Acceptance Auditor.
+
+- [x] [Review][Patch] P1 (alta) `tecton-admin auth unlock` falha sempre contra um Valkey real: o cliente conecta em segundo plano, sem fila offline, e o `DEL` sai antes de a conexão ficar pronta ("Stream isn't writeable"; os três revisores, conferido no `ioredis`). Correção: esperar o `ready` (com tempo limite) antes do comando, e teste do `unlock` com Valkey real [auth-unlock.ts, valkey-client.ts]
+- [x] [Review][Patch] P2 (média) Partida a frio: logins (e checagens de revogação) que chegam antes de a conexão ficar pronta recebem 503. Correção: o Auth e o servidor de domínio esperam o `ready` (limitado, sem travar a subida se o Valkey estiver fora) antes do `listen` [service.ts, domain-server.ts, token-verifier.ts]
+- [x] [Review][Patch] P3 (média) Falha do Valkey no `reset` depois de uma senha correta dá 503 ao usuário certo. Correção: no sucesso, a falha ao zerar só vai para o log [login.ts, service.ts]
+- [x] [Review][Patch] P4 (média) O sucesso apaga também a chave de bloqueio: um login correto em andamento desfaz um bloqueio recém-aplicado por tentativas simultâneas. Correção: o sucesso zera só o contador; só o `unlock` remove o bloqueio [porta, adaptador, login.ts]
+- [x] [Review][Patch] P5 (média) Falhas em andamento depois do bloqueio recomeçam o contador e podem estender o bloqueio (o `SET` sem `NX`). Correção: com bloqueio ativo, o script não conta nem regrava [valkey-login-lockout.ts, tests/support/lockout.ts]
+- [x] [Review][Patch] P6 (baixa) Chave de bloqueio sem expiração (`PTTL -1`) bloqueia para sempre. Correção: o `check` aplica a duração a uma chave sem expiração [valkey-login-lockout.ts]
+- [x] [Review][Patch] P7 (baixa) O sucesso zera pelo `credential.login`, e a contagem é pelo identificador normalizado. Correção: usar o mesmo identificador [login.ts]
+- [x] [Review][Patch] P8 (baixa) O login (público) pode responder 503, que não está no esquema. Correção: 503 em toda rota [routes.ts]
+- [x] [Review][Patch] P9 (baixa) `TECTON_REVOCATION_TIMEOUT_MS` limita todo comando do Valkey, mas o nome fala só de revogação. Correção: `TECTON_VALKEY_TIMEOUT_MS`, com o nome antigo aceito como alternativa [valkey-client.ts, READMEs]
+- [x] [Review][Patch] P10 (baixa) A mensagem de `TECTON_VALKEY_URL` ausente fala só de revogações (e aparece no `auth unlock`) [valkey-client.ts]
+- [x] [Review][Patch] P11 (baixa) O erro de configuração da revogação é refeito por troca de texto da mensagem, e a validação do tempo limite está repetida [valkey-token-revocation-store.ts, valkey-client.ts]
+- [x] [Review][Patch] P12 (baixa) `tokenRevocationStoreFromEnv` abre a conexão antes de validar as opções do store e a vaza se elas forem inválidas (regressão do refactor) [valkey-token-revocation-store.ts]
+- [x] [Review][Patch] P13 (baixa) As duas chaves do script podem cair em slots diferentes num Valkey Cluster (`CROSSSLOT`). Correção: hash tag `{<hash>}` [valkey-login-lockout.ts]
+- [x] [Review][Patch] P14 (baixa) A janela é fixa a partir da primeira falha (até 2 × (N − 1) tentativas num intervalo curto, na virada da janela); o README promete "5 em 15 minutos". Correção: documentar [README]
+- [x] [Review][Patch] P15 (baixa) O cliente Valkey é fechado duas vezes numa falha de `listen` [service.ts]
+- [x] [Review][Patch] P16 (baixa) O `unlock` sempre diz que removeu, mesmo sem nada para remover. Correção: o `reset` informa se havia bloqueio ou contador, e a saída diz [porta, adaptador, auth-unlock.ts]
+- [x] [Review][Patch] P17 (baixa) Identificador começando com `-` é lido como opção pelo CLI. Correção: a ajuda explica o `--` [cli.ts]
+- [x] [Review][Patch] P18 (baixa) Testes faltando: falha do `recordFailure` dá 503; falha do `reset` no sucesso não bloqueia o login; credencial corrompida conta; o `unlock` remove um contador pendente (sem bloqueio) [testes]
+- [x] [Review][Patch] P19 (baixa) O bloqueio em memória dos testes não segue o adaptador (não valida a política, conta e regrava com bloqueio ativo) [tests/support/lockout.ts]
+- [x] [Review][Patch] P20 (baixa) Registros: desvios da porta e da API em relação à T2 (`recordFailure` devolve `lockSeconds`; `lockoutPolicyFromEnv` no lugar de `loginLockoutFromEnv`; `shared` explícito em vez de "store que recebe o cliente não o fecha"); a mutação "`unlock` sem apagar o contador" não tinha teste que a pegasse pelo contador [story]
+- [x] [Review][Defer] W1 Logins com muitos identificadores inexistentes criam uma chave cada no mesmo Valkey das revogações; com `allkeys-lru`, revogações podem ser despejadas [valkey-login-lockout.ts] — adiado: limite de taxa do Gateway (3.7); o README passa a pedir `maxmemory-policy noeviction` (sem despejo, a falta de memória vira 503, fail-closed)
+- Descartados:
+  - o evento `auth.login.locked` traz o login em texto (o AC 6 exige o identificador no evento; o hash no Valkey é para não espalhar o dado em armazenamento, o log é a trilha de auditoria);
+  - 429 declarado em toda rota (o rate limit do Gateway, 3.7, responde 429 em qualquer rota);
+  - `Retry-After` sem descrição no OpenAPI (formato de erro do Epic 5);
+  - relógio diferente entre o bloqueio em memória e o serviço em testes que não dependem do tempo do bloqueio;
+  - custo igual entre login conhecido e desconhecido sob bloqueio ou falha do Valkey (os dois caminhos fazem a mesma ida ao Valkey; P0-006 é por comportamento);
+  - `check` tratando `PTTL 0` como bloqueado (o Valkey nunca devolve 0 para chave viva; coberto pela P6).
 
 ## Dev Notes
 
@@ -149,6 +182,33 @@ Claude Opus 5.5 (claude-opus-5-5)
 
   O script Lua do contador só se exercita com Valkey real: coberto pelo teste de containers (janela, bloqueio no limite, contador apagado ao bloquear).
 
+- **Code review (2026-10-21 a 2026-10-23):**
+  - **`auth unlock` contra Valkey real (P1):** com `lazyConnect`, sem fila offline e a conexão aberta em segundo plano, o `DEL` saía antes de a conexão ficar pronta e era recusado ("Stream isn't writeable"); os três revisores acharam, e nenhum teste pegava porque o sucesso usava o bloqueio em memória. Agora `waitForValkeyReady` (novo no `@tecton/providers`) é aguardado antes do comando, e há teste do comando de verdade contra Valkey real (`auth-unlock.containers.test.ts`).
+  - **Partida a frio (P2):** o Auth e o servidor de domínio esperam o Valkey por até 2 s antes do `listen`; com o Valkey fora, sobem assim mesmo e respondem 503 até ele voltar. O verificador montado pelo ambiente ganhou `ready()`.
+  - **Desvios de API registrados (P20):**
+    - `recordFailure` devolve `{ lockedNow: true, lockSeconds }` (a T2 falava em `retryAfterSeconds`); o script devolve o TTL, mas a duração configurada é a mesma;
+    - `lockoutPolicyFromEnv(env)` devolve só a política, e o chamador monta o adaptador (a T2 falava em `loginLockoutFromEnv(env, { client })`);
+    - a porta ganhou `clearFailures` (sucesso: só o contador, P4) e o `reset` passou a devolver se havia algo (P16);
+    - um adaptador que recebe o cliente só o deixa aberto com `shared: true` (a T1 dizia "um store que recebe o cliente não o fecha"); é o que preserva os testes da 2.5, em que o store fecha o cliente injetado;
+    - `TECTON_VALKEY_TIMEOUT_MS` é o nome da variável do tempo limite; `TECTON_REVOCATION_TIMEOUT_MS` continua aceito (P9).
+  - **Mutação "`unlock` sem apagar o contador" (P20):** na Dev Story, ela só falhava pelo bloqueio (o bloqueio já apaga o contador). Agora há teste do `unlock` sobre um contador pendente, sem bloqueio.
+  - **Fase vermelha das correções (A3),** cada uma restaurada:
+
+    | Mutação | Testes que falharam |
+    |---|---|
+    | `unlock` sem esperar a conexão (P1) | 1 |
+    | falha ao zerar bloqueando o login (P3) | 1 |
+    | sucesso apagando o bloqueio (P4) | 1 |
+    | contando durante o bloqueio, no dublê em memória (P5) | 1 (depois do teste novo em `tests/support`) |
+    | chave sem expiração bloqueando para sempre (P6) | 1 |
+    | zerando pelo login gravado (P7) | 1 |
+    | sem o nome novo da variável (P9) | 2 |
+    | mensagem só de revogação (P10) | 1 |
+    | sem a hash tag das chaves (P13) | 2 |
+    | `reset` sem dizer se removeu (P16) | 1 |
+
+    A P5 no script Lua (`EXISTS` do bloqueio e `SET ... NX`) só se exercita com Valkey real; o teste do adaptador com cliente falso e o de containers a cobrem.
+
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
@@ -160,7 +220,8 @@ Claude Opus 5.5 (claude-opus-5-5)
 - **README do `@tecton/auth`:** bloqueio, variáveis, risco aceito e o `auth unlock`.
 - **Testes:** adaptador (15 unitários e 3 com Valkey real), núcleo do login (8), HTTP (6), CLI (6), OpenAPI (429).
 - **Verificação local:** build, typecheck, `check:deps` (154 módulos), `lint:examples`, `validate:asyncapi`, `test` (856) e `test:generation` (3). `test:containers` e `test:persistence`: pelo CI.
-- **Pendente:** o code review (A1), próximo passo.
+- **Code review (A1):** 20 patches (P1 a P20), 1 adiado (W1 no `deferred-work.md`) e 6 descartados, com as três camadas de revisão.
+- **Verificação depois do review:** build, typecheck, `check:deps`, `lint:examples`, `validate:asyncapi`, `test` (875) e `test:generation` (3).
 
 ### File List
 
@@ -169,11 +230,13 @@ Claude Opus 5.5 (claude-opus-5-5)
 - `packages/core/src/errors/tecton-error.ts`, `src/routes.ts`, `src/openapi.test.ts` (modificados)
 - `packages/auth/src/core/login.ts`, `login.test.ts`, `src/service.ts`, `README.md` (modificados); `src/lockout-http.test.ts` (novo)
 - `packages/auth/src/{service,refresh-http,review-2-2b,revocation-http,revocation.containers}.test.ts`, `adapters/prisma/{prisma-credential-store,prisma-refresh-token-store}.persistence.test.ts` (modificados: bloqueio em memória)
-- `packages/cli/src/commands/auth-unlock.ts`, `auth-unlock.test.ts` (novos); `src/cli.ts` (modificado)
-- `tests/support/lockout.ts` (novo), `tests/support/index.ts` (modificado)
-- Esta story, `sprint-status.yaml`
+- `packages/cli/src/commands/auth-unlock.ts`, `auth-unlock.test.ts`, `auth-unlock.containers.test.ts` (novos); `src/cli.ts` (modificado)
+- `packages/providers/src/valkey/valkey-client.test.ts` (novo, review); `packages/core/src/{auth/token-verifier,domain-server}.ts`, `src/routes.ts`, `README.md` (modificados no review)
+- `tests/support/lockout.ts`, `lockout.test.ts` (novos), `tests/support/index.ts` (modificado)
+- Esta story, `sprint-status.yaml`, `deferred-work.md`
 
 ## Change Log
 
 - 2026-10-21: Story criada (Create Story).
 - 2026-10-21: Story implementada (Dev Story); teste com Valkey real a confirmar no CI; status → review.
+- 2026-10-23: Code review: P1 a P20 aplicados, W1 adiado; status → done.

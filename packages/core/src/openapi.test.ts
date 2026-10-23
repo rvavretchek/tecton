@@ -61,11 +61,11 @@ describe('buildOpenApiDocument regenerated after a manifest change (AC 5)', () =
 });
 
 describe('buildOpenApiDocument error responses (review P33)', () => {
-  it('declares 400, 401, 429, 500 and 501 with the error body on every action', async () => {
+  it('declares 400, 401, 429, 500, 501 and 503 with the error body on every action', async () => {
     const doc = (await buildOpenApiDocument(manifestOf(source('{ displayName: string }')))) as Doc;
     const responses = doc['paths']['/tenant/create-tenant']['post']['responses'];
 
-    for (const status of ['400', '401', '429', '500', '501']) {
+    for (const status of ['400', '401', '429', '500', '501', '503']) {
       expect(responses[status]['content']['application/json']['schema']).toMatchObject({
         type: 'object',
         required: ['status', 'slug', 'i18nKey', 'message'],
@@ -75,7 +75,7 @@ describe('buildOpenApiDocument error responses (review P33)', () => {
 });
 
 describe('buildOpenApiDocument security (Story 2.4)', () => {
-  it('marks protected actions with bearerAuth and 403/503, and leaves public ones open', async () => {
+  it('marks protected actions with bearerAuth and 403, and leaves public ones open', async () => {
     const doc = (await buildOpenApiDocument(manifestOf(source('{ displayName: string }')))) as Doc;
     const create = doc['paths']['/tenant/create-tenant']['post'];
     const archive = doc['paths']['/tenant/archive-tenant']['post'];

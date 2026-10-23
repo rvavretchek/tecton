@@ -2,7 +2,7 @@ import { createArgon2idAuthProvider, type AuthProvider, LoginLockoutUnavailableE
 import { createMemoryLoginLockout, createTestClock } from '#test-support';
 import { describe, expect, it, vi } from 'vitest';
 import type { AccessTokenIssuer } from './access-token.js';
-import type { Credential } from './credential.js';
+import { InvalidCredentialError, type Credential } from './credential.js';
 import type { CredentialStore } from './credential-store.js';
 import { InvalidCredentialsError, login, LoginLockedError } from './login.js';
 import { createMemoryRefreshTokenStore } from './memory-refresh-token-store.test-helper.js';
@@ -202,5 +202,24 @@ describe('login lockout (Story 2.6, AC 1 to 6)', () => {
 
     await expect(login(deps, { login: 'alice', password: PASSWORD })).rejects.toBeInstanceOf(LoginLockoutUnavailableError);
     expect(spy.verifyPassword).not.toHaveBeenCalled();
+  });
+});
+
+describe('login lockout review fixes (Story 2.6 review)', () => {
+  it('counts a corrupt credential like an unknown login (AC 1, P18)', async () => {
+    const { deps, lockout } = await setup();
+    const corrupt = { ...deps, store: { ...deps.store, findByLogin: async () => Promise.reject(new InvalidCredentialError('corrupt row')) } };
+
+    await expect(login(corrupt, { login: 'alice', password: PASSWORD })).rejects.toBeInstanceOf(InvalidCredentialsError);
+    expect(lockout.failures('alice')).toBe(1);
+  });
+
+  it('clears the count of the identifier it checked, not of the stored login (P7)', async () => {
+    const { deps, lockout, credential } = await setup();
+    const clear = vi.spyOn(lockout, 'clearFailures');
+    const odd = { ...deps, store: { ...deps.store, findByLogin: async () => ({ ...credential, login: 'ALICE' }) } };
+
+    await login(odd, { login: 'alice', password: PASSWORD });
+    expect(clear).toHaveBeenCalledWith('alice');
   });
 });

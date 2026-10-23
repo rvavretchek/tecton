@@ -23,7 +23,7 @@ function memoryDependencies() {
   const lockout = createMemoryLoginLockout(() => new LoginLockoutUnavailableError('login lockout unavailable: down'), () => new Date(), { maxFailures: 2 });
   let closed = false;
   const dependencies: AuthUnlockDependencies = {
-    createLockout: () => ({ ...lockout, close: async () => void (closed = true) }),
+    createLockout: () => ({ lockout: { ...lockout, close: async () => void (closed = true) }, ready: async () => true }),
   };
   return { lockout, dependencies, isClosed: () => closed };
 }
@@ -44,10 +44,33 @@ describe('tecton-admin auth unlock (Story 2.6, AC 7)', () => {
     expect(isClosed()).toBe(true);
   });
 
-  it('succeeds for an identifier that is not locked (idempotent)', async () => {
+  it('succeeds for an identifier that is not locked (idempotent), and says there was nothing to remove (P16)', async () => {
     const { dependencies } = memoryDependencies();
+    const { io, out } = harness({ TECTON_VALKEY_URL: VALKEY_URL });
 
-    expect(await authUnlockCommand('nobody', harness({ TECTON_VALKEY_URL: VALKEY_URL }).io, dependencies)).toBe(0);
+    expect(await authUnlockCommand('nobody', io, dependencies)).toBe(0);
+    expect(out()).toContain('"nobody" had no lockout or failure count; nothing to remove.');
+  });
+
+  it('removes a pending failure count that has not locked yet (AC 7, review P18)', async () => {
+    const { lockout, dependencies } = memoryDependencies();
+    await lockout.recordFailure('carol');
+
+    expect(await authUnlockCommand('carol', harness({ TECTON_VALKEY_URL: VALKEY_URL }).io, dependencies)).toBe(0);
+    expect(lockout.failures('carol')).toBe(0);
+  });
+
+  it('fails when the connection does not become ready, without sending the command (review P1)', async () => {
+    const { lockout } = memoryDependencies();
+    let resets = 0;
+    const dependencies: AuthUnlockDependencies = {
+      createLockout: () => ({ lockout: { ...lockout, reset: async () => ((resets += 1), true) }, ready: async () => false }),
+    };
+    const { io, err } = harness({ TECTON_VALKEY_URL: VALKEY_URL });
+
+    expect(await authUnlockCommand('alice', io, dependencies)).toBe(1);
+    expect(err()).toContain('could not reach Valkey');
+    expect(resets).toBe(0);
   });
 
   it('fails without TECTON_VALKEY_URL, naming it', async () => {
@@ -65,7 +88,7 @@ describe('tecton-admin auth unlock (Story 2.6, AC 7)', () => {
     expect(err()).toMatch(/^auth unlock failed: /);
   });
 
-  it('fails clearly when Valkey cannot be reached, never printing the URL or its password', async () => {
+  it('fails clearly when Valkey cannot be reached, never printing the URL or its password', { timeout: 15_000 }, async () => {
     const { io, err } = harness({ TECTON_VALKEY_URL: VALKEY_URL, TECTON_REVOCATION_TIMEOUT_MS: '200' });
 
     expect(await authUnlockCommand('alice', io)).toBe(1);

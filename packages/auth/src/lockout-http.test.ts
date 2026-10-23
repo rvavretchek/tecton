@@ -13,6 +13,7 @@ const PEPPER = 'lockout-test-pepper-with-32-bytes-ok';
 const PASSWORD = 'alice-password-123';
 const WRONG = 'wrong-password-123';
 const auth = createArgon2idAuthProvider({ peppers: [{ id: '1', key: Buffer.from(PEPPER, 'utf8') }], currentPepperId: '1' });
+const realVerify = auth.verifyPassword.bind(auth);
 const apps: AuthServiceApp[] = [];
 
 afterEach(async () => {
@@ -135,5 +136,39 @@ describe('POST /auth/login lockout (Story 2.6, P0-016)', () => {
     expect(response.statusCode).toBe(503);
     expect(response.headers['retry-after']).toBe('5');
     expect(verify).not.toHaveBeenCalled();
+  });
+});
+
+describe('review fixes (Story 2.6 review)', () => {
+  it('refuses with 503 when Valkey fails while counting a wrong password (P18)', async () => {
+    const { attempt, lockout } = await service();
+    lockout.failOn(['recordFailure']);
+
+    const response = await attempt('alice', WRONG);
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['retry-after']).toBe('5');
+  });
+
+  it('lets a correct password in when clearing the count fails, and logs it (P3)', async () => {
+    const { attempt, lockout, logs } = await service();
+    await attempt('alice', WRONG);
+    lockout.failOn(['clearFailures']);
+
+    expect((await attempt('alice', PASSWORD)).statusCode).toBe(200);
+    expect(logs()).toContain('auth.login.clear_failures_failed');
+    assertNoSecretsLeaked(logs(), { password: PASSWORD });
+  });
+
+  it('keeps a lock set by concurrent failures while a correct login was in flight (P4)', async () => {
+    const { attempt, lockout, verify } = await service();
+    for (let i = 0; i < 4; i += 1) await attempt('alice', WRONG);
+    // The correct login has passed the check; a concurrent failure locks while its password is verified.
+    verify.mockImplementationOnce(async (password, hash) => {
+      await lockout.recordFailure('alice');
+      return realVerify(password, hash);
+    });
+    expect((await attempt('alice', PASSWORD)).statusCode).toBe(200);
+
+    expect((await attempt('alice', PASSWORD)).statusCode).toBe(429);
   });
 });

@@ -8,8 +8,13 @@ export interface LoginLockout {
   check(identifier: string): Promise<{ locked: false } | { locked: true; retryAfterSeconds: number }>;
   /** Counts one failed login, atomically; `lockedNow` when this failure reached the limit. */
   recordFailure(identifier: string): Promise<{ lockedNow: false } | { lockedNow: true; lockSeconds: number }>;
-  /** Clears the failures and the lock (successful login, administrator unlock). */
-  reset(identifier: string): Promise<void>;
+  /**
+   * Clears the failure count only (successful login). A lock set meanwhile by concurrent failures
+   * stays: only an administrator unlock (or its expiry) lifts it.
+   */
+  clearFailures(identifier: string): Promise<void>;
+  /** Clears the failures and the lock (administrator unlock). Resolves whether anything was there. */
+  reset(identifier: string): Promise<boolean>;
   close(): Promise<void>;
 }
 

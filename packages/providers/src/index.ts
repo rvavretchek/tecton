@@ -15,6 +15,7 @@ export {
   VALKEY_TIMEOUT_LIMITS,
   ValkeyConfigError,
   valkeyClientFromEnv,
+  waitForValkeyReady,
   type ValkeyClient,
   type ValkeyClientOptions,
 } from './valkey/valkey-client.js';

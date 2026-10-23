@@ -13,6 +13,7 @@ import {
   RevocationStoreUnavailableError,
   systemClock,
   valkeyClientFromEnv,
+  waitForValkeyReady,
   type AuthProvider,
   type Clock,
   type LoginLockout,
@@ -59,6 +60,9 @@ export const REFRESH_PATH = '/auth/refresh';
 export const LOGOUT_PATH = '/auth/logout';
 
 /** Responses carrying or revoking tokens, never to be cached. */
+/** How long the service waits for Valkey at startup before listening anyway. */
+const VALKEY_READY_WAIT_MS = 2_000;
+
 const NO_STORE_PATHS = new Set([LOGIN_PATH, REFRESH_PATH, LOGOUT_PATH]);
 
 /** Name and code of an error, never its message, which may carry query or connection details. */
@@ -158,6 +162,8 @@ export async function createAuthService({
             // Security event (AC 6): the identifier and the duration, never a password.
             onLocked: ({ identifier, lockSeconds }) =>
               app.log.warn({ event: 'auth.login.locked', identifier, lockSeconds }, 'login locked after too many failures'),
+            onClearFailuresFailure: (error) =>
+              app.log.warn({ event: 'auth.login.clear_failures_failed', err: safeError(error) }, 'failure count not cleared after a successful login'),
             onRehashFailure: (error) => app.log.warn({ err: safeError(error) }, 'password re-hash after login failed'),
             onCorruptCredential: corruptCredential('login'),
           },
@@ -239,7 +245,7 @@ export async function createAuthService({
  * TECTON_AUTH_SIGNING_KEY, TECTON_AUTH_PREVIOUS_PUBLIC_KEYS, TECTON_AUTH_NEXT_PUBLIC_KEYS,
  * TECTON_AUTH_ISSUER, TECTON_AUTH_AUDIENCE, TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS,
  * TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS, TECTON_VALKEY_URL (token revocation and login lockout,
- * required), TECTON_REVOCATION_TIMEOUT_MS, TECTON_AUTH_LOCKOUT_MAX_FAILURES,
+ * required), TECTON_VALKEY_TIMEOUT_MS, TECTON_AUTH_LOCKOUT_MAX_FAILURES,
  * TECTON_AUTH_LOCKOUT_WINDOW_SECONDS, TECTON_AUTH_LOCKOUT_DURATION_SECONDS, PORT and HOST.
  * If anything fails after the database client is created, it is closed before the error propagates.
  */
@@ -280,12 +286,22 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
     });
     const shared = valkey;
     app.addHook('onClose', async () => closeValkeyClient(shared));
+    // Waits a little for Valkey before taking traffic, so the first logins are not refused just
+    // because the connection was still opening. If Valkey is down, the service starts anyway and
+    // refuses logins with 503 until it is reachable (fail closed).
+    if (!(await waitForValkeyReady(valkey, VALKEY_READY_WAIT_MS))) {
+      app.log.warn({ event: 'auth.valkey_not_ready' }, 'Valkey not reachable at startup; logins answer 503 until it is');
+    }
     await app.listen({ port, host });
     return app;
   } catch (error) {
-    // Closing the app closes the client and the store; without an app, close them directly.
-    await (app ? app.close() : client.close()).catch(() => undefined);
-    if (valkey) await closeValkeyClient(valkey);
+    // Closing the app closes the database client and the Valkey client; without an app, close them here.
+    if (app) {
+      await app.close().catch(() => undefined);
+    } else {
+      await client.close().catch(() => undefined);
+      if (valkey) await closeValkeyClient(valkey);
+    }
     throw error;
   }
 }

@@ -2,7 +2,15 @@ import { X509Certificate } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
-import { RevocationStoreConfigError, RevocationStoreUnavailableError, tokenRevocationStoreFromEnv, type TokenRevocationStore } from '@tecton/providers';
+import {
+  createValkeyTokenRevocationStore,
+  RevocationStoreUnavailableError,
+  ValkeyConfigError,
+  valkeyClientFromEnv,
+  waitForValkeyReady,
+  type TokenRevocationStore,
+  type ValkeyClient,
+} from '@tecton/providers';
 import { createLocalJWKSet, decodeProtectedHeader, errors, jwtVerify, type FlattenedJWSInput, type JWK, type JWSHeaderParameters } from 'jose';
 
 // Local token verification of every service (Story 2.4, AD-7): EdDSA signatures checked against
@@ -65,6 +73,11 @@ export interface TokenVerifier {
    * revocation store; one given a store by its caller leaves it to the caller.
    */
   close?(): Promise<void>;
+  /**
+   * Resolves once what the verifier depends on is reachable (the revocation Valkey), false after
+   * `timeoutMs`. Only a verifier built by tokenVerifierFromEnv has it.
+   */
+  ready?(timeoutMs: number): Promise<boolean>;
 }
 
 export interface TokenVerifierOptions {
@@ -318,7 +331,7 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
  * The verifier of a domain service from its environment: TECTON_JWKS_URL (required),
  * TECTON_AUTH_ISSUER and TECTON_AUTH_AUDIENCE (defaults urn:tecton:auth and urn:tecton:api),
  * TECTON_ENV (only "development" allows an http JWKS URL), TECTON_JWKS_CA_FILE (optional PEM),
- * and the revocation store: TECTON_VALKEY_URL (required) and TECTON_REVOCATION_TIMEOUT_MS.
+ * and the revocation store: TECTON_VALKEY_URL (required) and TECTON_VALKEY_TIMEOUT_MS.
  */
 export function tokenVerifierFromEnv(
   env: NodeJS.ProcessEnv,
@@ -351,13 +364,16 @@ export function tokenVerifierFromEnv(
     if (error instanceof TokenVerifierConfigError) throw new TokenVerifierConfigError(`TECTON_JWKS_URL: ${error.message}`);
     throw error;
   }
-  // TECTON_VALKEY_URL and TECTON_REVOCATION_TIMEOUT_MS: required, the store names its variables.
+  // TECTON_VALKEY_URL (required) and TECTON_VALKEY_TIMEOUT_MS: the client names its variables.
   let revocations: TokenRevocationStore;
+  let valkey: ValkeyClient;
   try {
-    revocations = tokenRevocationStoreFromEnv(env, options.onRevocationStoreError ? { onError: options.onRevocationStoreError } : {});
+    valkey = valkeyClientFromEnv(env, options.onRevocationStoreError ? { onError: options.onRevocationStoreError } : {});
+    // The store owns the client it is given here: closing the store closes it.
+    revocations = createValkeyTokenRevocationStore({ client: valkey });
   } catch (error) {
     // One error class for every setting of the verifier.
-    if (error instanceof RevocationStoreConfigError) throw new TokenVerifierConfigError(error.message);
+    if (error instanceof ValkeyConfigError) throw new TokenVerifierConfigError(error.message);
     throw error;
   }
   try {
@@ -370,7 +386,12 @@ export function tokenVerifierFromEnv(
       ...(ca === undefined ? {} : { ca }),
     });
     // This verifier owns the store it opened.
-    return { verify: (authorization) => verifier.verify(authorization), close: () => revocations.close() };
+    const client = valkey;
+    return {
+      verify: (authorization) => verifier.verify(authorization),
+      close: () => revocations.close(),
+      ready: (timeoutMs) => waitForValkeyReady(client, timeoutMs),
+    };
   } catch (error) {
     // The store connects in the background: release it when the verifier cannot be built.
     void revocations.close();

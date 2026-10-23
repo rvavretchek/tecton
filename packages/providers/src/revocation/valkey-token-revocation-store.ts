@@ -81,7 +81,7 @@ export function createValkeyTokenRevocationStore(options: ValkeyTokenRevocationS
         ...(options.onError ? { onError: options.onError } : {}),
       });
     } catch (error) {
-      if (error instanceof ValkeyConfigError) throw new RevocationStoreConfigError(error.message.replace('Valkey timeout', 'revocation timeout'));
+      if (error instanceof ValkeyConfigError) throw new RevocationStoreConfigError(error.message);
       throw error;
     }
   }
@@ -136,12 +136,15 @@ export function createValkeyTokenRevocationStore(options: ValkeyTokenRevocationS
 
 /**
  * The store of a service from its environment: TECTON_VALKEY_URL (required) and
- * TECTON_REVOCATION_TIMEOUT_MS (optional, decimal integer 50-5000).
+ * TECTON_VALKEY_TIMEOUT_MS (optional, decimal integer 50-5000; TECTON_REVOCATION_TIMEOUT_MS still read).
  */
 export function tokenRevocationStoreFromEnv(
   env: NodeJS.ProcessEnv,
   options: Omit<ValkeyTokenRevocationStoreOptions, 'url' | 'client' | 'timeoutMs' | 'shared'> = {},
 ): TokenRevocationStore {
+  // The store options are checked before a connection is opened, so a bad one leaks nothing.
+  const lifetime = options.maxTokenLifetimeSeconds ?? DEFAULT_MAX_TOKEN_LIFETIME_SECONDS;
+  if (!Number.isInteger(lifetime) || lifetime < 1) throw new RevocationStoreConfigError('maxTokenLifetimeSeconds must be a positive integer');
   let client: RevocationClient;
   try {
     client = valkeyClientFromEnv(env, options.onError ? { onError: options.onError } : {});

@@ -51,12 +51,9 @@ function routeSchema(domain: string, action: ManifestAction) {
       400: { description: 'Invalid or unreadable request body', ...ERROR_BODY_SCHEMA },
       401: { description: 'Missing or invalid credentials', ...ERROR_BODY_SCHEMA },
       429: { description: 'Too many attempts (see Retry-After)', ...ERROR_BODY_SCHEMA },
-      ...(protectedAction
-        ? {
-            403: { description: 'Missing a permission the action requires', ...ERROR_BODY_SCHEMA },
-            503: { description: 'Token verification temporarily unavailable', ...ERROR_BODY_SCHEMA },
-          }
-        : {}),
+      ...(protectedAction ? { 403: { description: 'Missing a permission the action requires', ...ERROR_BODY_SCHEMA } } : {}),
+      // Token verification, revocation or a security dependency (login lockout) unavailable.
+      503: { description: 'A security dependency is temporarily unavailable (see Retry-After)', ...ERROR_BODY_SCHEMA },
       500: { description: 'Internal error', ...ERROR_BODY_SCHEMA },
       501: { description: 'Action not implemented yet', ...ERROR_BODY_SCHEMA },
     },

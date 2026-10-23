@@ -53,12 +53,12 @@ describe('Valkey login lockout against a real Valkey', () => {
   it('counts failures in a window and locks at the limit for the duration (AC 1)', async () => {
     await untilAvailable();
     await lockout.recordFailure('alice@example.com');
-    expect(await raw.pttl(`tecton:lockout:fail:${hash('alice@example.com')}`)).toBeGreaterThan(59_000);
+    expect(await raw.pttl(`tecton:lockout:{${hash('alice@example.com')}}:fail`)).toBeGreaterThan(59_000);
     await lockout.recordFailure('alice@example.com');
 
     expect(await lockout.recordFailure('alice@example.com')).toEqual({ lockedNow: true, lockSeconds: 120 });
-    expect(await raw.pttl(`tecton:lockout:lock:${hash('alice@example.com')}`)).toBeGreaterThan(119_000);
-    expect(await raw.exists(`tecton:lockout:fail:${hash('alice@example.com')}`)).toBe(0);
+    expect(await raw.pttl(`tecton:lockout:{${hash('alice@example.com')}}:lock`)).toBeGreaterThan(119_000);
+    expect(await raw.exists(`tecton:lockout:{${hash('alice@example.com')}}:fail`)).toBe(0);
     expect(await lockout.check('alice@example.com')).toMatchObject({ locked: true });
     expect((await raw.keys('tecton:lockout:*')).join(' ')).not.toContain('alice');
   });
@@ -70,7 +70,7 @@ describe('Valkey login lockout against a real Valkey', () => {
     await lockout.reset('alice@example.com');
 
     expect(await lockout.check('alice@example.com')).toEqual({ locked: false });
-    expect(await raw.exists(`tecton:lockout:fail:${hash('bob')}`)).toBe(0);
+    expect(await raw.exists(`tecton:lockout:{${hash('bob')}}:fail`)).toBe(0);
   });
 
   it('fails closed while Valkey is unreachable or too slow (AC 8)', async () => {

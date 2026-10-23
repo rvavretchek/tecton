@@ -74,23 +74,53 @@ export async function closeValkeyClient(client: { quit(): Promise<unknown>; disc
 }
 
 /**
+ * Resolves true once the client is connected and ready, false when `timeoutMs` passes first. A
+ * one-shot command (tecton-admin) must wait for it: without an offline queue, a command sent while
+ * connecting is refused. Services wait for it too before listening, without blocking their startup
+ * when Valkey is down (they then refuse requests with 503 until it is reachable).
+ */
+export function waitForValkeyReady(client: Pick<ValkeyClient, 'status' | 'once' | 'off'>, timeoutMs: number): Promise<boolean> {
+  if (client.status === 'ready') return Promise.resolve(true);
+  return new Promise((resolve) => {
+    const onReady = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      client.off('ready', onReady);
+      resolve(false);
+    }, timeoutMs);
+    timer.unref();
+    client.once('ready', onReady);
+  });
+}
+
+/** The time limit of every Valkey command: TECTON_VALKEY_TIMEOUT_MS, or its former name TECTON_REVOCATION_TIMEOUT_MS. */
+function timeoutFromEnv(env: NodeJS.ProcessEnv): number {
+  for (const variable of ['TECTON_VALKEY_TIMEOUT_MS', 'TECTON_REVOCATION_TIMEOUT_MS']) {
+    const raw = env[variable]?.trim();
+    if (!raw) continue;
+    try {
+      if (!/^\d+$/.test(raw)) throw new ValkeyConfigError('not decimal');
+      return validatedValkeyTimeout(Number(raw));
+    } catch {
+      throw new ValkeyConfigError(`${variable} must be a decimal integer between ${VALKEY_TIMEOUT_LIMITS.min} and ${VALKEY_TIMEOUT_LIMITS.max}`);
+    }
+  }
+  return DEFAULT_VALKEY_TIMEOUT_MS;
+}
+
+/**
  * The Valkey client of a service from its environment: TECTON_VALKEY_URL (required) and
- * TECTON_REVOCATION_TIMEOUT_MS (optional, decimal integer 50-5000; the time limit of every Valkey
- * command of the service, named after its first use).
+ * TECTON_VALKEY_TIMEOUT_MS (optional, decimal integer 50-5000, the time limit of every Valkey
+ * command; TECTON_REVOCATION_TIMEOUT_MS, its former name, is still read).
  */
 export function valkeyClientFromEnv(env: NodeJS.ProcessEnv, options: { onError?: (error: Error) => void } = {}): ValkeyClient {
   const url = env['TECTON_VALKEY_URL']?.trim();
-  if (!url) throw new ValkeyConfigError('TECTON_VALKEY_URL is not set; point it to the Valkey that keeps token revocations');
-  const rawTimeout = env['TECTON_REVOCATION_TIMEOUT_MS']?.trim();
-  let timeoutMs = DEFAULT_VALKEY_TIMEOUT_MS;
-  if (rawTimeout) {
-    timeoutMs = /^\d+$/.test(rawTimeout) ? Number(rawTimeout) : Number.NaN;
-    if (!Number.isInteger(timeoutMs) || timeoutMs < VALKEY_TIMEOUT_LIMITS.min || timeoutMs > VALKEY_TIMEOUT_LIMITS.max) {
-      throw new ValkeyConfigError(
-        `TECTON_REVOCATION_TIMEOUT_MS must be a decimal integer between ${VALKEY_TIMEOUT_LIMITS.min} and ${VALKEY_TIMEOUT_LIMITS.max}`,
-      );
-    }
+  if (!url) {
+    throw new ValkeyConfigError('TECTON_VALKEY_URL is not set; point it to the Valkey of the services (token revocation, login lockout)');
   }
+  const timeoutMs = timeoutFromEnv(env);
   try {
     return createValkeyClient({ url, timeoutMs, ...(options.onError ? { onError: options.onError } : {}) });
   } catch (error) {
