@@ -1,6 +1,10 @@
+---
+baseline_commit: 4b32205fc81fedc7322bb4403bab487ec789df98
+---
+
 # Story 2.7b: Token de serviço, parte 2: verificação em todo serviço
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -28,35 +32,35 @@ para que quem recebe saiba qual serviço está chamando e em nome de qual usuár
 
 ## Tasks / Subtasks
 
-- [ ] **T1. Verificador (AC: 1, 3, 5)** — `packages/core/src/auth/token-verifier.ts`
-  - [ ] `Principal` ganha `kind: 'user' | 'service'` (obrigatório). Token de serviço: `sub` é `service:` seguido de um nome no `DOMAIN_NAME_PATTERN` do `@tecton/manifest` (`packages/manifest/src/schema.ts`), até `DOMAIN_NAME_MAX_LENGTH`, nunca `service:auth` (a 2.7a não registra o Auth). Token de usuário: `sub` nunca começa com `service:`. Qualquer outro `typ` é 401.
-  - [ ] O resto das regras é o mesmo para os dois tipos (assinatura, `kid`, `at+jwt`, `iss`, `aud`, `exp`, `iat` não futuro, `perms` lista de texto, revogação por `jti` e por sujeito). A revogação por sujeito `service:<domínio>` é a da rotação da 2.7a.
-  - [ ] **A interface `TokenVerifier` não muda** (`verify(authorization)` só): as rotas conferem o valor cru de `Tecton-On-Behalf-Of` contra `^[A-Za-z0-9_.-]+$` e `MAX_TOKEN_LENGTH` e chamam `verifier.verify('Bearer ' + valor)`. Assim, nenhum verificador de terceiros ou de teste ganha método novo; só o `kind` do `Principal` muda.
-  - [ ] `tests/support/tokens.ts`: o item `'service token'` de `forged()` continua forjado (tem `typ: service` com `sub` de usuário) e é renomeado para `'service typ with a user subject'`; entra `'user typ with a service subject'` (`valid({ sub: 'service:billing' })`). O factory ganha um atalho separado para token de serviço válido (`typ: service`, `sub: service:<domínio>`).
-- [ ] **T2. Rotas (AC: 2 a 7)** — `packages/core/src/routes.ts`
-  - [ ] No `onRequest` de action protegida, **em sequência, a primeira falha vence** (nunca `Promise.all`):
+- [x] **T1. Verificador (AC: 1, 3, 5)** — `packages/core/src/auth/token-verifier.ts`
+  - [x] `Principal` ganha `kind: 'user' | 'service'` (obrigatório). Token de serviço: `sub` é `service:` seguido de um nome no `DOMAIN_NAME_PATTERN` do `@tecton/manifest` (`packages/manifest/src/schema.ts`), até `DOMAIN_NAME_MAX_LENGTH`, nunca `service:auth` (a 2.7a não registra o Auth). Token de usuário: `sub` nunca começa com `service:`. Qualquer outro `typ` é 401.
+  - [x] O resto das regras é o mesmo para os dois tipos (assinatura, `kid`, `at+jwt`, `iss`, `aud`, `exp`, `iat` não futuro, `perms` lista de texto, revogação por `jti` e por sujeito). A revogação por sujeito `service:<domínio>` é a da rotação da 2.7a.
+  - [x] **A interface `TokenVerifier` não muda** (`verify(authorization)` só): as rotas conferem o valor cru de `Tecton-On-Behalf-Of` contra `^[A-Za-z0-9_.-]+$` e `MAX_TOKEN_LENGTH` e chamam `verifier.verify('Bearer ' + valor)`. Assim, nenhum verificador de terceiros ou de teste ganha método novo; só o `kind` do `Principal` muda.
+  - [x] `tests/support/tokens.ts`: o item `'service token'` de `forged()` continua forjado (tem `typ: service` com `sub` de usuário) e é renomeado para `'service typ with a user subject'`; entra `'user typ with a service subject'` (`valid({ sub: 'service:billing' })`). O factory ganha um atalho separado para token de serviço válido (`typ: service`, `sub: service:<domínio>`).
+- [x] **T2. Rotas (AC: 2 a 7)** — `packages/core/src/routes.ts`
+  - [x] No `onRequest` de action protegida, **em sequência, a primeira falha vence** (nunca `Promise.all`):
     1. verifica `Authorization` (401 ou 503);
     2. se `kind === 'user'`: 401, a menos que a opção `directUserCalls` esteja ligada; ligada, segue como na 2.4, sem olhar `Tecton-On-Behalf-Of` (o verificador nem é chamado de novo);
     3. se `kind === 'service'` e o cabeçalho `tecton-on-behalf-of` existe: verifica o valor (401 ou 503); um token de serviço ali é 401;
     4. exige `call:<manifest.domain>` no token de serviço (403);
     5. avalia `auth.requires` contra o usuário, se houver, ou contra o serviço (403).
     Qualquer outro `kind` (verificador escrito à mão sem `kind`) é 401: nunca tratado como usuário por omissão.
-  - [ ] "Ausente" é só `undefined`: valor vazio, só espaços, repetido (o Node junta com `, `), com `Bearer` ou longo demais é 401.
-  - [ ] Opção `directUserCalls?: boolean` em `ActionRoutesOptions` (padrão `false`): aceitar token de usuário sozinho em `Authorization`. Só duas fontes a ligam: o `startDomainServer` quando `TECTON_ENV=development` (com um `warn` ao subir, `event: "direct_user_calls_enabled"`) e o serviço de Auth, sempre. `DomainServerOptions` aceita a opção explícita, que vence o ambiente.
-  - [ ] `ActionContext`: `principal` (de quem as permissões foram avaliadas) e `service?: Principal` (o chamador, quando é serviço). Cópias por requisição, incluindo as datas.
-  - [ ] Log `warn` de 403 por falta de `call:` com o serviço chamador e o domínio chamado (sem token), para o operador achar um `dependencies` esquecido.
-  - [ ] Descrições de 401 e 403 do `routeSchema` inalteradas (o documento OpenAPI gerado não muda).
-- [ ] **T3. Auth (AC: 8)** — `packages/auth/src/adapters/jose/own-access-token.ts` e `packages/auth/src/service.ts`
-  - [ ] `createOwnTokenVerifier` devolve `kind: 'user'`; continua recusando token de serviço.
-  - [ ] O `registerActionRoutes` do Auth liga `directUserCalls: true` (exceção permanente do AD-7).
-- [ ] **T4. Documentação e registros (AC: 6, 9)**
-  - [ ] README do `@tecton/core`: token de serviço, `Tecton-On-Behalf-Of` (JWT cru, sem `Bearer`; ignorado com token de usuário), `call:<domínio>`, a ordem das respostas, `context.principal` (com `kind`) e `context.service`, e o risco aceito na redação decidida pelo Boss (pergunta 1).
-  - [ ] README do `@tecton/auth`: a frase "the callee checks it (Story 2.7b)" e o risco aceito, na mesma redação.
-  - [ ] Comentário do `main.ts` do template de domínio: o token de serviço, `Tecton-On-Behalf-Of` e a exceção de `TECTON_ENV=development`.
+  - [x] "Ausente" é só `undefined`: valor vazio, só espaços, repetido (o Node junta com `, `), com `Bearer` ou longo demais é 401.
+  - [x] Opção `directUserCalls?: boolean` em `ActionRoutesOptions` (padrão `false`): aceitar token de usuário sozinho em `Authorization`. Só duas fontes a ligam: o `startDomainServer` quando `TECTON_ENV=development` (com um `warn` ao subir, `event: "direct_user_calls_enabled"`) e o serviço de Auth, sempre. `DomainServerOptions` aceita a opção explícita, que vence o ambiente.
+  - [x] `ActionContext`: `principal` (de quem as permissões foram avaliadas) e `service?: Principal` (o chamador, quando é serviço). Cópias por requisição, incluindo as datas.
+  - [x] Log `warn` de 403 por falta de `call:` com o serviço chamador e o domínio chamado (sem token), para o operador achar um `dependencies` esquecido.
+  - [x] Descrições de 401 e 403 do `routeSchema` inalteradas (o documento OpenAPI gerado não muda).
+- [x] **T3. Auth (AC: 8)** — `packages/auth/src/adapters/jose/own-access-token.ts` e `packages/auth/src/service.ts`
+  - [x] `createOwnTokenVerifier` devolve `kind: 'user'`; continua recusando token de serviço.
+  - [x] O `registerActionRoutes` do Auth liga `directUserCalls: true` (exceção permanente do AD-7).
+- [x] **T4. Documentação e registros (AC: 6, 9)**
+  - [x] README do `@tecton/core`: token de serviço, `Tecton-On-Behalf-Of` (JWT cru, sem `Bearer`; ignorado com token de usuário), `call:<domínio>`, a ordem das respostas, `context.principal` (com `kind`) e `context.service`, e o risco aceito na redação decidida pelo Boss (pergunta 1).
+  - [x] README do `@tecton/auth`: a frase "the callee checks it (Story 2.7b)" e o risco aceito, na mesma redação.
+  - [x] Comentário do `main.ts` do template de domínio: o token de serviço, `Tecton-On-Behalf-Of` e a exceção de `TECTON_ENV=development`.
   - [x] Registrar o formato de `Tecton-On-Behalf-Of` (JWT cru, sem `Bearer`) para a Story 3.9 (`ServiceClient`) no `epics.md` (feito no Validate Story, com a emenda das Stories 2.7 e 3.6). Ainda no `deferred-work.md`: o cabeçalho no OpenAPI (Epic 5, FR-24) e, para a Story 3.10, que o verificador recuse access token assinado por chave de evento de serviço (as chaves de evento vão para o mesmo JWKS, AD-7).
-- [ ] **T5. Testes (AC: todos)** — Test Design P0-019 (4), P0-020 (2)
-  - [ ] Verificador: token de serviço aceito com `kind: 'service'`; `sub` de serviço fora do padrão, token de usuário com `sub: service:...` e `typ` desconhecido recusados; token de serviço revogado por sujeito (rotação) recusado; `verifyToken` com valor repetido, longo demais ou com `Bearer` recusado.
-  - [ ] Rotas (`app.inject`, `tokenFactory`, revogação em memória):
+- [x] **T5. Testes (AC: todos)** — Test Design P0-019 (4), P0-020 (2)
+  - [x] Verificador: token de serviço aceito com `kind: 'service'`; `sub` de serviço fora do padrão, token de usuário com `sub: service:...` e `typ` desconhecido recusados; token de serviço revogado por sujeito (rotação) recusado; `verifyToken` com valor repetido, longo demais ou com `Bearer` recusado.
+  - [x] Rotas (`app.inject`, `tokenFactory`, revogação em memória):
     - serviço sem usuário: `requires` contra o serviço (200 com a permissão, 403 sem);
     - em nome de usuário: `requires` contra o usuário (200 quando o usuário tem e o serviço não; 403 quando o serviço tem e o usuário não);
     - `call:` ausente: 403 com usuário válido, e também sem usuário;
@@ -73,11 +77,11 @@ para que quem recebe saiba qual serviço está chamando e em nome de qual usuár
     - o verificador é chamado uma vez só em chamada de usuário e nenhuma em action pública;
     - token de usuário sozinho: 401 sem `directUserCalls`; com a opção, o comportamento da 2.4;
     - `startDomainServer`: `TECTON_ENV=development` liga a opção e avisa no log; sem ele, desligada; a opção explícita vence o ambiente.
-  - [ ] Testes existentes que chamam um domínio com token de usuário sozinho (`routes-auth.test.ts`, `routes.test.ts`, `domain-server.test.ts`, `revocation` e outros das 2.4 e 2.5) passam a ligar `directUserCalls: true` ou o `TECTON_ENV=development` (provam o comportamento da 2.4, agora só de desenvolvimento). O `new.generation.test.ts` já usa `TECTON_ENV=development` no `.env`.
-  - [ ] Ponta a ponta em `packages/auth/src/` (o `core` não pode importar o `auth`, `.dependency-cruiser.cjs`), no modelo do `packages/cli/src/commands/auth-register-service.test.ts`: o Auth em processo (`createAuthService` escutando numa porta), o registro de serviço e o `service-token`, e um domínio com `startDomainServer({ verifier: createTokenVerifier({ jwksUrl: <url http do Auth>, devMode: true, revocations: <o mesmo store em memória dado ao Auth> }) })`. Chamado com o token de serviço sozinho e com `Tecton-On-Behalf-Of` de um usuário que fez login; depois da rotação, o token antigo do serviço é 401 no domínio (só observável porque o store de revogação é o mesmo).
-  - [ ] Fase vermelha por mutação (A3), no mínimo: aceitar qualquer `typ`; não exigir `call:`; exigir `call:` de token de usuário (quebra o AC 7); `requires` contra o serviço quando há usuário; não verificar `Tecton-On-Behalf-Of`; verificá-lo sem revogação; aceitar token de serviço em `Tecton-On-Behalf-Of`; honrar `Tecton-On-Behalf-Of` com token de usuário (quebra o P0-013); 403 antes de 401; as duas verificações em paralelo ou na ordem errada; `call:` de outro domínio aceito; `sub` de serviço sem prefixo aceito; `kind` ausente tratado como usuário; token de usuário sozinho aceito sem `directUserCalls`; `TECTON_ENV=development` sem o aviso no log; o Auth sem `directUserCalls`.
-- [ ] **T6. Verificação final**
-  - [ ] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:generation`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder).
+  - [x] Testes existentes que chamam um domínio com token de usuário sozinho (`routes-auth.test.ts`, `routes.test.ts`, `domain-server.test.ts`, `revocation` e outros das 2.4 e 2.5) passam a ligar `directUserCalls: true` ou o `TECTON_ENV=development` (provam o comportamento da 2.4, agora só de desenvolvimento). O `new.generation.test.ts` já usa `TECTON_ENV=development` no `.env`.
+  - [x] Ponta a ponta em `packages/auth/src/` (o `core` não pode importar o `auth`, `.dependency-cruiser.cjs`), no modelo do `packages/cli/src/commands/auth-register-service.test.ts`: o Auth em processo (`createAuthService` escutando numa porta), o registro de serviço e o `service-token`, e um domínio com `startDomainServer({ verifier: createTokenVerifier({ jwksUrl: <url http do Auth>, devMode: true, revocations: <o mesmo store em memória dado ao Auth> }) })`. Chamado com o token de serviço sozinho e com `Tecton-On-Behalf-Of` de um usuário que fez login; depois da rotação, o token antigo do serviço é 401 no domínio (só observável porque o store de revogação é o mesmo).
+  - [x] Fase vermelha por mutação (A3), no mínimo: aceitar qualquer `typ`; não exigir `call:`; exigir `call:` de token de usuário (quebra o AC 7); `requires` contra o serviço quando há usuário; não verificar `Tecton-On-Behalf-Of`; verificá-lo sem revogação; aceitar token de serviço em `Tecton-On-Behalf-Of`; honrar `Tecton-On-Behalf-Of` com token de usuário (quebra o P0-013); 403 antes de 401; as duas verificações em paralelo ou na ordem errada; `call:` de outro domínio aceito; `sub` de serviço sem prefixo aceito; `kind` ausente tratado como usuário; token de usuário sozinho aceito sem `directUserCalls`; `TECTON_ENV=development` sem o aviso no log; o Auth sem `directUserCalls`.
+- [x] **T6. Verificação final**
+  - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:generation`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder).
   - [ ] Code review por story antes da 2.8 (retro A1).
 
 ## Dev Notes
@@ -144,16 +148,46 @@ Formato de `Tecton-On-Behalf-Of` (JWT cru, sem `Bearer`): decidido sem pergunta 
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
+
 ### Debug Log References
+
+- `pnpm build`, `typecheck`, `check:deps` (167 módulos), `lint:examples`, `validate:asyncapi`: limpos.
+- `pnpm test`: 61 arquivos, 1051 testes verdes (1044 antes do reforço da fase vermelha); `test:generation`: 3 verdes (o `.env` gerado já tem `TECTON_ENV=development`).
+- `test:containers` e `test:persistence`: pelo CI (sem Docker local). Nenhum deles chama um domínio com token de usuário sozinho.
+- Fase vermelha (A3), 19 mutações, todas mortas no fim. Duas sobreviveram na primeira rodada e os testes foram reforçados:
+  - `sub` de serviço aceito sem o prefixo `service:`: faltava um caso com outro prefixo do mesmo tamanho (`account:billing`);
+  - `Tecton-On-Behalf-Of` malformado aceito até o verificador: o resultado era o mesmo 401, mas as rotas devem recusar sem chamar o verificador; o teste passou a conferir que não há segunda verificação.
+- Problema encontrado: o teste de revogação revogava `USER` e `service:billing` no store compartilhado do arquivo e derrubava os testes seguintes; passou a usar sujeitos próprios.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- **T1:** `Principal.kind` (`'user' | 'service'`), `typ` e `sub` precisam concordar (`kindOf`), `serviceDomainOf` (domínio no padrão do manifest, até 63, nunca `auth`), `SERVICE_SUBJECT_PREFIX`. A interface `TokenVerifier` não mudou. `forged()` ganhou cinco falsificações de tipo e sujeito; `tokenFactory` ganhou `service(domain)`.
+- **T2:** `callerOf` em sequência (Authorization, token de usuário sozinho só com `directUserCalls`, `Tecton-On-Behalf-Of` cru e verificado, `call:<domínio>`), depois `auth.requires` contra quem age. `context.service`. `ON_BEHALF_OF_HEADER`, `callPermissionFor`. Log `service_call_refused`.
+- **Emenda do AD-7:** `directUserCalls` em `registerActionRoutes` e `startDomainServer` (pelo `TECTON_ENV=development`, com `warn` `direct_user_calls_enabled`; a opção explícita vence). Os testes das 2.4 e 2.5 que chamam com token de usuário sozinho ligam a opção.
+- **T3:** o verificador próprio do Auth devolve `kind: 'user'`; o Auth liga `directUserCalls: true`.
+- **T4:** README do `@tecton/core` (chamadas entre serviços, tabela de respostas, risco aceito), README do `@tecton/auth` (o `call:` exigido e o risco), comentário do `main.ts` do template, três itens no `deferred-work.md` (OpenAPI, chaves de evento da 3.10, Gateway da 3.6).
+- **T5:** verificador (+15), rotas de serviço (`routes-service.test.ts`, 55), `startDomainServer` (+3) e ponta a ponta com o Auth em processo (`packages/auth/src/service-call.test.ts`, 3: serviço sozinho, em nome de usuário, 403 sem dependência, 401 de usuário sozinho, rotação, logout do usuário).
 
 ### File List
+
+- `packages/core/src/auth/token-verifier.ts`, `token-verifier.test.ts` (modificados)
+- `packages/core/src/routes.ts` (modificado)
+- `packages/core/src/routes-service.test.ts` (novo)
+- `packages/core/src/routes.test.ts`, `routes-auth.test.ts` (modificados)
+- `packages/core/src/domain-server.ts`, `domain-server.test.ts` (modificados)
+- `packages/core/src/index.ts`, `packages/core/README.md` (modificados)
+- `packages/auth/src/adapters/jose/own-access-token.ts`, `packages/auth/src/service.ts`, `packages/auth/README.md` (modificados)
+- `packages/auth/src/service-call.test.ts` (novo)
+- `packages/cli/templates/domain/src/main.ts` (modificado)
+- `tests/support/tokens.ts` (modificado)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (modificado)
+- Planejamento (Validate Story): `ARCHITECTURE-SPINE.md` (AD-7), `epics.md` (2.7, 3.6, 3.9), `test-design-qa.md` (P0-020, P0-022)
 
 ## Change Log
 
 - 2026-10-24: Story criada (Create Story).
 - 2026-10-24: Validate Story: 15 achados aplicados (fixture de `forged()`, ordem sequencial das verificações, cabeçalho vazio, `sub` de serviço, interface `TokenVerifier` inalterada, implementadores de teste, ponta a ponta em `packages/auth`, registros para 3.9, 3.10 e Epic 5, mutações); uma pergunta ao Boss sobre o risco aceito.
 - 2026-10-24: Decisões do Boss: emenda do AD-7 (Gateway como serviço; domínios recusam token de usuário sozinho) e exceção só com `TECTON_ENV=development`. Spine, `epics.md` (2.7, 3.6, 3.9) e Test Design (P0-020, P0-022) emendados.
+- 2026-10-24: Dev Story concluída (T1 a T6, salvo o code review); status `review`.

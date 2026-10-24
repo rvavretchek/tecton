@@ -11,6 +11,7 @@ import {
   type TokenRevocationStore,
   type ValkeyClient,
 } from '@tecton/providers';
+import { DOMAIN_NAME_MAX_LENGTH, DOMAIN_NAME_PATTERN } from '@tecton/manifest';
 import { createLocalJWKSet, decodeProtectedHeader, errors, jwtVerify, type FlattenedJWSInput, type JWK, type JWSHeaderParameters } from 'jose';
 
 // Local token verification of every service (Story 2.4, AD-7): EdDSA signatures checked against
@@ -35,9 +36,17 @@ export const JWKS_FAILURE_BACKOFF_MS = 5_000;
 /** Skew accepted between the clocks of the Auth service and this one (exp, iat). */
 export const CLOCK_TOLERANCE_SECONDS = 30;
 
+/** The two kinds of access token: a user (`typ: user`) and a service (`typ: service`, Story 2.7). */
+export type PrincipalKind = 'user' | 'service';
+
+/** Prefix of the subject of every service token: `service:<domain>`. */
+export const SERVICE_SUBJECT_PREFIX = 'service:';
+
 /** Who is calling, as the verified token says. A fresh object for every request. */
 export interface Principal {
-  /** `sub`: the credential id. */
+  /** `typ`: a user, or a service calling another one (Story 2.7). */
+  kind: PrincipalKind;
+  /** `sub`: the credential id of a user, or `service:<domain>` for a service. */
   subject: string;
   /** `perms`. */
   permissions: string[];
@@ -220,6 +229,24 @@ function validatedUrl(jwksUrl: string, devMode: boolean): URL {
   throw new TokenVerifierConfigError('the JWKS URL must use https (or http in development mode)');
 }
 
+const DOMAIN_NAME = new RegExp(DOMAIN_NAME_PATTERN);
+
+/** The domain of a service subject (`service:<domain>`), or undefined when it is not one. */
+export function serviceDomainOf(subject: string): string | undefined {
+  if (!subject.startsWith(SERVICE_SUBJECT_PREFIX)) return undefined;
+  const domain = subject.slice(SERVICE_SUBJECT_PREFIX.length);
+  // The Auth service never has a service credential (Story 2.7a).
+  if (domain.length > DOMAIN_NAME_MAX_LENGTH || !DOMAIN_NAME.test(domain) || domain === 'auth') return undefined;
+  return domain;
+}
+
+/** The kind of a token from its `typ` and `sub`, or undefined when they do not agree. */
+function kindOf(typ: unknown, subject: string): PrincipalKind | undefined {
+  if (typ === 'user') return subject.startsWith(SERVICE_SUBJECT_PREFIX) ? undefined : 'user';
+  if (typ === 'service') return serviceDomainOf(subject) === undefined ? undefined : 'service';
+  return undefined;
+}
+
 function claimText(name: string, value: string): string {
   const trimmed = value.trim();
   if (trimmed === '' || trimmed !== value) throw new TokenVerifierConfigError(`${name} must not be empty or padded with spaces`);
@@ -303,10 +330,12 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
       }
 
       const { sub, jti, iat, exp, typ, perms } = payload;
-      // Only user tokens until Story 2.7 adds service tokens.
-      if (typ !== 'user') throw new InvalidTokenError();
       if (!Array.isArray(perms) || !perms.every((perm) => typeof perm === 'string')) throw new InvalidTokenError();
       if (typeof sub !== 'string' || typeof jti !== 'string' || typeof iat !== 'number' || typeof exp !== 'number') throw new InvalidTokenError();
+      // The subject must match the type: a user never has a service subject, and the other way
+      // around, so one kind can never pass for the other (Story 2.7b).
+      const kind = kindOf(typ, sub);
+      if (!kind) throw new InvalidTokenError();
       // A token issued in the future (beyond the tolerance) is never valid.
       if (iat > clock.now().getTime() / 1000 + CLOCK_TOLERANCE_SECONDS) throw new InvalidTokenError();
       // Revocation (Story 2.5): by jti or by subject; when the store cannot answer, never "not revoked".
@@ -322,7 +351,7 @@ export function createTokenVerifier(options: TokenVerifierOptions): TokenVerifie
         throw error;
       }
       if (revoked) throw new InvalidTokenError();
-      return { subject: sub, permissions: [...perms], tokenId: jti, issuedAt: new Date(iat * 1000), expiresAt: new Date(exp * 1000) };
+      return { kind, subject: sub, permissions: [...perms], tokenId: jti, issuedAt: new Date(iat * 1000), expiresAt: new Date(exp * 1000) };
     },
   };
 }

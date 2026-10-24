@@ -238,8 +238,8 @@ printf '%s' "$ADMIN_PASSWORD" | tecton-admin auth register-service billing --log
   the end, also on failure: the token is revoked and never written to disk. The password comes
   from `TECTON_AUTH_ADMIN_PASSWORD` or standard input, never from an argument.
 - The domains the service calls come from `dependencies` in `apps/domains/<domain>/tecton.yaml`.
-  The service token carries `call:<domain>` for each of them, and only for them; the callee
-  checks it (Story 2.7b). `--permission call:...` is refused: `call:` comes from the
+  The service token carries `call:<domain>` for each of them, and only for them; every domain
+  requires `call:<its own domain>` from the services that call it (`@tecton/core`). `--permission call:...` is refused: `call:` comes from the
   `dependencies` the registration sends. The CLI reads them from the manifest; the endpoint
   itself trusts the administrator who calls it (`auth:service:register`), so grant that
   permission as you would grant any other.
@@ -269,8 +269,13 @@ secret and a revoked credential get the same 401, after the same Argon2id work. 
 never a user session: `refresh` and `login` refuse it, and `logout` revokes nothing for it.
 
 **Accepted risk.** A service that receives a user token to act on the user's behalf can reuse it
-until it expires (15 minutes) if the service is compromised. This comes with token propagation;
-the `call:<domain>` check of the callee limits where the token can be used.
+until it expires (15 minutes) if the service is compromised. This comes with token propagation.
+A domain accepts a user token only next to a service token (in `Tecton-On-Behalf-Of`; a user token
+alone is refused outside development) and requires `call:<domain>` from that service, so the
+compromised service reaches only the domains it declared in `dependencies`.
+
+The Auth service itself receives user tokens directly (the CLI calls it without a Gateway), and
+never accepts a service token on `registerService`.
 
 ## Token revocation
 

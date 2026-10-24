@@ -10,6 +10,7 @@ import {
   InvalidTokenError,
   JWKS_FAILURE_BACKOFF_MS,
   JWKS_REFETCH_COOLDOWN_MS,
+  serviceDomainOf,
   TokenVerificationUnavailableError,
   TokenVerifierConfigError,
   tokenVerifierFromEnv,
@@ -41,6 +42,7 @@ describe('createTokenVerifier (Story 2.4, AC 2)', () => {
     const token = tokens.valid({ sub: 'user-a', perms: ['finance:close'], jti: 'jti-1' });
 
     expect(await verifier().verify(bearer(token))).toEqual({
+      kind: 'user',
       subject: 'user-a',
       permissions: ['finance:close'],
       tokenId: 'jti-1',
@@ -421,5 +423,56 @@ describe('revocation review fixes (Story 2.5 review)', () => {
     expect(typeof owned.close).toBe('function');
     await owned.close?.();
     expect(close).not.toHaveBeenCalled();
+  });
+});
+
+describe('service tokens (Story 2.7b, AC 1)', () => {
+  it('accepts a service token as kind service', async () => {
+    const token = tokens.service('billing', { perms: ['call:finance'], jti: 'jti-s' });
+
+    expect(await verifier().verify(bearer(token))).toEqual({
+      kind: 'service',
+      subject: 'service:billing',
+      permissions: ['call:finance'],
+      tokenId: 'jti-s',
+      issuedAt: NOW,
+      expiresAt: new Date(NOW.getTime() + 900_000),
+    });
+  });
+
+  it.each([
+    ['a service subject without a domain', { typ: 'service', sub: 'service:' }],
+    ['a service subject with an invalid domain', { typ: 'service', sub: 'service:-billing' }],
+    ['a service subject too long', { typ: 'service', sub: `service:${'a'.repeat(64)}` }],
+    ['the Auth service', { typ: 'service', sub: 'service:auth' }],
+    ['a service typ with another prefix', { typ: 'service', sub: 'account:billing' }],
+    ['a service typ with a user subject', { typ: 'service' }],
+    ['a user typ with a service subject', { sub: 'service:billing' }],
+    ['an unknown typ', { typ: 'admin' }],
+    ['no typ', { typ: undefined }],
+  ])('refuses %s', async (_name, overrides) => {
+    await expect(verifier().verify(bearer(tokens.valid(overrides as Record<string, unknown>)))).rejects.toBeInstanceOf(InvalidTokenError);
+  });
+
+  it('refuses a service token whose subject was revoked (rotation of its credential, Story 2.7a)', async () => {
+    const store = createMemoryTokenRevocationStore(() => new RevocationStoreUnavailableError('down'), () => NOW);
+    await store.revokeSubject({ subject: 'service:billing', at: NOW });
+
+    await expect(verifier({ revocations: store }).verify(bearer(tokens.service('billing')))).rejects.toBeInstanceOf(InvalidTokenError);
+    await expect(verifier({ revocations: store }).verify(bearer(tokens.service('catalog')))).resolves.toMatchObject({ kind: 'service' });
+  });
+});
+
+describe('serviceDomainOf', () => {
+  it.each([
+    ['service:billing', 'billing'],
+    ['service:order-items', 'order-items'],
+    ['service:auth', undefined],
+    ['service:Billing', undefined],
+    ['billing', undefined],
+    ['account:billing', undefined],
+    ['service:', undefined],
+  ])('%s -> %s', (subject, domain) => {
+    expect(serviceDomainOf(subject)).toBe(domain);
   });
 });

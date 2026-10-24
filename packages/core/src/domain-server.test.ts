@@ -8,7 +8,7 @@ import type { TokenVerifier } from './auth/token-verifier.js';
 import { loadDomainManifest, startDomainServer } from './domain-server.js';
 
 const ACCEPT_ALL: TokenVerifier = {
-  verify: async () => ({ subject: 'test', permissions: ['finance:close'], tokenId: 'test', issuedAt: new Date(0), expiresAt: new Date(0) }),
+  verify: async () => ({ kind: 'user', subject: 'test', permissions: ['finance:close'], tokenId: 'test', issuedAt: new Date(0), expiresAt: new Date(0) }),
 };
 
 const dirs: string[] = [];
@@ -41,7 +41,7 @@ actions:
 
 describe('startDomainServer (walking skeleton)', () => {
   it('Given a manifest with actions, When started, Then every action route answers 501 until implemented', async () => {
-    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, host: '127.0.0.1', verifier: ACCEPT_ALL });
+    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, host: '127.0.0.1', verifier: ACCEPT_ALL, directUserCalls: true });
     servers.push(app);
     const response = await app.inject({ method: 'POST', url: '/finance/close-month', payload: { month: '2026-10' } });
 
@@ -56,6 +56,7 @@ describe('startDomainServer (walking skeleton)', () => {
       host: '127.0.0.1',
       handlers: { closeMonth: () => ({ closed: true }) },
       verifier: ACCEPT_ALL,
+      directUserCalls: true,
     });
     servers.push(app);
     const response = await app.inject({ method: 'POST', url: '/finance/close-month', payload: { month: '2026-10' } });
@@ -130,7 +131,7 @@ describe('startDomainServer revocation store (Story 2.5 review)', () => {
 
 describe('startDomainServer bind address (review D2)', () => {
   it('Given no host, When started, Then it listens on loopback only', async () => {
-    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, verifier: ACCEPT_ALL });
+    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, verifier: ACCEPT_ALL, directUserCalls: true });
     servers.push(app);
     const address = app.server.address();
 
@@ -143,5 +144,47 @@ describe('loadDomainManifest', () => {
     const file = manifestFile('manifestVersion: "0.1"\ndomain: Finance\nversion: "1.0"\ndescription: "x"\n');
 
     expect(() => loadDomainManifest(file)).toThrow(/invalid manifest .*tecton\.yaml[\s\S]*line 2: domain[\s\S]*line 3: version/);
+  });
+});
+
+describe('user tokens alone (Story 2.7b, AD-7 amendment of 2026-10-24)', () => {
+  async function started(options: { env: NodeJS.ProcessEnv; directUserCalls?: boolean }) {
+    const lines: string[] = [];
+    const stream = new Writable({
+      write(chunk, _encoding, done) {
+        lines.push(chunk.toString());
+        done();
+      },
+    });
+    const app = await startDomainServer({
+      manifestPath: manifestFile(FINANCE),
+      port: 0,
+      verifier: ACCEPT_ALL,
+      handlers: { closeMonth: () => ({ closed: true }) },
+      logger: { level: 'warn', stream },
+      ...options,
+    });
+    servers.push(app);
+    const status = (await app.inject({ method: 'POST', url: '/finance/close-month', payload: { month: '2026-10' } })).statusCode;
+    return { status, logs: lines.join('') };
+  }
+
+  it('refuses them outside development, without the warning', async () => {
+    const { status, logs } = await started({ env: {} });
+
+    expect(status).toBe(401);
+    expect(logs).not.toContain('direct_user_calls_enabled');
+  });
+
+  it('accepts them with TECTON_ENV=development and warns at startup', async () => {
+    const { status, logs } = await started({ env: { TECTON_ENV: 'development' } });
+
+    expect(status).toBe(200);
+    expect(logs).toContain('"event":"direct_user_calls_enabled"');
+  });
+
+  it('follows an explicit option over the environment', async () => {
+    expect((await started({ env: { TECTON_ENV: 'development' }, directUserCalls: false })).status).toBe(401);
+    expect((await started({ env: {}, directUserCalls: true })).status).toBe(200);
   });
 });

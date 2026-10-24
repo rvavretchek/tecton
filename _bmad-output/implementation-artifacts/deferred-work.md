@@ -59,3 +59,9 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 - W3 `dependencies` e `permissions` da action `registerService` são texto separado por vírgula, porque o manifest não tem tipo lista [packages/auth/tecton.yaml] — adiado: quando o formato de API ganhar arrays (Epic 5)
 - W4 O Auth aceita as `dependencies` de quem chama `register-service` (com `auth:service:register`); só o CLI as lê do manifest [packages/auth/src/service.ts] — adiado: o Directory (Epic 4) passa a ser a fonte confiável das dependências
 
+## Deferred from: Create e Validate Story da 2.7b (2026-10-24)
+
+- W1 O cabeçalho `Tecton-On-Behalf-Of` não aparece no documento OpenAPI gerado [packages/core/src/openapi.ts] — adiado: formato de API e contrato público (Epic 5, FR-24)
+- W2 As chaves Ed25519 de evento de cada serviço vão para o mesmo JWKS do Auth (AD-7); o verificador de access token precisa recusar token assinado por chave de evento [packages/core/src/auth/token-verifier.ts] — adiado: Story 3.10 (restringir as chaves de token, por exemplo por prefixo de `kid` ou por `use`)
+- W3 O Gateway ainda não é um serviço: até a Story 3.6, só `TECTON_ENV=development` permite chamar um domínio com token de usuário sozinho (emenda do AD-7 de 2026-10-24) [packages/core/src/domain-server.ts] — adiado: Story 3.6 (Gateway como `service:gateway`, com o token do usuário em `Tecton-On-Behalf-Of`)
+

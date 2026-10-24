@@ -75,7 +75,7 @@ export function createOwnTokenVerifier(options: OwnAccessTokenReaderOptions & { 
         throw error;
       }
       if (revoked) throw new InvalidTokenError();
-      return { subject: token.subject, permissions: token.permissions, tokenId: token.tokenId, issuedAt: token.issuedAt, expiresAt: token.expiresAt };
+      return { kind: 'user', subject: token.subject, permissions: token.permissions, tokenId: token.tokenId, issuedAt: token.issuedAt, expiresAt: token.expiresAt };
     },
   };
 }

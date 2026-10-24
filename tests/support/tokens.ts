@@ -91,7 +91,12 @@ export function tokenFactory(key: TestSigningKey, options: TokenFactoryOptions =
       'wrong audience': valid({ aud: 'urn:other:api' }),
       'header typ JWT': valid({}, { typ: 'JWT' }),
       'no header typ': signed({ alg: 'EdDSA', kid: key.kid }, claims(), eddsa),
-      'service token': valid({ typ: 'service' }),
+      // A type must match its subject (Story 2.7b): neither kind passes for the other.
+      'service typ with a user subject': valid({ typ: 'service' }),
+      'user typ with a service subject': valid({ sub: 'service:billing' }),
+      'service typ with an invalid domain': valid({ typ: 'service', sub: 'service:Billing_X' }),
+      'service typ for the Auth service': valid({ typ: 'service', sub: 'service:auth' }),
+      'unknown typ': valid({ typ: 'admin' }),
       'no perms': signed(header(), (({ perms: _perms, ...rest }) => rest)(claims()), eddsa),
       'perms not a list': valid({ perms: 'tenant:create' as unknown as string[] }),
       'perms with a non-string item': valid({ perms: ['tenant:create', 1] as unknown as string[] }),
@@ -104,5 +109,8 @@ export function tokenFactory(key: TestSigningKey, options: TokenFactoryOptions =
     };
   };
 
-  return { valid, forged, claims };
+  /** A valid service token of `domain` (Story 2.7): `typ: service`, `sub: service:<domain>`. */
+  const service = (domain: string, overrides: Partial<TokenClaims> = {}) => valid({ typ: 'service', sub: `service:${domain}`, ...overrides });
+
+  return { valid, service, forged, claims };
 }

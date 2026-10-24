@@ -51,6 +51,8 @@ afterEach(async () => {
   for (const app of servers.splice(0)) await app.close();
 });
 
+// The calls of Stories 2.4 and 2.5 send a user token alone: accepted only with directUserCalls since
+// the AD-7 amendment of 2026-10-24 (development and the Auth service), which these tests turn on.
 async function serve(options: { verifier?: TokenVerifier } = {}) {
   const lines: string[] = [];
   const stream = new Writable({
@@ -68,7 +70,7 @@ async function serve(options: { verifier?: TokenVerifier } = {}) {
   });
   const status = vi.fn(async () => ({ ok: true }));
   const verifier = options.verifier ?? createTokenVerifier({ revocations, jwksUrl: jwks.url, ca: jwks.ca, clock: createTestClock(NOW) });
-  registerActionRoutes(app, FINANCE, { closeMonth, status }, { verifier });
+  registerActionRoutes(app, FINANCE, { closeMonth, status }, { verifier, directUserCalls: true });
   await app.ready();
   const call = (headers: Record<string, string> = {}, payload: unknown = { month: '2026-10' }) =>
     app.inject({ method: 'POST', url: '/finance/close-month', headers, payload: payload as Record<string, unknown> });
@@ -147,7 +149,7 @@ describe('identity and permissions (Story 2.4, AC 5, AC 7)', () => {
   });
 
   it('hands each handler its own copy of the principal, even from a verifier that reuses one object', async () => {
-    const shared = { subject: USER_A, permissions: [...ALL_PERMS], tokenId: 't', issuedAt: NOW, expiresAt: NOW };
+    const shared = { kind: 'user' as const, subject: USER_A, permissions: [...ALL_PERMS], tokenId: 't', issuedAt: NOW, expiresAt: NOW };
     const { call, seen } = await serve({ verifier: { verify: async () => shared } });
     await call(auth('x'));
     seen[0]?.principal?.permissions.push('injected');
@@ -253,7 +255,7 @@ describe('review fixes (Story 2.4 review)', () => {
   });
 
   it('copies the dates of the principal too (P13)', async () => {
-    const shared = { subject: USER_A, permissions: [...ALL_PERMS], tokenId: 't', issuedAt: new Date(NOW), expiresAt: new Date(NOW) };
+    const shared = { kind: 'user' as const, subject: USER_A, permissions: [...ALL_PERMS], tokenId: 't', issuedAt: new Date(NOW), expiresAt: new Date(NOW) };
     const { call, seen } = await serve({ verifier: { verify: async () => shared } });
     await call(auth('x'));
     seen[0]?.principal?.expiresAt.setTime(0);

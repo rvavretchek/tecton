@@ -317,7 +317,12 @@ export async function createAuthService({
       }
       return {};
     },
-  }, { verifier });
+  }, {
+    verifier,
+    // The Auth service issues and verifies its own tokens and receives user tokens directly
+    // (the CLI calls it without a Gateway): the permanent exception of the AD-7 amendment.
+    directUserCalls: true,
+  });
   // Responses carrying tokens must never be cached (RFC 6749 5.1), success and failure alike.
   app.addHook('onSend', async (request, reply) => {
     if (NO_STORE_PATHS.has(request.routeOptions.url ?? '')) reply.header('cache-control', 'no-store').header('pragma', 'no-cache');

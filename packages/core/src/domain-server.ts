@@ -23,8 +23,13 @@ export interface DomainServerOptions extends TectonServerOptions {
    * missing configuration stops the service at startup.
    */
   verifier?: TokenVerifier;
-  /** Environment read when `verifier` is omitted. Default process.env. */
+  /** Environment read when `verifier` is omitted, and for TECTON_ENV. Default process.env. */
   env?: NodeJS.ProcessEnv;
+  /**
+   * Accept a user token alone in `Authorization` (see ActionRoutesOptions). Default: on only with
+   * TECTON_ENV=development, which also logs a warning at startup. An explicit value wins.
+   */
+  directUserCalls?: boolean;
 }
 
 /** Reads and validates a domain manifest; throws with every problem when it is invalid. */
@@ -60,7 +65,16 @@ export async function startDomainServer(options: DomainServerOptions): Promise<F
       const close = owned.close.bind(owned);
       app.addHook('onClose', async () => close());
     }
-    registerActionRoutes(app, manifest, options.handlers ?? {}, verifier ? { verifier } : {});
+    // Every call to a domain carries a service token (AD-7 amendment of 2026-10-24); a user token
+    // alone is accepted only in development, to call a domain by hand before there is a Gateway.
+    const directUserCalls = options.directUserCalls ?? (options.env ?? process.env)['TECTON_ENV']?.trim() === 'development';
+    if (directUserCalls && needsVerifier) {
+      app.log.warn(
+        { event: 'direct_user_calls_enabled' },
+        'accepting user tokens without a service token (development only: outside TECTON_ENV=development they are refused)',
+      );
+    }
+    registerActionRoutes(app, manifest, options.handlers ?? {}, { ...(verifier ? { verifier } : {}), directUserCalls });
     // Waits a little for Valkey before taking traffic; if it is down, the service starts anyway
     // and refuses protected actions with 503 until it is reachable (fail closed).
     if (owned?.ready && !(await owned.ready(VALKEY_READY_WAIT_MS))) {
