@@ -11,7 +11,7 @@ import {
   type TokenRevocationStore,
   type ValkeyClient,
 } from '@tecton/providers';
-import { DOMAIN_NAME_MAX_LENGTH, DOMAIN_NAME_PATTERN } from '@tecton/manifest';
+import { AUTH_SERVICE_DOMAIN, DOMAIN_NAME_MAX_LENGTH, DOMAIN_NAME_PATTERN } from '@tecton/manifest';
 import { createLocalJWKSet, decodeProtectedHeader, errors, jwtVerify, type FlattenedJWSInput, type JWK, type JWSHeaderParameters } from 'jose';
 
 // Local token verification of every service (Story 2.4, AD-7): EdDSA signatures checked against
@@ -236,13 +236,16 @@ export function serviceDomainOf(subject: string): string | undefined {
   if (!subject.startsWith(SERVICE_SUBJECT_PREFIX)) return undefined;
   const domain = subject.slice(SERVICE_SUBJECT_PREFIX.length);
   // The Auth service never has a service credential (Story 2.7a).
-  if (domain.length > DOMAIN_NAME_MAX_LENGTH || !DOMAIN_NAME.test(domain) || domain === 'auth') return undefined;
+  if (domain.length > DOMAIN_NAME_MAX_LENGTH || !DOMAIN_NAME.test(domain) || domain === AUTH_SERVICE_DOMAIN) return undefined;
   return domain;
 }
 
+/** A subject a user token may carry: not empty, and nothing like a service subject in any case. */
+export const isUserSubject = (subject: string) => subject.trim() !== '' && !subject.trim().toLowerCase().startsWith(SERVICE_SUBJECT_PREFIX);
+
 /** The kind of a token from its `typ` and `sub`, or undefined when they do not agree. */
 function kindOf(typ: unknown, subject: string): PrincipalKind | undefined {
-  if (typ === 'user') return subject.startsWith(SERVICE_SUBJECT_PREFIX) ? undefined : 'user';
+  if (typ === 'user') return isUserSubject(subject) ? 'user' : undefined;
   if (typ === 'service') return serviceDomainOf(subject) === undefined ? undefined : 'service';
   return undefined;
 }

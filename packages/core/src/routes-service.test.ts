@@ -3,8 +3,8 @@ import { parseManifest, type TectonManifest } from '@tecton/manifest';
 import { assertNoSecretsLeaked, createMemoryTokenRevocationStore, createTestClock, createTestSigningKey, jwksTls, tokenFactory, type JwksTlsServer } from '#test-support';
 import { RevocationStoreUnavailableError } from '@tecton/providers';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
-import { createTokenVerifier, TokenVerificationUnavailableError, type Principal, type TokenVerifier } from './auth/token-verifier.js';
-import { registerActionRoutes, type ActionContext } from './routes.js';
+import { createTokenVerifier, InvalidTokenError, TokenVerificationUnavailableError, type Principal, type TokenVerifier } from './auth/token-verifier.js';
+import { registerActionRoutes, requireUser, type ActionContext } from './routes.js';
 import { createTectonServer } from './server.js';
 
 // Story 2.7b: calls between services (service token, Tecton-On-Behalf-Of, call:<domain>) and the
@@ -213,18 +213,18 @@ describe('a token refused (AC 5, P0-019)', () => {
     expect((await call(onBehalfOf(billing(['call:catalog']), 'not-a-token'))).statusCode).toBe(401);
   });
 
-  it('answers 503 when the user token cannot be verified (revocation store down)', async () => {
+  it('answers 503 when the revocation of the user token cannot be checked', async () => {
     const { call } = await serve();
     const service = billing();
-    let calls = 0;
+    const userToken = user(['finance:close'], { jti: 'user-revocation-down' });
     const isRevoked = revocations.isRevoked.bind(revocations);
+    // Down only for the user token, whatever the order of the checks.
     revocations.isRevoked = async (token) => {
-      calls += 1;
-      if (calls === 2) throw new RevocationStoreUnavailableError('revocation store unavailable: down');
+      if (token.tokenId === 'user-revocation-down') throw new RevocationStoreUnavailableError('revocation store unavailable: down');
       return isRevoked(token);
     };
     try {
-      const response = await call(onBehalfOf(service, user()));
+      const response = await call(onBehalfOf(service, userToken));
       expect(response.statusCode).toBe(503);
       expect(response.headers['retry-after']).toBe('5');
     } finally {
@@ -232,20 +232,75 @@ describe('a token refused (AC 5, P0-019)', () => {
     }
   });
 
-  it('checks in sequence: an invalid service token is 401 even when the user token could not be verified', async () => {
-    const { InvalidTokenError } = await import('./auth/token-verifier.js');
-    let calls = 0;
+  it('answers 503 when the keys for the user token cannot be fetched (review P7)', async () => {
+    // Keyed on the token: the service token verifies, the user token finds the JWKS unavailable.
+    const service: Principal = { kind: 'service', subject: 'service:billing', permissions: ['call:finance', 'finance:close'], tokenId: 's', issuedAt: NOW, expiresAt: NOW };
     const verifier: TokenVerifier = {
-      verify: async () => {
-        calls += 1;
-        if (calls === 1) throw new InvalidTokenError();
+      verify: async (authorization) => {
+        if (authorization === 'Bearer service.token.value') return service;
+        throw new TokenVerificationUnavailableError('the JWKS could not be used: timeout');
+      },
+    };
+    const { call, closeMonth } = await serve({ verifier });
+
+    const response = await call(onBehalfOf('service.token.value', 'user.token.value'));
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers['retry-after']).toBe('5');
+    expect(closeMonth).not.toHaveBeenCalled();
+  });
+
+  it('checks in sequence: an invalid service token is 401 even when the user token could not be verified', async () => {
+    const seen: string[] = [];
+    const verifier: TokenVerifier = {
+      verify: async (authorization) => {
+        seen.push(String(authorization));
+        if (authorization === 'Bearer a.b.c') throw new InvalidTokenError();
         throw new TokenVerificationUnavailableError('down');
       },
     };
     const { call } = await serve({ verifier });
 
     expect((await call(onBehalfOf('a.b.c', 'd.e.f'))).statusCode).toBe(401);
-    expect(calls).toBe(1);
+    expect(seen).toEqual(['Bearer a.b.c']);
+  });
+
+  // P9: forgeries shaped as service tokens, in Authorization.
+  it.each([
+    ['tampered signature', () => {
+      const [h, p, s] = billing().split('.') as [string, string, string];
+      return `${h}.${p}.${s.slice(0, 10)}${s[10] === 'A' ? 'B' : 'A'}${s.slice(11)}`;
+    }],
+    ['other signing key', () => tokenFactory(createTestSigningKey(key.kid), { now: NOW }).service('billing', { perms: ['call:finance', 'finance:close'] })],
+    ['wrong audience', () => billing(['call:finance', 'finance:close'], { aud: 'urn:other:api' })],
+    ['wrong issuer', () => billing(['call:finance', 'finance:close'], { iss: 'urn:evil:auth' })],
+    ['expired', () => billing(['call:finance', 'finance:close'], { iat: Math.floor(NOW.getTime() / 1000) - 3600, exp: Math.floor(NOW.getTime() / 1000) - 60 })],
+    ['alg none', () => {
+      const [, p] = billing().split('.') as [string, string, string];
+      return `${Buffer.from(JSON.stringify({ alg: 'none', kid: key.kid, typ: 'at+jwt' })).toString('base64url')}.${p}.`;
+    }],
+  ])('answers 401 to a forged service token in Authorization: %s', async (_name, forge) => {
+    const { call, closeMonth } = await serve();
+
+    expect((await call(bearer(forge()))).statusCode).toBe(401);
+    expect((await call(onBehalfOf(forge(), user()))).statusCode).toBe(401);
+    expect(closeMonth).not.toHaveBeenCalled();
+  });
+
+  // P8: no token in any error body.
+  it('never echoes either token in an error body (401, 403, 503)', async () => {
+    const { call } = await serve();
+    const service = billing(['call:catalog']);
+    const userToken = user();
+    const bodies = [
+      (await call(onBehalfOf(service, `${userToken}x`))).body,
+      (await call(onBehalfOf(service, userToken))).body,
+      (await call(bearer(userToken))).body,
+    ];
+    revocations.setUnavailable(true);
+    bodies.push((await call(onBehalfOf(billing(), userToken))).body);
+
+    assertNoSecretsLeaked(bodies.join('\n'), { service, userToken });
   });
 });
 
@@ -274,6 +329,39 @@ describe('a user token alone (AD-7 amendment, AC 7)', () => {
     // No handler: 501, but only after skipping every token check.
     expect((await call(onBehalfOf(billing(), user()), '/finance/status')).statusCode).toBe(501);
     expect(verify).not.toHaveBeenCalled();
+  });
+});
+
+describe('principals checked again by the routes (review P3)', () => {
+  it.each([
+    ['a service kind with a user subject', { kind: 'service', subject: USER }],
+    ['a service kind with an invalid domain', { kind: 'service', subject: 'service:Bad_Domain' }],
+    ['a user kind with a service subject', { kind: 'user', subject: 'service:billing' }],
+    ['a user kind with an empty subject', { kind: 'user', subject: '' }],
+  ])('refuses %s from a verifier written by hand', async (_name, shape) => {
+    const principal = { permissions: ['call:finance', 'finance:close'], tokenId: 't', issuedAt: NOW, expiresAt: NOW, ...shape } as Principal;
+    const { call } = await serve({ verifier: { verify: async () => principal }, directUserCalls: true });
+
+    expect((await call(bearer('x'))).statusCode).toBe(401);
+  });
+});
+
+describe('requireUser (review P5)', () => {
+  const context = (principal?: Principal) => ({ principal }) as unknown as ActionContext;
+  const base = { permissions: [], tokenId: 't', issuedAt: NOW, expiresAt: NOW };
+
+  it('returns the user', () => {
+    const principal: Principal = { kind: 'user', subject: USER, ...base };
+
+    expect(requireUser(context(principal))).toBe(principal);
+  });
+
+  it.each([
+    ['a service without a user', { kind: 'service', subject: 'service:billing', ...base } as Principal],
+    ['no principal', undefined],
+    ['a user kind with a service subject', { kind: 'user', subject: 'service:billing', ...base } as Principal],
+  ])('answers 403 to %s', (_name, principal) => {
+    expect(() => requireUser(context(principal))).toThrow(expect.objectContaining({ status: 403 }));
   });
 });
 

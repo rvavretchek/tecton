@@ -4,7 +4,7 @@ baseline_commit: 4b32205fc81fedc7322bb4403bab487ec789df98
 
 # Story 2.7b: Token de serviço, parte 2: verificação em todo serviço
 
-Status: review
+Status: done
 
 ## Story
 
@@ -82,7 +82,32 @@ para que quem recebe saiba qual serviço está chamando e em nome de qual usuár
   - [x] Fase vermelha por mutação (A3), no mínimo: aceitar qualquer `typ`; não exigir `call:`; exigir `call:` de token de usuário (quebra o AC 7); `requires` contra o serviço quando há usuário; não verificar `Tecton-On-Behalf-Of`; verificá-lo sem revogação; aceitar token de serviço em `Tecton-On-Behalf-Of`; honrar `Tecton-On-Behalf-Of` com token de usuário (quebra o P0-013); 403 antes de 401; as duas verificações em paralelo ou na ordem errada; `call:` de outro domínio aceito; `sub` de serviço sem prefixo aceito; `kind` ausente tratado como usuário; token de usuário sozinho aceito sem `directUserCalls`; `TECTON_ENV=development` sem o aviso no log; o Auth sem `directUserCalls`.
 - [x] **T6. Verificação final**
   - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:generation`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder).
-  - [ ] Code review por story antes da 2.8 (retro A1).
+  - [x] Code review por story antes da 2.8 (retro A1).
+
+### Review Findings
+
+Code review de 2026-10-24 (Blind Hunter, Edge Case Hunter e Acceptance Auditor). 17 patches, 1 adiado, 9 descartados.
+
+- [x] [Review][Patch] P1 `directUserCalls: true` explícito no `startDomainServer` fora de `TECTON_ENV=development` liga a exceção em produção, com um aviso que diz "development only": recusar na subida [packages/core/src/domain-server.ts]
+- [x] [Review][Patch] P2 Rodadas de rotação em rajada empurram o `iat` dos tokens novos além da tolerância de 30 s, e o domínio passa a recusá-los: recusar a rotação que levaria o instante longe demais [packages/auth/src/core/service-credential.ts]
+- [x] [Review][Patch] P3 As rotas confiam no `kind` de qualquer verificador: conferir também a forma do sujeito (`service:<domínio>` para serviço; nunca `service:` para usuário) [packages/core/src/routes.ts]
+- [x] [Review][Patch] P4 Token de usuário com `sub` vazio ou `Service:billing` (maiúscula) passa como usuário [packages/core/src/auth/token-verifier.ts]
+- [x] [Review][Patch] P5 Action que precisa de usuário não tem como exigi-lo: helper `requireUser(context)` (403 quando `principal.kind` não é `user`) [packages/core/src/routes.ts]
+- [x] [Review][Patch] P6 O nome reservado `auth` está escrito à mão no core e no auth: constante única no `@tecton/manifest` [packages/core/src/auth/token-verifier.ts]
+- [x] [Review][Patch] P7 Falta teste do 503 quando o JWKS está indisponível para o token de usuário [packages/core/src/routes-service.test.ts]
+- [x] [Review][Patch] P8 Corpos de erro 401, 403 e 503 não são conferidos contra vazamento de token [packages/core/src/routes-service.test.ts]
+- [x] [Review][Patch] P9 Falsificações com forma de token de serviço em `Authorization` quase sem cobertura [packages/core/src/routes-service.test.ts]
+- [x] [Review][Patch] P10 Valor repetido e `Bearer Bearer` não testados no verificador [packages/core/src/auth/token-verifier.test.ts]
+- [x] [Review][Patch] P11 Testes frágeis: o 503 depende da ordem das chamadas ao store, e há um `import` dinâmico sem motivo [packages/core/src/routes-service.test.ts]
+- [x] [Review][Patch] P12 O ponta a ponta não confere o status do registro e do `service-token`: um registro falho faria o teste de rotação passar pelo motivo errado [packages/auth/src/service-call.test.ts]
+- [x] [Review][Patch] P13 README do core não diz que `Tecton-On-Behalf-Of` é ignorado com token de usuário [packages/core/README.md]
+- [x] [Review][Patch] P14 README do core diz que todo 401 é igual, mas o tempo de resposta difere: só status, corpo e cabeçalhos são iguais [packages/core/README.md]
+- [x] [Review][Patch] P15 Risco residual: um serviço comprometido também emite tokens de serviço novos até a credencial ser rotacionada; apontar a rotação [packages/core/README.md, packages/auth/README.md]
+- [x] [Review][Patch] P16 O `.env` gerado tem `TECTON_ENV=development`: avisar no README que ele nunca vai para produção (desliga o https do JWKS e a exigência de token de serviço) [packages/core/README.md]
+- [x] [Review][Patch] P17 Contagem do Dev Agent Record: o verificador ganhou 18 testes, não 15 [story]
+- [x] [Review][Defer] W1 `service_call_refused` registrado a cada requisição, sem limite [packages/core/src/routes.ts] — deferred, observabilidade (Story 3.3) e limite de taxa do Gateway (3.7)
+
+Descartados (9): uma chave própria para a exceção de dev em vez de `TECTON_ENV` (decisão do Boss: "a mesma chave que já libera o JWKS por http"; o risco vira o aviso P16); `kind` obrigatório no `Principal` como quebra de contrato (pré-1.0, sem consumidores externos); o verificador próprio do Auth com `kind` fixo (o leitor só aceita `typ: user`, e o 401 de token de serviço no `registerService` já é testado); custo de verificar o segundo token antes do 403 de `call:` (ordem decidida no Validate Story, resultado determinístico); listas em vez de texto no teste ponta a ponta (o contrato da action é texto, W3 da 2.7a); `directUserCalls` explícito no template (o comentário já diz onde vale); OpenAPI sem `Tecton-On-Behalf-Of` (W1 do Create Story, Epic 5); fase vermelha sem artefato (o roteiro fica fora do repositório, como nas stories anteriores); Gateway como serviço (Story 3.6, W3 do Create Story).
 
 ## Dev Notes
 
@@ -168,7 +193,18 @@ Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
 - **Emenda do AD-7:** `directUserCalls` em `registerActionRoutes` e `startDomainServer` (pelo `TECTON_ENV=development`, com `warn` `direct_user_calls_enabled`; a opção explícita vence). Os testes das 2.4 e 2.5 que chamam com token de usuário sozinho ligam a opção.
 - **T3:** o verificador próprio do Auth devolve `kind: 'user'`; o Auth liga `directUserCalls: true`.
 - **T4:** README do `@tecton/core` (chamadas entre serviços, tabela de respostas, risco aceito), README do `@tecton/auth` (o `call:` exigido e o risco), comentário do `main.ts` do template, três itens no `deferred-work.md` (OpenAPI, chaves de evento da 3.10, Gateway da 3.6).
-- **T5:** verificador (+15), rotas de serviço (`routes-service.test.ts`, 55), `startDomainServer` (+3) e ponta a ponta com o Auth em processo (`packages/auth/src/service-call.test.ts`, 3: serviço sozinho, em nome de usuário, 403 sem dependência, 401 de usuário sozinho, rotação, logout do usuário).
+- **T5:** verificador (+18), rotas de serviço (`routes-service.test.ts`, 55), `startDomainServer` (+3) e ponta a ponta com o Auth em processo (`packages/auth/src/service-call.test.ts`, 3: serviço sozinho, em nome de usuário, 403 sem dependência, 401 de usuário sozinho, rotação, logout do usuário).
+
+- **Code review (2026-10-24):** 3 revisores; 17 patches aplicados, 1 adiado (`deferred-work.md`), 9 descartados. Os principais:
+  - **P1:** `directUserCalls: true` no `startDomainServer` fora de `TECTON_ENV=development` impede a subida (a exceção só vale em dev, decisão do Boss).
+  - **P2:** rotações em rajada (2.7a) datavam os tokens novos cada vez mais à frente do relógio, até o domínio recusá-los por `iat` no futuro. A rotação que levaria esse instante a mais de 10 s (`MAX_ROTATION_LEAD_MS`) é recusada com 429 e `Retry-After` (`RotationTooSoonError`, log `rotation_too_soon`, mensagem própria no CLI).
+  - **P3/P4:** as rotas conferem de novo a forma do sujeito do `kind` de qualquer verificador; `sub` de usuário vazio, só espaços ou com `service:` em qualquer caixa é recusado (`isUserSubject`).
+  - **P5:** `requireUser(context)` para actions que precisam de um usuário.
+  - **P6:** `AUTH_SERVICE_DOMAIN` no `@tecton/manifest`, usado pelo core e pelo auth.
+  - Testes: 503 com JWKS indisponível para o token de usuário, corpos de erro sem token, falsificações com forma de token de serviço em `Authorization`, valores repetidos e `Bearer Bearer` no verificador, testes por valor de token em vez de ordem de chamadas, status conferido no ponta a ponta.
+  - READMEs: `Tecton-On-Behalf-Of` ignorado com token de usuário, "o mesmo 401" só em status, corpo e cabeçalhos, risco residual da credencial até a rotação, aviso de que o `.env` gerado nunca vai para produção, 429 da rotação.
+  - Fase vermelha (A3): 9 mutações dos patches, todas mortas (a do `sub` vazio só morreu com o caso de `sub` só de espaços: o vazio já era recusado pelo store de revogação); as 19 do Dev Story, com as âncoras atualizadas, todas mortas de novo.
+- Verificação depois da revisão: `pnpm test` 61 arquivos, 1079 testes; `test:generation` 3; build, typecheck, `check:deps`, `lint:examples` e `validate:asyncapi` limpos.
 
 ### File List
 
@@ -180,7 +216,9 @@ Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
 - `packages/core/src/index.ts`, `packages/core/README.md` (modificados)
 - `packages/auth/src/adapters/jose/own-access-token.ts`, `packages/auth/src/service.ts`, `packages/auth/README.md` (modificados)
 - `packages/auth/src/service-call.test.ts` (novo)
-- `packages/cli/templates/domain/src/main.ts` (modificado)
+- `packages/cli/templates/domain/src/main.ts`, `packages/cli/src/commands/auth-register-service.ts`, `auth-register-service.test.ts` (modificados)
+- `packages/manifest/src/schema.ts`, `packages/manifest/src/index.ts` (modificados, `AUTH_SERVICE_DOMAIN`)
+- `packages/auth/src/core/service-credential.ts`, `service-credential.test.ts`, `packages/auth/src/service-token-http.test.ts`, `packages/auth/src/index.ts` (modificados, P2)
 - `tests/support/tokens.ts` (modificado)
 - `_bmad-output/implementation-artifacts/deferred-work.md` (modificado)
 - Planejamento (Validate Story): `ARCHITECTURE-SPINE.md` (AD-7), `epics.md` (2.7, 3.6, 3.9), `test-design-qa.md` (P0-020, P0-022)
@@ -191,3 +229,4 @@ Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
 - 2026-10-24: Validate Story: 15 achados aplicados (fixture de `forged()`, ordem sequencial das verificações, cabeçalho vazio, `sub` de serviço, interface `TokenVerifier` inalterada, implementadores de teste, ponta a ponta em `packages/auth`, registros para 3.9, 3.10 e Epic 5, mutações); uma pergunta ao Boss sobre o risco aceito.
 - 2026-10-24: Decisões do Boss: emenda do AD-7 (Gateway como serviço; domínios recusam token de usuário sozinho) e exceção só com `TECTON_ENV=development`. Spine, `epics.md` (2.7, 3.6, 3.9) e Test Design (P0-020, P0-022) emendados.
 - 2026-10-24: Dev Story concluída (T1 a T6, salvo o code review); status `review`.
+- 2026-10-24: Code review: 17 patches aplicados, 1 adiado, 9 descartados; status `done`.

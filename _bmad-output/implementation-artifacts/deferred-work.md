@@ -65,3 +65,7 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 - W2 As chaves Ed25519 de evento de cada serviço vão para o mesmo JWKS do Auth (AD-7); o verificador de access token precisa recusar token assinado por chave de evento [packages/core/src/auth/token-verifier.ts] — adiado: Story 3.10 (restringir as chaves de token, por exemplo por prefixo de `kid` ou por `use`)
 - W3 O Gateway ainda não é um serviço: até a Story 3.6, só `TECTON_ENV=development` permite chamar um domínio com token de usuário sozinho (emenda do AD-7 de 2026-10-24) [packages/core/src/domain-server.ts] — adiado: Story 3.6 (Gateway como `service:gateway`, com o token do usuário em `Tecton-On-Behalf-Of`)
 
+## Deferred from: code review da Story 2.7b (2026-10-24)
+
+- W1 `service_call_refused` é registrado a cada requisição recusada por falta de `call:<domínio>`, sem limite: um chamador mal configurado em retry enche o log [packages/core/src/routes.ts] — adiado: observabilidade (Story 3.3) e limite de taxa do Gateway (Story 3.7)
+

@@ -30,16 +30,23 @@ access token goes in **`Tecton-On-Behalf-Of`**, as the raw JWT (no `Bearer` pref
   a user, against the service.
 - A service token in `Tecton-On-Behalf-Of` is refused: a service never acts on behalf of another.
 - The checks run in sequence and the first failure wins: the `Authorization` token, then the
-  `Tecton-On-Behalf-Of` token, then `call:<domain>`, then `auth.requires`. Every 401 is the same,
-  whichever token failed.
+  `Tecton-On-Behalf-Of` token, then `call:<domain>`, then `auth.requires`. Every 401 has the same
+  status, body and headers, whichever token failed (the response time may differ: a second token
+  costs a second verification).
 - A **user token alone** in `Authorization` is refused with 401: in production the Gateway is the
   service that forwards user calls, with the user in `Tecton-On-Behalf-Of`. With
   `TECTON_ENV=development`, `startDomainServer` accepts it (to call a domain by hand before there
-  is a Gateway), without `call:`, and logs `direct_user_calls_enabled` at startup. The option
-  `directUserCalls` of `registerActionRoutes` and `startDomainServer` sets it explicitly.
+  is a Gateway), without `call:`, and logs `direct_user_calls_enabled` at startup; there,
+  `Tecton-On-Behalf-Of` next to a user token is ignored (identity comes only from the verified
+  token). `directUserCalls: false` turns it off in development; `directUserCalls: true` outside
+  development stops the service at startup.
+- **Never deploy the generated `.env` as is.** It sets `TECTON_ENV=development`, which allows an
+  http JWKS URL and user tokens without a service token.
 - The handler gets `context.principal`, whose permissions were checked (the user, or the service
   without a user), with `kind: 'user' | 'service'`, and `context.service`, the calling service,
-  whenever the call came with a service token. Check `principal.kind` when an action needs a user.
+  whenever the call came with a service token. When an action must act for a person (an owner,
+  an audit field), call `requireUser(context)`: it returns the user, or answers 403 to a service
+  calling without one.
 
 | Situation | Response |
 |---|---|
@@ -51,7 +58,9 @@ access token goes in **`Tecton-On-Behalf-Of`**, as the raw JWT (no `Bearer` pref
 **Accepted risk.** A compromised service can reuse the user tokens it received until they expire
 (15 minutes): it comes with token propagation. A domain accepts such a token only next to the
 service token of its caller, and requires `call:<domain>` from that service, so the compromised
-service reaches only the domains it declared in `dependencies`.
+service reaches only the domains it declared in `dependencies`. With its own credential, it can
+also get new service tokens until that credential is rotated (`tecton-admin auth register-service
+<domain> --rotate`, which also revokes the tokens already issued).
 
 The 503 is fail closed: a request is never accepted unverified. It is distinct from 401 so that a
 client retries instead of refreshing its session or logging the user out.

@@ -94,11 +94,18 @@ async function register(serviceDomain: string, dependencies: string, rotate = fa
     headers: { authorization: `Bearer ${await login('admin')}` },
     payload: { domain: serviceDomain, dependencies, permissions: 'finance:close', rotate },
   });
-  return (response.json() as { secret: string }).secret;
+  // A failed registration must fail here, never pass a later "401 expected" for the wrong reason.
+  expect(response.statusCode).toBe(200);
+  const { secret } = response.json() as { secret: string };
+  expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  return secret;
 }
 
-const serviceToken = async (serviceId: string, secret: string) =>
-  ((await authApp.inject({ method: 'POST', url: '/auth/service-token', payload: { serviceId, secret } })).json() as { accessToken: string }).accessToken;
+async function serviceToken(serviceId: string, secret: string) {
+  const response = await authApp.inject({ method: 'POST', url: '/auth/service-token', payload: { serviceId, secret } });
+  expect(response.statusCode).toBe(200);
+  return (response.json() as { accessToken: string }).accessToken;
+}
 
 const close = (headers: Record<string, string>) => domain.inject({ method: 'POST', url: '/finance/close-month', headers, payload: { month: '2026-10' } });
 

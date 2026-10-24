@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { DOMAIN_NAME_PATTERN } from '@tecton/manifest';
+import { AUTH_SERVICE_DOMAIN, DOMAIN_NAME_PATTERN } from '@tecton/manifest';
 import type { AuthProvider, Clock, TokenRevocationStore } from '@tecton/providers';
 import { v7 as uuidv7 } from 'uuid';
 import type { IssuedAccessToken } from './access-token.js';
@@ -88,6 +88,21 @@ export const SERVICE_SECRET_BYTES = 32;
  */
 export const ROTATION_REVOCATION_MARGIN_MS = 1_000;
 
+/**
+ * How far ahead of the clock a rotation may date the tokens of the new secret. Rotations in a
+ * burst push that instant forward; past this, the verifiers (30-s tolerance for a future `iat`)
+ * would refuse the new tokens, so the rotation is refused instead (try again a few seconds later).
+ */
+export const MAX_ROTATION_LEAD_MS = 10_000;
+
+/** Too many rotations in a burst: `retryAfterSeconds` until the next one is accepted. */
+export class RotationTooSoonError extends Error {
+  override readonly name = 'RotationTooSoonError';
+  constructor(readonly retryAfterSeconds: number) {
+    super(`the credential was rotated too recently; try again in ${retryAfterSeconds} s`);
+  }
+}
+
 /** The instant every token of `credential` must be issued after (see ROTATION_REVOCATION_MARGIN_MS). */
 export const tokensIssuedAfter = (credential: Pick<ServiceCredential, 'updatedAt'>) =>
   new Date(credential.updatedAt.getTime() + ROTATION_REVOCATION_MARGIN_MS);
@@ -98,7 +113,7 @@ const earliestTokenInstant = (credential: Pick<ServiceCredential, 'updatedAt'>) 
 
 const DOMAIN_NAME = new RegExp(DOMAIN_NAME_PATTERN);
 /** Ready-made services that are not domains and never get a service credential. */
-const RESERVED_SERVICES: readonly string[] = ['auth'];
+const RESERVED_SERVICES: readonly string[] = [AUTH_SERVICE_DOMAIN];
 
 function assertDomain(name: string, value: string, field: ServiceRegistrationField): void {
   if (!DOMAIN_NAME.test(value)) throw new InvalidServiceRegistrationError(`${name} "${value}" is not a valid domain name (kebab-case)`, field);
@@ -177,6 +192,8 @@ export async function registerService(
     throw error;
   });
   const revokedAt = Math.max(now.getTime() + ROTATION_REVOCATION_MARGIN_MS, previous ? earliestTokenInstant(previous) : 0);
+  const lead = revokedAt - now.getTime();
+  if (lead > MAX_ROTATION_LEAD_MS) throw new RotationTooSoonError(Math.ceil((lead - MAX_ROTATION_LEAD_MS) / 1000));
   credential.updatedAt = new Date(revokedAt - ROTATION_REVOCATION_MARGIN_MS);
   // Revoked first: if the revocation store is down, the rotation fails with nothing changed, never
   // with the new secret written and lost.

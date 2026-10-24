@@ -186,6 +186,9 @@ export async function authRegisterServiceCommand(
     if (registration.status === 409) {
       throw new CommandError(`service "${domain}" is already registered; nothing changed (use --rotate to replace its secret)`, EXIT_ALREADY_REGISTERED);
     }
+    if (registration.status === 429) {
+      throw new CommandError(`the credential of "${domain}" was rotated too recently; nothing changed, try again in ${registration.headers.get('retry-after') ?? 'a few'} seconds`);
+    }
     if (registration.status === 403) throw new CommandError(`"${options.login}" lacks the permission auth:service:register`);
     if (registration.status === 400) throw new CommandError(`registration refused${reasonsOf(await jsonOf(registration))}`);
     if (registration.status !== 200) throw new CommandError(`registration failed with status ${registration.status}`);

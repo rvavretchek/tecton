@@ -255,6 +255,20 @@ describe('closing', () => {
   });
 });
 
+describe('Story 2.7b review P2 (HTTP)', () => {
+  it('answers 429 with Retry-After to rotations in a burst, and logs the refusal', async () => {
+    const { login, register, logs } = await service();
+    const token = await login();
+    await register({ domain: 'billing' }, bearer(token));
+    let last = await register({ domain: 'billing', rotate: true }, bearer(token));
+    for (let i = 0; i < 20 && last.statusCode === 200; i += 1) last = await register({ domain: 'billing', rotate: true }, bearer(token));
+
+    expect(last.statusCode).toBe(429);
+    expect(Number(last.headers['retry-after'])).toBeGreaterThanOrEqual(1);
+    expect(logs()).toContain('"reason":"rotation_too_soon"');
+  });
+});
+
 describe('Story 2.7a review fixes (HTTP)', () => {
   it('P1: right after a rotation, at the same instant, the new token is not revoked and the old one is', async () => {
     const { login, register, serviceToken, revocations } = await service();

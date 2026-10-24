@@ -32,6 +32,8 @@ export {
   InvalidServiceRegistrationError,
   issueServiceToken,
   registerService,
+  RotationTooSoonError,
+  MAX_ROTATION_LEAD_MS,
   SERVICE_SECRET_BYTES,
   ServiceAlreadyRegisteredError,
   serviceSubject,

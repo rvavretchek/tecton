@@ -365,6 +365,25 @@ describe('tecton-admin auth register-service (Story 2.7a, AC 1, 3, 5, 6, 9)', ()
     expect(calls).toEqual([]);
   });
 
+  it('says when a rotation came too soon after the previous ones (429), and still logs out', async () => {
+    const root = workspace({ billing: manifest('billing') });
+    const { io, output } = harness(root, devEnv());
+    const paths: string[] = [];
+    const dependencies: AuthRegisterServiceDependencies = {
+      fetch: async (input) => {
+        const path = new URL(String(input)).pathname;
+        paths.push(path);
+        if (path === '/auth/login') return Response.json({ accessToken: 'a.b.c', tokenType: 'Bearer', expiresIn: 900 });
+        if (path === '/auth/register-service') return new Response('{}', { status: 429, headers: { 'retry-after': '3' } });
+        return Response.json({});
+      },
+    };
+
+    expect(await authRegisterServiceCommand('billing', { login: 'admin', rotate: true }, io, dependencies)).toBe(1);
+    expect(output().stderr).toBe('auth register-service failed: the credential of "billing" was rotated too recently; nothing changed, try again in 3 seconds\n');
+    expect(paths.at(-1)).toBe('/auth/logout');
+  });
+
   it('warns when the final logout fails, keeping the outcome', async () => {
     const root = workspace({ billing: manifest('billing') });
     const { io, output } = harness(root, devEnv());

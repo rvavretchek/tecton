@@ -247,7 +247,9 @@ printf '%s' "$ADMIN_PASSWORD" | tecton-admin auth register-service billing --log
   `call:` permissions.
 - The secret is printed once. The Auth service cannot show it again.
 - A domain registered already answers 409, and the command exits 2 with nothing changed.
-  `--rotate` replaces the credential: a new secret, and the old one stops working at once. Every
+  `--rotate` replaces the credential: a new secret, and the old one stops working at once.
+  Rotations in a quick burst answer 429 with `Retry-After` (the tokens of the new secret are dated
+  after each rotation, and must stay within the verifiers' 30-s tolerance). Every
   token issued to `service:<domain>` until then is revoked. Changing the permissions or the
   dependencies of a service also needs `--rotate`. The revocation is written before the new
   secret: if Valkey is down, the rotation answers 503 and nothing changes.
@@ -272,7 +274,9 @@ never a user session: `refresh` and `login` refuse it, and `logout` revokes noth
 until it expires (15 minutes) if the service is compromised. This comes with token propagation.
 A domain accepts a user token only next to a service token (in `Tecton-On-Behalf-Of`; a user token
 alone is refused outside development) and requires `call:<domain>` from that service, so the
-compromised service reaches only the domains it declared in `dependencies`.
+compromised service reaches only the domains it declared in `dependencies`. With its own
+credential, it can also get new service tokens until the credential is rotated (`--rotate`, which
+revokes the tokens already issued).
 
 The Auth service itself receives user tokens directly (the CLI calls it without a Gateway), and
 never accepts a service token on `registerService`.

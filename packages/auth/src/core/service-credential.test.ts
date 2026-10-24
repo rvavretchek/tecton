@@ -9,6 +9,7 @@ import {
   InvalidServiceRegistrationError,
   issueServiceToken,
   registerService,
+  RotationTooSoonError,
   ServiceAlreadyRegisteredError,
   validatedRegistration,
   type ServiceTokenIssuer,
@@ -285,5 +286,39 @@ describe('Story 2.7a review fixes', () => {
     [{ domain: 'billing', dependencies: [], permissions: ['call:tenant'] }, 'permissions'],
   ])('P7: names the field of the invalid registration (%j)', (request, field) => {
     expect(() => validatedRegistration(request)).toThrow(expect.objectContaining({ field }));
+  });
+});
+
+describe('Story 2.7b review P2: rotations in a burst', () => {
+  it('refuses a rotation that would date the new tokens more than 10 s ahead of the clock, changing nothing', async () => {
+    const { register, services } = setup();
+    await register({ domain: 'billing' });
+    const lead = () => (services.rows.get('billing')?.updatedAt.getTime() ?? 0) - NOW.getTime();
+    // Each rotation at the same instant moves the dating one second further.
+    let refused: unknown;
+    for (let i = 0; i < 20 && !refused; i += 1) {
+      await register({ domain: 'billing', rotate: true }).catch((error: unknown) => {
+        refused = error;
+      });
+    }
+
+    expect(refused).toBeInstanceOf(RotationTooSoonError);
+    expect((refused as RotationTooSoonError).retryAfterSeconds).toBeGreaterThanOrEqual(1);
+    // Tokens of the current secret stay within the verifiers' tolerance (30 s).
+    expect(lead()).toBeLessThanOrEqual(10_000);
+  });
+
+  it('accepts the rotation again once the clock catches up', async () => {
+    const { register, clock } = setup();
+    await register({ domain: 'billing' });
+    let refused: RotationTooSoonError | undefined;
+    for (let i = 0; i < 20 && !refused; i += 1) {
+      await register({ domain: 'billing', rotate: true }).catch((error: unknown) => {
+        refused = error as RotationTooSoonError;
+      });
+    }
+    clock.advance((refused?.retryAfterSeconds ?? 0) * 1000);
+
+    await expect(register({ domain: 'billing', rotate: true })).resolves.toMatchObject({ rotated: true });
   });
 });

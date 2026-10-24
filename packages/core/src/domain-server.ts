@@ -27,7 +27,8 @@ export interface DomainServerOptions extends TectonServerOptions {
   env?: NodeJS.ProcessEnv;
   /**
    * Accept a user token alone in `Authorization` (see ActionRoutesOptions). Default: on only with
-   * TECTON_ENV=development, which also logs a warning at startup. An explicit value wins.
+   * TECTON_ENV=development, which also logs a warning at startup. `false` turns it off there;
+   * `true` outside development stops the service at startup.
    */
   directUserCalls?: boolean;
 }
@@ -67,7 +68,11 @@ export async function startDomainServer(options: DomainServerOptions): Promise<F
     }
     // Every call to a domain carries a service token (AD-7 amendment of 2026-10-24); a user token
     // alone is accepted only in development, to call a domain by hand before there is a Gateway.
-    const directUserCalls = options.directUserCalls ?? (options.env ?? process.env)['TECTON_ENV']?.trim() === 'development';
+    const development = (options.env ?? process.env)['TECTON_ENV']?.trim() === 'development';
+    if (options.directUserCalls === true && !development) {
+      throw new Error('directUserCalls is allowed only with TECTON_ENV=development: outside development every call to a domain carries a service token (AD-7)');
+    }
+    const directUserCalls = options.directUserCalls ?? development;
     if (directUserCalls && needsVerifier) {
       app.log.warn(
         { event: 'direct_user_calls_enabled' },

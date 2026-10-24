@@ -448,6 +448,10 @@ describe('service tokens (Story 2.7b, AC 1)', () => {
     ['a service typ with another prefix', { typ: 'service', sub: 'account:billing' }],
     ['a service typ with a user subject', { typ: 'service' }],
     ['a user typ with a service subject', { sub: 'service:billing' }],
+    ['a user typ with a service subject in another case', { sub: 'Service:billing' }],
+    ['a user typ with a padded service subject', { sub: ' service:billing' }],
+    ['a user typ with an empty subject', { sub: '' }],
+    ['a user typ with a blank subject', { sub: '   ' }],
     ['an unknown typ', { typ: 'admin' }],
     ['no typ', { typ: undefined }],
   ])('refuses %s', async (_name, overrides) => {
@@ -460,6 +464,16 @@ describe('service tokens (Story 2.7b, AC 1)', () => {
 
     await expect(verifier({ revocations: store }).verify(bearer(tokens.service('billing')))).rejects.toBeInstanceOf(InvalidTokenError);
     await expect(verifier({ revocations: store }).verify(bearer(tokens.service('catalog')))).resolves.toMatchObject({ kind: 'service' });
+  });
+});
+
+describe('Authorization values (review P10)', () => {
+  it.each([
+    ['repeated', `Bearer ${'a.b.c'}, Bearer ${'d.e.f'}`],
+    ['a double Bearer', 'Bearer Bearer a.b.c'],
+    ['a comma in the token', 'Bearer a.b.c,d'],
+  ])('refuses %s', async (_name, authorization) => {
+    await expect(verifier().verify(authorization)).rejects.toBeInstanceOf(InvalidTokenError);
   });
 });
 

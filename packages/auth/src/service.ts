@@ -29,6 +29,7 @@ import {
   InvalidServiceRegistrationError,
   issueServiceToken,
   registerService,
+  RotationTooSoonError,
   ServiceAlreadyRegisteredError,
   type ServiceCredentialStore,
   type ServiceTokenIssuer,
@@ -206,6 +207,10 @@ export async function createAuthService({
               if (error instanceof InvalidServiceRegistrationError) {
                 refused(`invalid_${error.field}`);
                 throw frameworkErrors.validationFailed([{ name: `/${error.field}`, reason: error.message }]);
+              }
+              if (error instanceof RotationTooSoonError) {
+                refused('rotation_too_soon');
+                throw frameworkErrors.tooManyRequests(error.retryAfterSeconds);
               }
               if (error instanceof RevocationStoreUnavailableError) {
                 refused('revocation_unavailable');

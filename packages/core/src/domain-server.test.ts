@@ -41,7 +41,7 @@ actions:
 
 describe('startDomainServer (walking skeleton)', () => {
   it('Given a manifest with actions, When started, Then every action route answers 501 until implemented', async () => {
-    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, host: '127.0.0.1', verifier: ACCEPT_ALL, directUserCalls: true });
+    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, host: '127.0.0.1', verifier: ACCEPT_ALL, directUserCalls: true, env: { TECTON_ENV: 'development' } });
     servers.push(app);
     const response = await app.inject({ method: 'POST', url: '/finance/close-month', payload: { month: '2026-10' } });
 
@@ -57,6 +57,7 @@ describe('startDomainServer (walking skeleton)', () => {
       handlers: { closeMonth: () => ({ closed: true }) },
       verifier: ACCEPT_ALL,
       directUserCalls: true,
+      env: { TECTON_ENV: 'development' },
     });
     servers.push(app);
     const response = await app.inject({ method: 'POST', url: '/finance/close-month', payload: { month: '2026-10' } });
@@ -131,7 +132,7 @@ describe('startDomainServer revocation store (Story 2.5 review)', () => {
 
 describe('startDomainServer bind address (review D2)', () => {
   it('Given no host, When started, Then it listens on loopback only', async () => {
-    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, verifier: ACCEPT_ALL, directUserCalls: true });
+    const app = await startDomainServer({ manifestPath: manifestFile(FINANCE), port: 0, verifier: ACCEPT_ALL, directUserCalls: true, env: { TECTON_ENV: 'development' } });
     servers.push(app);
     const address = app.server.address();
 
@@ -183,8 +184,11 @@ describe('user tokens alone (Story 2.7b, AD-7 amendment of 2026-10-24)', () => {
     expect(logs).toContain('"event":"direct_user_calls_enabled"');
   });
 
-  it('follows an explicit option over the environment', async () => {
+  it('turns them off in development with directUserCalls: false', async () => {
     expect((await started({ env: { TECTON_ENV: 'development' }, directUserCalls: false })).status).toBe(401);
-    expect((await started({ env: {}, directUserCalls: true })).status).toBe(200);
+  });
+
+  it('refuses to start with directUserCalls: true outside development (review P1)', async () => {
+    await expect(started({ env: {}, directUserCalls: true })).rejects.toThrow(/directUserCalls is allowed only with TECTON_ENV=development/);
   });
 });

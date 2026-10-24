@@ -1,6 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { toKebabCase, type ManifestAction, type TectonManifest } from '@tecton/manifest';
-import { InvalidTokenError, MAX_TOKEN_LENGTH, TokenVerificationUnavailableError, type Principal, type TokenVerifier } from './auth/token-verifier.js';
+import { InvalidTokenError, isUserSubject, MAX_TOKEN_LENGTH, serviceDomainOf, TokenVerificationUnavailableError, type Principal, type TokenVerifier } from './auth/token-verifier.js';
 import { ERROR_BODY_SCHEMA } from './errors/serializer.js';
 import { frameworkErrors } from './errors/tecton-error.js';
 
@@ -44,6 +44,24 @@ const RAW_TOKEN = /^[A-Za-z0-9_.-]+$/;
 
 /** The permission a service token needs to call the actions of `domain` (Story 2.7a, AD-7). */
 export const callPermissionFor = (domain: string) => `call:${domain}`;
+
+/** The kind of a principal, checked again here so a verifier written by hand cannot blur the two. */
+const kindOfPrincipal = (principal: Principal) =>
+  principal.kind === 'user' && isUserSubject(principal.subject)
+    ? 'user'
+    : principal.kind === 'service' && serviceDomainOf(principal.subject) !== undefined
+      ? 'service'
+      : undefined;
+
+/**
+ * The user of an action that needs one (Story 2.7b): a service calling without a user is refused
+ * with 403. Use it in a handler whose action must act for a person (an owner, an audit field).
+ */
+export function requireUser(context: ActionContext): Principal {
+  const principal = context.principal;
+  if (!principal || kindOfPrincipal(principal) !== 'user') throw frameworkErrors.forbidden();
+  return principal;
+}
 
 /** A fresh copy for each handler, dates included. */
 const copyOf = (principal: Principal): Principal => ({
@@ -145,12 +163,13 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
    */
   const callerOf = async (request: FastifyRequest, tokenVerifier: TokenVerifier) => {
     const caller = await verified(request, tokenVerifier, request.headers.authorization);
-    if (caller.kind === 'user') {
+    const kind = kindOfPrincipal(caller);
+    if (kind === 'user') {
       if (!directUserCalls) throw frameworkErrors.unauthorized();
       // Identity comes only from the verified token: Tecton-On-Behalf-Of means nothing here (P0-013).
       return { principal: caller };
     }
-    if (caller.kind !== 'service') throw frameworkErrors.unauthorized();
+    if (kind !== 'service') throw frameworkErrors.unauthorized();
     let principal = caller;
     // Absent means undefined only: an empty, repeated (joined with ", ") or prefixed value is refused.
     const onBehalfOf = request.headers[ON_BEHALF_OF_HEADER];
@@ -158,7 +177,7 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
       if (typeof onBehalfOf !== 'string' || onBehalfOf.length > MAX_TOKEN_LENGTH || !RAW_TOKEN.test(onBehalfOf)) throw frameworkErrors.unauthorized();
       const user = await verified(request, tokenVerifier, `Bearer ${onBehalfOf}`);
       // A service never acts on behalf of another service.
-      if (user.kind !== 'user') throw frameworkErrors.unauthorized();
+      if (kindOfPrincipal(user) !== 'user') throw frameworkErrors.unauthorized();
       principal = user;
     }
     if (!caller.permissions.includes(ownCall)) {

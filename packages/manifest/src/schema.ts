@@ -9,6 +9,9 @@ export type SupportedManifestVersion = (typeof SUPPORTED_MANIFEST_VERSIONS)[numb
 export const DOMAIN_NAME_PATTERN = '^[a-z][a-z0-9]*(-[a-z0-9]+)*$';
 /** Domain names become DNS labels and TECTON_SERVICE_<DOMAIN>_URL variables. */
 export const DOMAIN_NAME_MAX_LENGTH = 63;
+
+/** Domain of the ready-made Auth service: never a service credential nor a service subject (Story 2.7). */
+export const AUTH_SERVICE_DOMAIN = 'auth';
 /** Official SemVer 2.0.0 regular expression (semver.org). */
 export const SEMVER_PATTERN =
   '^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$';
