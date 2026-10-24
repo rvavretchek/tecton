@@ -1,5 +1,5 @@
 # generated: 2026-10-08T15:08
-# last_updated: 2026-10-23
+# last_updated: 2026-10-24
 # project: Tecton
 # project_key: NOKEY
 # tracking_system: file-system
@@ -41,7 +41,7 @@
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
 
 generated: 2026-10-08T15:08
-last_updated: 2026-10-23
+last_updated: 2026-10-24
 project: Tecton
 project_key: NOKEY
 tracking_system: file-system
@@ -70,7 +70,7 @@ development_status:
   2-5-tokenrevocationstore-com-valkey-e-fail-closed: done
   2-6-bloqueio-de-login-por-identificador: done
   2-7a-token-de-servico-parte-1-credencial-e-emissao-no-auth: done
-  2-7b-token-de-servico-parte-2-verificacao-em-todo-servico: backlog
+  2-7b-token-de-servico-parte-2-verificacao-em-todo-servico: ready-for-dev
   2-8-interface-keycustodyprovider-e-aviso-de-sensitive-quorum-sem-provider: backlog
   epic-2-retrospective: optional
   epic-3: backlog
