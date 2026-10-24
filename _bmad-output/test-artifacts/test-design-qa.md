@@ -239,9 +239,9 @@ Cada linha é um grupo de cenários; a coluna "Qtde" é a estimativa de casos. O
 | **P0-017** | Registro de serviço só com `auth:service:register`; sem sobrescrever sem `--rotate`; rotação revoga antigos e seus tokens (2.7) | Integration | R-01 | 4 | |
 | **P0-018** | Token de serviço `typ: service`, sem refresh, recusado em login/refresh (2.7) | Integration | R-01 | 3 | |
 | **P0-019** | `Tecton-On-Behalf-Of`: dois tokens verificados, `requires` contra o usuário (ou contra o serviço sem usuário), um inválido → 401 (2.7) | Integration | R-01 | 4 | |
-| **P0-020** | `call:<domínio>` exigido; domínio fora de `dependencies` → 403 mesmo com usuário válido (2.7) | Integration | R-01 | 2 | |
+| **P0-020** | `call:<domínio>` exigido; domínio fora de `dependencies` → 403 mesmo com usuário válido; token de usuário sozinho → 401 fora de `TECTON_ENV=development` (emenda AD-7 de 2026-10-24) (2.7) | Integration | R-01 | 3 | |
 | **P0-021** | OTel: `Authorization`, tokens, senhas e cookies nunca em span ou log (3.3) | Integration | — | 2 | |
-| **P0-022** | Gateway: 401 sem encaminhar, `Authorization` original intacto, remoção de `Tecton-On-Behalf-Of`/`x-user-id`, sem transformação, 404 em prefixo desconhecido (3.6) | API | R-01 | 6 | |
+| **P0-022** | Gateway: 401 sem encaminhar; token do usuário intacto em `Tecton-On-Behalf-Of` e token de serviço do Gateway em `Authorization` (emenda AD-7 de 2026-10-24); remoção do `Tecton-On-Behalf-Of`/`x-user-id` do cliente; `/auth/` sem troca de cabeçalhos; sem transformação; 404 em prefixo desconhecido (3.6) | API | R-01 | 7 | |
 | **P0-023** | Rate limit: `X-Forwarded-For` só de proxy confiável; Valkey fora → passa com aviso limitado (3.7) | Integration | R-22, R-09 | 3 | |
 | **P0-024** | Idempotency-Key: repetição devolve resposta, corpo diferente 422, em andamento 409 (concorrente), 5xx não guardado, escopo por sujeito, chave inválida 400, Valkey fora 503 (3.8) | Integration | R-15 | 8 | |
 | **P0-025** | `ServiceClient` leva token de serviço, `On-Behalf-Of` e `traceparent`; vai direto ao destino (3.9) | Integration | R-01 | 3 | |

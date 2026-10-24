@@ -910,6 +910,8 @@ para que quem recebe saiba qual serviço está chamando e em nome de qual usuár
 
 > **Divisão (Create Story de 2026-10-23, decisão do Boss):** a Story 2.7 foi dividida em **2.7a** (credencial de serviço no Auth: registro com `tecton-admin auth register-service`, rotação com revogação, `POST /auth/service-token`, `typ: service`, `call:<domínio>` a partir de `dependencies`, recusa em login e refresh) e **2.7b** (verificação em todo serviço: aceitar `typ: service`, `Tecton-On-Behalf-Of` com os dois tokens verificados, `auth.requires` contra o usuário ou o serviço, `call:<domínio>` exigido e 403). Os critérios acima são os originais, redistribuídos sem perda. **EQ-5 decidido:** o `register-service` faz login no próprio comando (`--login`, senha por variável de ambiente ou entrada padrão, como o `auth bootstrap`), usa o access token só em memória e faz logout no fim; nenhum token gravado em disco. **Permissões do serviço:** dadas pelo administrador no registro (`--permission`, repetível), além de `call:<domínio>`.
 
+> **Emenda (Validate Story da 2.7b, 2026-10-24, decisão do Boss; AD-7):** a validação mostrou que o risco aceito acima prometia mais do que entregava: com token de usuário aceito sozinho em `Authorization`, um serviço comprometido podia usar um token de usuário recebido em qualquer domínio, sem `call:`. Agora **toda chamada a um domínio leva token de serviço**: o domínio recusa com 401 o token de usuário sozinho, salvo com `TECTON_ENV=development`; o Gateway passa a ser um serviço (`service:gateway`) que põe o token do usuário em `Tecton-On-Behalf-Of` (Story 3.6); o Auth continua recebendo o token de usuário direto. `Tecton-On-Behalf-Of` leva o JWT cru, sem `Bearer`. Com isso, o risco aceito fica limitado de fato: o token de usuário só chega a um domínio junto do token de serviço de quem o declarou em `dependencies`.
+
 ### Story 2.8: Interface `KeyCustodyProvider` e aviso de `sensitive.quorum` sem provider
 
 Como **dev que marcou uma action como `sensitive.quorum`**,
@@ -1119,11 +1121,15 @@ para ter um ponto de entrada único sem que ele acumule lógica de negócio (FR-
 **Dado** uma requisição para uma action sem `auth.public: true`
 **Quando** o token falta ou é inválido
 **Então** o Gateway responde 401 sem encaminhar
-**E** quando o token é válido, o Gateway encaminha o header `Authorization` original sem alteração (AD-7)
+**E** quando o token é válido, o Gateway encaminha o token original sem alteração em `Tecton-On-Behalf-Of` e o próprio token de serviço (`service:gateway`, com `call:<domínio>` para cada domínio roteado) em `Authorization` (AD-7, emenda de 2026-10-24)
 
 **Dado** uma requisição externa com `Tecton-On-Behalf-Of` ou com headers de identidade como `x-user-id`
 **Quando** ela passa pelo Gateway
-**Então** esses headers são removidos antes do encaminhamento, porque só chamadas entre serviços podem usá-los
+**Então** esses headers são removidos antes do encaminhamento (o `Tecton-On-Behalf-Of` que chega ao domínio é sempre o que o Gateway pôs)
+
+**Dado** uma requisição para `/auth/`
+**Quando** ela passa pelo Gateway
+**Então** os cabeçalhos seguem sem troca: o Auth recebe o token de usuário direto (AD-7, emenda de 2026-10-24)
 
 **Dado** qualquer requisição encaminhada
 **Quando** ela passa pelo Gateway
@@ -1231,7 +1237,7 @@ para chamar com segurança, com credencial, timeout e retry corretos, sem escrev
 **Quando** ela é enviada
 **Então** o endereço vem do `ServiceDiscoveryProvider` e a chamada vai direto ao serviço de destino, sem passar pelo Gateway
 **E** ela leva o token de serviço em `Authorization`, obtido, guardado em cache e renovado automaticamente junto ao Auth (Story 2.7)
-**E** quando há um usuário no contexto, o token dele vai em `Tecton-On-Behalf-Of`
+**E** quando há um usuário no contexto, o token dele vai em `Tecton-On-Behalf-Of`, como o JWT cru, sem `Bearer` (formato da Story 2.7b)
 **E** o `traceparent` é propagado
 
 **Dado** uma chamada sem timeout explícito
