@@ -71,7 +71,7 @@ development_status:
   2-6-bloqueio-de-login-por-identificador: done
   2-7a-token-de-servico-parte-1-credencial-e-emissao-no-auth: done
   2-7b-token-de-servico-parte-2-verificacao-em-todo-servico: done
-  2-8-interface-keycustodyprovider-e-aviso-de-sensitive-quorum-sem-provider: backlog
+  2-8-interface-keycustodyprovider-e-aviso-de-sensitive-quorum-sem-provider: ready-for-dev
   epic-2-retrospective: optional
   epic-3: backlog
   3-1-configprovider-tipado-com-fail-fast: backlog
