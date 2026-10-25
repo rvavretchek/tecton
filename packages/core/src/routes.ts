@@ -1,5 +1,6 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
 import { toKebabCase, type ManifestAction, type TectonManifest } from '@tecton/manifest';
+import type { KeyCustodyProvider } from '@tecton/providers';
 import { InvalidTokenError, isUserSubject, MAX_TOKEN_LENGTH, serviceDomainOf, TokenVerificationUnavailableError, type Principal, type TokenVerifier } from './auth/token-verifier.js';
 import { ERROR_BODY_SCHEMA } from './errors/serializer.js';
 import { frameworkErrors } from './errors/tecton-error.js';
@@ -36,7 +37,21 @@ export interface ActionRoutesOptions {
    * and the Auth service, which receives user tokens directly, turn it on.
    */
   directUserCalls?: boolean;
+  /**
+   * The Custodian of `sensitive.quorum` actions (FR-11). Not supported yet: no layer of the
+   * framework asks it for a decision at the level of data access, so a provider given here stops
+   * the registration instead of pretending to protect anything (Story 2.8). Without one, every
+   * execution of a `sensitive.quorum` action is logged as unprotected.
+   */
+  keyCustody?: KeyCustodyProvider;
 }
+
+/** Why a configured KeyCustodyProvider is refused (Story 2.8). */
+export const KEY_CUSTODY_NOT_SUPPORTED =
+  'KeyCustodyProvider is not supported yet: sensitive.quorum is not enforced at the data level (FR-11); remove keyCustody';
+
+/** Whether an action needs Custodian approval (`sensitive.quorum: true`). */
+const needsQuorum = (action: ManifestAction) => action.sensitive?.quorum === true;
 
 /** Header with the token of the user a service acts on behalf of: the raw JWT, without `Bearer`. */
 export const ON_BEHALF_OF_HEADER = 'tecton-on-behalf-of';
@@ -115,6 +130,8 @@ function routeSchema(domain: string, action: ManifestAction) {
  * protected but no verifier is given (never a protected route without verification).
  */
 export function registerActionRoutes(app: FastifyInstance, manifest: TectonManifest, handlers: ActionHandlers = {}, options: ActionRoutesOptions = {}): void {
+  // Before any route: a refused registration leaves none behind.
+  if (options.keyCustody !== undefined) throw new Error(KEY_CUSTODY_NOT_SUPPORTED);
   const actionNames = new Set(manifest.actions.map((action) => action.name));
   const unknown = Object.keys(handlers).filter((name) => !actionNames.has(name));
   if (unknown.length > 0) {
@@ -139,6 +156,15 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
     );
   }
   const callers = new WeakMap<FastifyRequest, { principal: Principal; service?: Principal }>();
+  // FR-11: without a KeyCustodyProvider these actions run unprotected; the operator sees it at
+  // startup, and again at every execution.
+  const unprotected = manifest.actions.filter(needsQuorum).map((action) => action.name);
+  if (unprotected.length > 0) {
+    app.log.warn(
+      { event: 'sensitive_quorum_unprotected_actions', domain: manifest.domain, actions: unprotected },
+      'sensitive.quorum actions run without quorum protection: no KeyCustodyProvider is configured',
+    );
+  }
 
   // One token, as an Authorization value. Unavailability is 503; any refusal is the same 401.
   const verified = async (request: FastifyRequest, tokenVerifier: TokenVerifier, authorization: string | undefined): Promise<Principal> => {
@@ -212,6 +238,15 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
       actionRoutePath(manifest.domain, action.name),
       { schema: routeSchema(manifest.domain, action), preValidation, ...(onRequest ? { onRequest } : {}) },
       async (request, reply) => {
+        // First statement of the handler: after authentication and body validation (no warning on
+        // 400, 401, 403 or 503), before the 501 and the handler (a warning even when it fails).
+        // Fields from the manifest only: the input of a sensitive action may be the protected data.
+        if (needsQuorum(action)) {
+          request.log.warn(
+            { event: 'sensitive_quorum_unprotected', domain: manifest.domain, action: action.name },
+            `action "${action.name}" is sensitive.quorum but no KeyCustodyProvider is configured: running without quorum protection`,
+          );
+        }
         if (!handler) throw frameworkErrors.notImplemented(manifest.domain, action.name);
         const caller = callers.get(request);
         return handler(request.body as Record<string, unknown>, {

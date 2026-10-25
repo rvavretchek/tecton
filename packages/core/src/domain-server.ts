@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import type { FastifyInstance } from 'fastify';
 import { parseManifest, type TectonManifest } from '@tecton/manifest';
 import { tokenVerifierFromEnv, type TokenVerifier } from './auth/token-verifier.js';
-import { isPublicAction, registerActionRoutes, type ActionHandlers } from './routes.js';
+import type { KeyCustodyProvider } from '@tecton/providers';
+import { isPublicAction, KEY_CUSTODY_NOT_SUPPORTED, registerActionRoutes, type ActionHandlers } from './routes.js';
 import { createTectonServer, type TectonServerOptions } from './server.js';
 
 export interface DomainServerOptions extends TectonServerOptions {
@@ -31,6 +32,8 @@ export interface DomainServerOptions extends TectonServerOptions {
    * `true` outside development stops the service at startup.
    */
   directUserCalls?: boolean;
+  /** Not supported yet: stops the service at startup (see ActionRoutesOptions.keyCustody). */
+  keyCustody?: KeyCustodyProvider;
 }
 
 /** Reads and validates a domain manifest; throws with every problem when it is invalid. */
@@ -50,6 +53,8 @@ const VALKEY_READY_WAIT_MS = 2_000;
 
 export async function startDomainServer(options: DomainServerOptions): Promise<FastifyInstance> {
   const manifest = loadDomainManifest(options.manifestPath);
+  // Before the verifier: a refused start opens no Valkey connection.
+  if (options.keyCustody !== undefined) throw new Error(KEY_CUSTODY_NOT_SUPPORTED);
   const needsVerifier = manifest.actions.some((action) => !isPublicAction(action));
   const app = createTectonServer(options.logger === undefined ? {} : { logger: options.logger });
   try {

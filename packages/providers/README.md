@@ -97,3 +97,32 @@ package manager.
 The hash is always computed asynchronously (`crypto.argon2`, never `argon2Sync`), so a login does
 not block the event loop. The Pepper goes through HMAC rather than Argon2's own `secret` input:
 that keeps the Pepper layer independent of the hashing algorithm.
+
+## KeyCustodyProvider: the Custodian port (FR-11)
+
+The contract of quorum approval for actions marked `sensitive: { quorum: true }` in the manifest.
+The framework ships the interface only; a real implementation (threshold key custody, OpenBAO,
+x/n approval, chained audit) is roadmap.
+
+```ts
+interface KeyCustodyProvider {
+  requestAccess(operation: SensitiveOperation): Promise<CustodyDecision>;
+  decisionOf(requestId: string): Promise<CustodyDecision | undefined>;
+}
+// SensitiveOperation: { domain, action, resource, tenant?, requestedBy: { kind, subject, via? }, reason? }
+// CustodyDecision: { status: 'approved' } | { status: 'pending', requestId } | { status: 'denied', reason? }
+```
+
+- **Intercept at the level of data access, never only in an HTTP route middleware.** The
+  persistence adapter or the domain port asks for a decision right before it reads the key or the
+  data. A guard bound to one route is bypassed by another service, a maintenance script or direct
+  database access. No method receives an HTTP request, and `check:deps` forbids this package from
+  importing `fastify`, `@fastify/*`, `node:http`, `node:https` or `node:http2`.
+- `pending` goes back up from the data access to the route, which answers `202 Accepted`
+  (`pending_approval`, FR-25). There is no 202 without a real pending approval.
+- An `approved` decision holds only for the exact operation submitted; it is never replayed for
+  another resource. The audit trail belongs to the provider.
+- **Without a provider**, `sensitive.quorum` actions run normally, and every execution is logged as
+  unprotected (`@tecton/core`). **With one**, a service refuses to start for now: no layer of the
+  framework asks the provider yet, and it never pretends to protect what it does not.
+

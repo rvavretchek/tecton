@@ -50,6 +50,15 @@ module.exports = {
       to: { path: '^packages/', pathNot: '^packages/$1/' },
     },
     {
+      // AD-1 and FR-11: ports never see an HTTP request. A KeyCustodyProvider tied to a route
+      // would be bypassed by another service, a maintenance script or direct database access.
+      name: 'providers-no-http-framework',
+      comment: 'AD-1: @tecton/providers must not import an HTTP framework or server (fastify, @fastify/*, node:http, node:https, node:http2)',
+      severity: 'error',
+      from: { path: '^packages/providers/' },
+      to: { path: '^(node:)?(http|https|http2)$|(^|/)fastify(/|$)|(^|/)@fastify/' },
+    },
+    {
       name: 'no-test-support-in-production',
       comment: 'Shared test support (#test-support) may only be imported from *.test.ts files',
       severity: 'error',

@@ -1,6 +1,10 @@
+---
+baseline_commit: 892f4b1c488fc8825e712538096d0699f303af7f
+---
+
 # Story 2.8: Interface `KeyCustodyProvider` e aviso de `sensitive.quorum` sem provider
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -20,38 +24,38 @@ para que a ausência de custódia nunca passe despercebida e a implementação f
 
 ## Tasks / Subtasks
 
-- [ ] **T1. Interface (AC: 1, 2)** — `packages/providers/src/custody/key-custody-provider.ts`
-  - [ ] Assinaturas exatas:
+- [x] **T1. Interface (AC: 1, 2)** — `packages/providers/src/custody/key-custody-provider.ts`
+  - [x] Assinaturas exatas:
     - `requestAccess(operation: SensitiveOperation): Promise<CustodyDecision>`;
     - `decisionOf(requestId: string): Promise<CustodyDecision | undefined>` (`undefined`: id desconhecido; vira o 404 da 5.5);
     - `CustodyDecision = { status: 'approved' } | { status: 'pending'; requestId: string } | { status: 'denied'; reason?: string }`;
     - `SensitiveOperation = { domain: string; action: string; resource: string; tenant?: string; requestedBy: CustodyRequester; reason?: string }`, com `reason` texto opcional de quem pede (a `sensitive.description` fica no manifest);
     - `CustodyRequester = { kind: CustodyRequesterKind; subject: string; via?: { subject: string } }`, com `CustodyRequesterKind = 'user' | 'service'` definido no providers (`via` é o serviço chamador quando um serviço age em nome do usuário, 2.7b). Sem prazo de expiração (a 5.5 guarda o prazo no banco do domínio).
-  - [ ] TSDoc em inglês:
+  - [x] TSDoc em inglês:
     - a interceptação acontece no nível de acesso ao dado (o adaptador de persistência ou a porta do domínio pede a decisão antes de ler a chave ou o dado), nunca só num middleware de rota HTTP, porque uma rota é contornável por outro serviço, um script de manutenção ou acesso direto ao banco;
     - `pending` é um resultado que quem acessa o dado devolve para cima, e a rota o transforma no 202 do FR-25; a rota nunca decide sozinha;
     - uma decisão `approved` vale só para a operação exata pedida (domínio, action, recurso, tenant) e não pode ser reaproveitada para outro recurso;
     - a trilha de auditoria é do provider (a encadeada é roadmap); quem chama não registra a decisão.
-  - [ ] Exportar do `index.ts` do `@tecton/providers`; o `@tecton/core` não reexporta. Nenhum adaptador concreto.
-- [ ] **T2. Guarda de dependência (AC: 2)** — `.dependency-cruiser.cjs`, `tools/check-deps/`
-  - [ ] Regra `providers-no-http-framework`: `^packages/providers/src/` não importa `fastify`, `@fastify/*`, `node:http`, `node:https`, `node:http2` (nem os nomes sem `node:`). Fixture em `tools/check-deps/fixtures/` e caso em `tools/check-deps/check-deps.test.ts`, no padrão das regras existentes.
-- [ ] **T3. Aviso em runtime (AC: 3, 4, 5)** — `packages/core/src/routes.ts`
-  - [ ] Por execução: `request.log.warn({ event: 'sensitive_quorum_unprotected', domain, action }, 'action "<nome>" is sensitive.quorum but no KeyCustodyProvider is configured: running without quorum protection')` como **primeira instrução do handler da rota**, antes do `if (!handler)` do 501. Só para `sensitive?.quorum === true` (pública ou protegida). Campos exatamente `event`, `domain` e `action`, do manifest: nada de corpo, input, output, permissões ou sujeito (o input de uma action sensível pode ser o dado protegido). Sem limite de taxa, de propósito: o FR-11 pede um aviso por execução.
-  - [ ] Na subida: dentro do `registerActionRoutes`, uma vez, só quando alguma action tem `sensitive.quorum === true`: `app.log.warn({ event: 'sensitive_quorum_unprotected_actions', domain, actions: [...] }, 'sensitive.quorum actions run without quorum protection: no KeyCustodyProvider is configured')`. Cobre o `startDomainServer`, o Auth e quem chama `registerActionRoutes` direto; o `buildOpenApiDocument` fica em silêncio (usa `logger: false`).
-  - [ ] Respostas e `routeSchema` iguais: nenhum 202 no schema nem na resposta.
-  - [ ] O `event` e o texto viram contrato: as Stories 4.2 (P0-039, `exportTenantData`) e 5.5 (P0-050) vão conferi-los.
-- [ ] **T4. Provider configurado recusado (decisão do Boss)** — `packages/core/src/routes.ts` e `domain-server.ts`
-  - [ ] Opção `keyCustody?: KeyCustodyProvider` em `ActionRoutesOptions` e `DomainServerOptions`. "Configurado" é `options.keyCustody !== undefined`, com ou sem actions `sensitive` no manifest.
-  - [ ] `registerActionRoutes` lança `KeyCustodyProvider is not supported yet: sensitive.quorum is not enforced at the data level (FR-11); remove keyCustody` antes de qualquer `app.post` (nenhuma rota registrada pela metade).
-  - [ ] `startDomainServer` recusa com a mesma mensagem **antes** de montar o `tokenVerifierFromEnv` (nenhum cliente Valkey aberto) e nunca chega ao `listen`. Repasse com spread condicional (`exactOptionalPropertyTypes`).
-- [ ] **T5. Documentação e registros**
-  - [ ] README do `@tecton/providers`: a seção do `KeyCustodyProvider` (contrato, onde interceptar, `pending` e o 202, decisão por operação, auditoria do provider, o que acontece sem provider, roadmap).
-  - [ ] README do `@tecton/core`: os dois avisos, a recusa de `keyCustody` e por quê.
-  - [ ] `deferred-work.md`: (a) a Story 5.5 tira a recusa, ao menos para o provider falso dos testes dela; (b) a Story 6.3 precisa de um sinal declarativo (manifest ou ambiente) de provider configurado, porque o provider da 2.8 só existe no código; (c) quando a mensageria do Epic 3 executar actions por evento, o aviso precisa sair lá também.
-  - [ ] A descrição de `sensitive` no `schema.ts` do manifest fica como está (continua certa para o futuro).
-- [ ] **T6. Testes** — Test Design P1-011 (3 casos: aviso a cada execução; nenhum método recebe requisição HTTP)
-  - [ ] Tipos (`expectTypeOf`, falha no `pnpm typecheck`, não no `vitest run`): `keyof SensitiveOperation` exato; `Parameters<KeyCustodyProvider['requestAccess']>` igual a `[SensitiveOperation]`; `Parameters<KeyCustodyProvider['decisionOf']>` igual a `[string]`; no core, `PrincipalKind` atribuível a `CustodyRequesterKind`.
-  - [ ] Rotas (`app.inject`; o `docs/examples/tenant-domain-manifest-v0.yaml` com `exportTenantData` pode ser a fixture, carregado com `loadDomainManifest`):
+  - [x] Exportar do `index.ts` do `@tecton/providers`; o `@tecton/core` não reexporta. Nenhum adaptador concreto.
+- [x] **T2. Guarda de dependência (AC: 2)** — `.dependency-cruiser.cjs`, `tools/check-deps/`
+  - [x] Regra `providers-no-http-framework`: `^packages/providers/src/` não importa `fastify`, `@fastify/*`, `node:http`, `node:https`, `node:http2` (nem os nomes sem `node:`). Fixture em `tools/check-deps/fixtures/` e caso em `tools/check-deps/check-deps.test.ts`, no padrão das regras existentes.
+- [x] **T3. Aviso em runtime (AC: 3, 4, 5)** — `packages/core/src/routes.ts`
+  - [x] Por execução: `request.log.warn({ event: 'sensitive_quorum_unprotected', domain, action }, 'action "<nome>" is sensitive.quorum but no KeyCustodyProvider is configured: running without quorum protection')` como **primeira instrução do handler da rota**, antes do `if (!handler)` do 501. Só para `sensitive?.quorum === true` (pública ou protegida). Campos exatamente `event`, `domain` e `action`, do manifest: nada de corpo, input, output, permissões ou sujeito (o input de uma action sensível pode ser o dado protegido). Sem limite de taxa, de propósito: o FR-11 pede um aviso por execução.
+  - [x] Na subida: dentro do `registerActionRoutes`, uma vez, só quando alguma action tem `sensitive.quorum === true`: `app.log.warn({ event: 'sensitive_quorum_unprotected_actions', domain, actions: [...] }, 'sensitive.quorum actions run without quorum protection: no KeyCustodyProvider is configured')`. Cobre o `startDomainServer`, o Auth e quem chama `registerActionRoutes` direto; o `buildOpenApiDocument` fica em silêncio (usa `logger: false`).
+  - [x] Respostas e `routeSchema` iguais: nenhum 202 no schema nem na resposta.
+  - [x] O `event` e o texto viram contrato: as Stories 4.2 (P0-039, `exportTenantData`) e 5.5 (P0-050) vão conferi-los.
+- [x] **T4. Provider configurado recusado (decisão do Boss)** — `packages/core/src/routes.ts` e `domain-server.ts`
+  - [x] Opção `keyCustody?: KeyCustodyProvider` em `ActionRoutesOptions` e `DomainServerOptions`. "Configurado" é `options.keyCustody !== undefined`, com ou sem actions `sensitive` no manifest.
+  - [x] `registerActionRoutes` lança `KeyCustodyProvider is not supported yet: sensitive.quorum is not enforced at the data level (FR-11); remove keyCustody` antes de qualquer `app.post` (nenhuma rota registrada pela metade).
+  - [x] `startDomainServer` recusa com a mesma mensagem **antes** de montar o `tokenVerifierFromEnv` (nenhum cliente Valkey aberto) e nunca chega ao `listen`. Repasse com spread condicional (`exactOptionalPropertyTypes`).
+- [x] **T5. Documentação e registros**
+  - [x] README do `@tecton/providers`: a seção do `KeyCustodyProvider` (contrato, onde interceptar, `pending` e o 202, decisão por operação, auditoria do provider, o que acontece sem provider, roadmap).
+  - [x] README do `@tecton/core`: os dois avisos, a recusa de `keyCustody` e por quê.
+  - [x] `deferred-work.md`: (a) a Story 5.5 tira a recusa, ao menos para o provider falso dos testes dela; (b) a Story 6.3 precisa de um sinal declarativo (manifest ou ambiente) de provider configurado, porque o provider da 2.8 só existe no código; (c) quando a mensageria do Epic 3 executar actions por evento, o aviso precisa sair lá também.
+  - [x] A descrição de `sensitive` no `schema.ts` do manifest fica como está (continua certa para o futuro).
+- [x] **T6. Testes** — Test Design P1-011 (3 casos: aviso a cada execução; nenhum método recebe requisição HTTP)
+  - [x] Tipos (`expectTypeOf`, falha no `pnpm typecheck`, não no `vitest run`): `keyof SensitiveOperation` exato; `Parameters<KeyCustodyProvider['requestAccess']>` igual a `[SensitiveOperation]`; `Parameters<KeyCustodyProvider['decisionOf']>` igual a `[string]`; no core, `PrincipalKind` atribuível a `CustodyRequesterKind`.
+  - [x] Rotas (`app.inject`; o `docs/examples/tenant-domain-manifest-v0.yaml` com `exportTenantData` pode ser a fixture, carregado com `loadDomainManifest`):
     - `sensitive.quorum` responde como sem `sensitive` (200 com handler, 501 sem), nunca 202;
     - um aviso por chamada (duas chamadas, dois avisos), com `event`, `domain` e `action`;
     - aviso quando o handler lança erro e no 501;
@@ -60,11 +64,11 @@ para que a ausência de custódia nunca passe despercebida e a implementação f
     - o aviso da subida uma vez, listando as actions; nenhum aviso de subida sem actions `sensitive.quorum`;
     - log sem input nem token (`assertNoSecretsLeaked`);
     - documento OpenAPI da action `sensitive.quorum` igual ao da mesma action sem `sensitive` (sem 202).
-  - [ ] `keyCustody` configurado: `registerActionRoutes` recusa sem registrar rota; `startDomainServer` recusa sem abrir Valkey e sem `listen`, mesmo com manifest sem `sensitive`.
-  - [ ] `check:deps`: o fixture com `fastify` no providers é recusado.
-  - [ ] Fase vermelha por mutação (A3), no mínimo: aviso só na primeira execução; aviso no `onRequest` ou `preValidation` (avisaria em 400 ou 401); aviso depois do `if (!handler)` (perde o 501); aviso ausente em erro do handler; aviso sempre que existe `sensitive` (inclusive `quorum: false`); 202 sem provider; provider configurado aceito em silêncio; a regra nova do `check:deps` removida; uma assinatura da interface trocada (pelo `typecheck`).
-- [ ] **T7. Verificação final**
-  - [ ] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:generation`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder).
+  - [x] `keyCustody` configurado: `registerActionRoutes` recusa sem registrar rota; `startDomainServer` recusa sem abrir Valkey e sem `listen`, mesmo com manifest sem `sensitive`.
+  - [x] `check:deps`: o fixture com `fastify` no providers é recusado.
+  - [x] Fase vermelha por mutação (A3), no mínimo: aviso só na primeira execução; aviso no `onRequest` ou `preValidation` (avisaria em 400 ou 401); aviso depois do `if (!handler)` (perde o 501); aviso ausente em erro do handler; aviso sempre que existe `sensitive` (inclusive `quorum: false`); 202 sem provider; provider configurado aceito em silêncio; a regra nova do `check:deps` removida; uma assinatura da interface trocada (pelo `typecheck`).
+- [x] **T7. Verificação final**
+  - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:generation`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder).
   - [ ] Code review por story antes da retrospectiva do Epic 2 (retro A1).
 
 ## Dev Notes
@@ -110,15 +114,37 @@ para que a ausência de custódia nunca passe despercebida e a implementação f
 
 ### Agent Model Used
 
+Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
+
 ### Debug Log References
+
+- `pnpm build`, `typecheck`, `check:deps` (170 módulos), `lint:examples`, `validate:asyncapi`: limpos.
+- `pnpm test`: 63 arquivos, 1099 testes; `test:generation`: 3. `test:containers` e `test:persistence`: pelo CI.
+- Fase vermelha (A3), 13 mutações, todas mortas: aviso só na primeira execução; aviso no `preValidation`; aviso depois do 501; aviso sempre que há `sensitive`; sem aviso na subida; 202 sem provider; provider aceito no `registerActionRoutes` e no `startDomainServer`; recusa depois das rotas; input no aviso; regra do `check:deps` desligada; e, pelo `pnpm typecheck`, um segundo parâmetro de requisição no `requestAccess` e um campo `headers` na operação.
+- O dependency-cruiser mostra `node:http` como `http`: o teste do `check:deps` confere esse nome.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed - comprehensive developer guide created
+- **T1:** `packages/providers/src/custody/key-custody-provider.ts`, sem nenhum import: `KeyCustodyProvider` (`requestAccess`, `decisionOf`), `SensitiveOperation` (com `tenant` e `requestedBy.via`), `CustodyDecision` em três estados, `CustodyRequesterKind`; TSDoc com o lugar da interceptação, `pending` e o 202, decisão por operação e auditoria do provider. Exportado só pelo `@tecton/providers`.
+- **T2:** regra `providers-no-http-framework` no `.dependency-cruiser.cjs`, fixture `providers-http` (com um built-in permitido) e teste.
+- **T3:** aviso `sensitive_quorum_unprotected` como primeira instrução do handler da rota (só `event`, `domain`, `action`) e `sensitive_quorum_unprotected_actions` uma vez no `registerActionRoutes`.
+- **T4:** opção `keyCustody` em `ActionRoutesOptions` e `DomainServerOptions`, recusada com `KEY_CUSTODY_NOT_SUPPORTED` antes de qualquer rota e, no `startDomainServer`, antes do verificador.
+- **T5:** READMEs do `@tecton/providers` e do `@tecton/core`; três itens no `deferred-work.md` (Stories 5.5 e 6.3, Epic 3).
+- **T6:** `routes-quorum.test.ts` (16), `key-custody-provider.test.ts` (3), caso novo do `check-deps.test.ts`.
 
 ### File List
+
+- `packages/providers/src/custody/key-custody-provider.ts`, `key-custody-provider.test.ts` (novos)
+- `packages/providers/src/index.ts`, `packages/providers/README.md` (modificados)
+- `packages/core/src/routes.ts`, `domain-server.ts`, `index.ts`, `packages/core/README.md` (modificados)
+- `packages/core/src/routes-quorum.test.ts` (novo)
+- `.dependency-cruiser.cjs`, `tools/check-deps/check-deps.test.ts` (modificados)
+- `tools/check-deps/fixtures/providers-http/` (novo)
+- `_bmad-output/implementation-artifacts/deferred-work.md` (modificado)
 
 ## Change Log
 
 - 2026-10-24: Story criada (Create Story); decisão do Boss: provider configurado recusa a subida.
 - 2026-10-25: Validate Story: 17 achados aplicados (regra nova do `check:deps`, P1-011 e consumidores 4.2/5.5/6.3, lugar exato do aviso, aviso da subida, mensagem e ordem da recusa, `quorum: false`, teste de tipos no `typecheck`, assinaturas exatas, tenant e serviço chamador, TSDoc de decisão e auditoria, OpenAPI inalterado, campos do log).
+- 2026-10-25: Dev Story concluída (T1 a T7, salvo o code review); status `review`.

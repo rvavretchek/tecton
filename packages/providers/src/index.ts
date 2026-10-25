@@ -7,6 +7,13 @@ export {
   type Argon2idParams,
 } from './auth/argon2id-auth-provider.js';
 export { systemClock, type Clock } from './clock.js';
+export type {
+  CustodyDecision,
+  CustodyRequester,
+  CustodyRequesterKind,
+  KeyCustodyProvider,
+  SensitiveOperation,
+} from './custody/key-custody-provider.js';
 export { MIN_PEPPER_BYTES, PepperConfigError, pepperFromEnv, type Pepper } from './auth/pepper.js';
 export {
   closeValkeyClient,

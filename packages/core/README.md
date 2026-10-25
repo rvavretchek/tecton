@@ -65,6 +65,21 @@ also get new service tokens until that credential is rotated (`tecton-admin auth
 The 503 is fail closed: a request is never accepted unverified. It is distinct from 401 so that a
 client retries instead of refreshing its session or logging the user out.
 
+### `sensitive.quorum` without a Custodian (Story 2.8, FR-11)
+
+An action marked `sensitive: { quorum: true }` runs normally when no `KeyCustodyProvider` is
+configured: no block, no `202`. The service says so every time:
+
+- at startup, once: `event: "sensitive_quorum_unprotected_actions"`, with the list of actions;
+- at every execution (the request reached the handler: after authentication and body
+  validation, also when the handler fails or answers 501): `event: "sensitive_quorum_unprotected"`,
+  with `domain` and `action` only (never the input, which may be the protected data). There is no
+  rate limit: FR-11 asks for one warning per execution.
+
+A `keyCustody` option given to `registerActionRoutes` or `startDomainServer` stops the service
+with `KeyCustodyProvider is not supported yet: ...`: quorum must be enforced at the level of data
+access (see `@tecton/providers`), and that is not built yet.
+
 ### Configuration
 
 `startDomainServer` builds the verifier from the environment when it is not given one, and stops

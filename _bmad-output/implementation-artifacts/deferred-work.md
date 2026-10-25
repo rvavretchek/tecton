@@ -69,3 +69,9 @@ Itens reais, não acionáveis agora, registrados pelos code reviews.
 
 - W1 `service_call_refused` é registrado a cada requisição recusada por falta de `call:<domínio>`, sem limite: um chamador mal configurado em retry enche o log [packages/core/src/routes.ts] — adiado: observabilidade (Story 3.3) e limite de taxa do Gateway (Story 3.7)
 
+## Deferred from: Create e Validate Story da 2.8 (2026-10-25)
+
+- W1 Um `KeyCustodyProvider` configurado impede a subida (decisão do Boss) [packages/core/src/routes.ts] — adiado: a Story 5.5 tira a recusa, ao menos para o provider falso dos testes dela, e faz o acesso ao dado devolver `pending` para a rota responder 202
+- W2 O provider só existe no código (opção `keyCustody`); o `tecton-admin lint` é estático e não o vê [packages/core/src/domain-server.ts] — adiado: a Story 6.3 define um sinal declarativo (manifest ou ambiente) de provider configurado
+- W3 O aviso de `sensitive.quorum` sem proteção sai no handler da rota; actions executadas por evento não passam por ele [packages/core/src/routes.ts] — adiado: Epic 3 (mensageria), que precisa emitir o mesmo aviso
+

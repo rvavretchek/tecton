@@ -53,6 +53,17 @@ describe('check:deps (AD-3 dependency direction)', { timeout: 30_000 }, () => {
     expect(output).toContain("undeclared-workspace-dependency: packages/core/src/index.ts imports '@tecton/manifest'");
   });
 
+  it('fails when @tecton/providers imports an HTTP framework or server (AD-1, FR-11), allowing other built-ins', () => {
+    const { status, output } = runCheckDeps('providers-http');
+
+    expect(status).toBe(1);
+    // dependency-cruiser reports node:http as 'http'.
+    for (const specifier of ['http', 'https', 'fastify', '@fastify/swagger']) {
+      expect(output).toContain(`providers-no-http-framework: packages/providers/src/index.ts imports '${specifier}'`);
+    }
+    expect(output).not.toContain('clock.ts');
+  });
+
   it('fails when production code imports the shared test support, but not when a test does', () => {
     const { status, output } = runCheckDeps('test-support');
 
