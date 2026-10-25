@@ -1,5 +1,5 @@
 # generated: 2026-10-08T15:08
-# last_updated: 2026-10-24
+# last_updated: 2026-10-25
 # project: Tecton
 # project_key: NOKEY
 # tracking_system: file-system
@@ -41,7 +41,7 @@
 # - Retrospective appends its action items to action_items; sprint-status surfaces open ones
 
 generated: 2026-10-08T15:08
-last_updated: 2026-10-24
+last_updated: 2026-10-25
 project: Tecton
 project_key: NOKEY
 tracking_system: file-system
@@ -72,7 +72,7 @@ development_status:
   2-7a-token-de-servico-parte-1-credencial-e-emissao-no-auth: done
   2-7b-token-de-servico-parte-2-verificacao-em-todo-servico: done
   2-8-interface-keycustodyprovider-e-aviso-de-sensitive-quorum-sem-provider: done
-  epic-2-retrospective: optional
+  epic-2-retrospective: done
   epic-3: backlog
   3-1-configprovider-tipado-com-fail-fast: backlog
   3-2-health-checks-padrao-em-todo-servico: backlog
@@ -128,7 +128,7 @@ action_items:
   - epic: 1
     action: "A1: Code review por story no Epic 2 (CS -> VS -> DS -> CR antes da próxima), mais review leve de integração no fim do épico"
     owner: "Amelia (Desenvolvedora)"
-    status: open
+    status: in-progress
   - epic: 1
     action: "A2: CI falha com BOM, NUL ou caractere de controle literal em arquivo de código (higiene de fonte), antes da Story 2.1"
     owner: "Amelia (Desenvolvedora)"
@@ -136,7 +136,7 @@ action_items:
   - epic: 1
     action: "A3: Todo teste negativo (falha, timeout, recusa, violação) com fase vermelha registrada no Dev Agent Record"
     owner: "Murat (Test Architect) e Amelia (Desenvolvedora)"
-    status: open
+    status: done
   - epic: 1
     action: "A4: Modo escuro no MVP: emendar DESIGN.md, UX-DR1, UX-DR11 e ACs das Stories 4.6 e 4.12 antes do Create Story da 4.6"
     owner: "Sally (UX) e John (PM)"
@@ -145,3 +145,23 @@ action_items:
     action: "A5: Ciclo local com Docker remoto (túnel SSH + TESTCONTAINERS_HOST_OVERRIDE), receita em .env.example e tests/README.md"
     owner: "Amelia (Desenvolvedora)"
     status: done
+  - epic: 2
+    action: "B1: Review leve de integração do Epic 2 (diff c7bb847..dev), com os achados aplicados, antes do merge em main"
+    owner: "Amelia (Desenvolvedora)"
+    status: in-progress
+  - epic: 2
+    action: "B2: Fixture fiel ao caminho de produção (pacote resolvido, store isolado, instante de borda) no checklist do Dev Story"
+    owner: "Murat (Test Architect) e Amelia (Desenvolvedora)"
+    status: open
+  - epic: 2
+    action: "B3: Edição de código com Edit/Write para trechos com quebra de linha ou barra invertida; script só para trocas sem escape"
+    owner: "Amelia (Desenvolvedora)"
+    status: open
+  - epic: 2
+    action: "B4: Nota na Story 3.6: registrar service:gateway com call: para cada domínio roteado"
+    owner: "Winston (Arquiteto) e John (PM)"
+    status: open
+  - epic: 2
+    action: "B5: Recuperar o acesso ao ubt-host02 (túnel do Docker) e ao ubt-host01"
+    owner: "Ricardo (Project Lead)"
+    status: open
