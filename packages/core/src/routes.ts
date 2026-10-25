@@ -130,8 +130,16 @@ function routeSchema(domain: string, action: ManifestAction) {
  * protected but no verifier is given (never a protected route without verification).
  */
 export function registerActionRoutes(app: FastifyInstance, manifest: TectonManifest, handlers: ActionHandlers = {}, options: ActionRoutesOptions = {}): void {
-  // Before any route: a refused registration leaves none behind.
-  if (options.keyCustody !== undefined) throw new Error(KEY_CUSTODY_NOT_SUPPORTED);
+  // Before any route: a refused registration leaves none behind. null from JavaScript means none.
+  if (options.keyCustody != null) throw new Error(KEY_CUSTODY_NOT_SUPPORTED);
+  // A manifest built by hand may carry what parseManifest refuses: a quorum that is not a boolean
+  // (it would skip the warnings) or a public quorum action (no caller to approve).
+  const badQuorum = manifest.actions.filter(
+    (action) => action.sensitive !== undefined && (typeof action.sensitive.quorum !== 'boolean' || (action.sensitive.quorum && isPublic(action))),
+  );
+  if (badQuorum.length > 0) {
+    throw new Error(`actions of domain "${manifest.domain}" have an invalid sensitive.quorum (a boolean, never on a public action): ${badQuorum.map((action) => action.name).join(', ')}`);
+  }
   const actionNames = new Set(manifest.actions.map((action) => action.name));
   const unknown = Object.keys(handlers).filter((name) => !actionNames.has(name));
   if (unknown.length > 0) {
@@ -156,15 +164,6 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
     );
   }
   const callers = new WeakMap<FastifyRequest, { principal: Principal; service?: Principal }>();
-  // FR-11: without a KeyCustodyProvider these actions run unprotected; the operator sees it at
-  // startup, and again at every execution.
-  const unprotected = manifest.actions.filter(needsQuorum).map((action) => action.name);
-  if (unprotected.length > 0) {
-    app.log.warn(
-      { event: 'sensitive_quorum_unprotected_actions', domain: manifest.domain, actions: unprotected },
-      'sensitive.quorum actions run without quorum protection: no KeyCustodyProvider is configured',
-    );
-  }
 
   // One token, as an Authorization value. Unavailability is 503; any refusal is the same 401.
   const verified = async (request: FastifyRequest, tokenVerifier: TokenVerifier, authorization: string | undefined): Promise<Principal> => {
@@ -238,16 +237,17 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
       actionRoutePath(manifest.domain, action.name),
       { schema: routeSchema(manifest.domain, action), preValidation, ...(onRequest ? { onRequest } : {}) },
       async (request, reply) => {
-        // First statement of the handler: after authentication and body validation (no warning on
-        // 400, 401, 403 or 503), before the 501 and the handler (a warning even when it fails).
-        // Fields from the manifest only: the input of a sensitive action may be the protected data.
+        if (!handler) throw frameworkErrors.notImplemented(manifest.domain, action.name);
+        // Right before the handler runs: after authentication and body validation (no warning on
+        // 400, 401, 403, 503 or 501, where nothing ran), and before the handler (a warning even when
+        // it fails). Fields from the manifest only: the input of a sensitive action may be the
+        // protected data.
         if (needsQuorum(action)) {
           request.log.warn(
             { event: 'sensitive_quorum_unprotected', domain: manifest.domain, action: action.name },
             `action "${action.name}" is sensitive.quorum but no KeyCustodyProvider is configured: running without quorum protection`,
           );
         }
-        if (!handler) throw frameworkErrors.notImplemented(manifest.domain, action.name);
         const caller = callers.get(request);
         return handler(request.body as Record<string, unknown>, {
           domain: manifest.domain,
@@ -258,6 +258,15 @@ export function registerActionRoutes(app: FastifyInstance, manifest: TectonManif
           ...(caller?.service ? { service: copyOf(caller.service) } : {}),
         });
       },
+    );
+  }
+  // FR-11: without a KeyCustodyProvider these actions run unprotected. Once every route is
+  // registered (a failed registration announces nothing), then again at every execution.
+  const unprotected = manifest.actions.filter(needsQuorum).map((action) => action.name);
+  if (unprotected.length > 0) {
+    app.log.warn(
+      { event: 'sensitive_quorum_unprotected_actions', domain: manifest.domain, actions: unprotected },
+      'sensitive.quorum actions run without quorum protection: no KeyCustodyProvider is configured',
     );
   }
 }

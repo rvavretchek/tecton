@@ -54,7 +54,7 @@ const VALKEY_READY_WAIT_MS = 2_000;
 export async function startDomainServer(options: DomainServerOptions): Promise<FastifyInstance> {
   const manifest = loadDomainManifest(options.manifestPath);
   // Before the verifier: a refused start opens no Valkey connection.
-  if (options.keyCustody !== undefined) throw new Error(KEY_CUSTODY_NOT_SUPPORTED);
+  if (options.keyCustody != null) throw new Error(KEY_CUSTODY_NOT_SUPPORTED);
   const needsVerifier = manifest.actions.some((action) => !isPublicAction(action));
   const app = createTectonServer(options.logger === undefined ? {} : { logger: options.logger });
   try {

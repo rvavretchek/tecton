@@ -80,7 +80,8 @@ const actionSchema = {
     },
     sensitive: {
       type: 'object',
-      description: 'Marks a sensitive action. quorum: true requires Custodian approval when a KeyCustodyProvider is configured.',
+      description:
+        'Marks a sensitive action. quorum: true needs Custodian approval (FR-11); until a KeyCustodyProvider is supported, the action runs and every execution is logged as unprotected. Not allowed on a public action.',
       additionalProperties: false,
       required: ['quorum', 'description'],
       properties: { quorum: { type: 'boolean' }, description: nonEmptyText },

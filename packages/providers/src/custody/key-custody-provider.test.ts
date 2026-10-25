@@ -8,7 +8,7 @@ import type { CustodyDecision, CustodyRequester, KeyCustodyProvider, SensitiveOp
 describe('KeyCustodyProvider contract', () => {
   it('takes only the data of the operation: exact parameters and fields', () => {
     expectTypeOf<Parameters<KeyCustodyProvider['requestAccess']>>().toEqualTypeOf<[SensitiveOperation]>();
-    expectTypeOf<Parameters<KeyCustodyProvider['decisionOf']>>().toEqualTypeOf<[string]>();
+    expectTypeOf<Parameters<KeyCustodyProvider['decisionOf']>>().toEqualTypeOf<[string, SensitiveOperation]>();
     expectTypeOf<ReturnType<KeyCustodyProvider['requestAccess']>>().toEqualTypeOf<Promise<CustodyDecision>>();
     expectTypeOf<ReturnType<KeyCustodyProvider['decisionOf']>>().toEqualTypeOf<Promise<CustodyDecision | undefined>>();
     expectTypeOf<keyof SensitiveOperation>().toEqualTypeOf<'domain' | 'action' | 'resource' | 'tenant' | 'requestedBy' | 'reason'>();

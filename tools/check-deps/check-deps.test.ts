@@ -1,4 +1,6 @@
 import { spawnSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -58,10 +60,34 @@ describe('check:deps (AD-3 dependency direction)', { timeout: 30_000 }, () => {
 
     expect(status).toBe(1);
     // dependency-cruiser reports node:http as 'http'.
-    for (const specifier of ['http', 'https', 'fastify', '@fastify/swagger']) {
+    for (const specifier of ['http', 'https', 'http2', 'fastify', '@fastify/swagger', 'undici']) {
       expect(output).toContain(`providers-no-http-framework: packages/providers/src/index.ts imports '${specifier}'`);
     }
     expect(output).not.toContain('clock.ts');
+  });
+
+  it('fails when @tecton/providers imports fastify resolved from node_modules, as a declared dependency would be (review P1)', () => {
+    // Built at runtime: node_modules is ignored by Git. A resolved import lands in node_modules,
+    // the path an exclude of node_modules would drop from the graph.
+    const workspace = mkdtempSync(join(tmpdir(), 'tecton-check-deps-'));
+    try {
+      cpSync(join(here, 'fixtures', 'valid', 'tsconfig.depcruise.json'), join(workspace, 'tsconfig.depcruise.json'));
+      mkdirSync(join(workspace, 'packages', 'providers', 'src'), { recursive: true });
+      writeFileSync(join(workspace, 'packages', 'providers', 'package.json'), JSON.stringify({ name: '@tecton/providers', private: true, dependencies: { fastify: '5.0.0' } }));
+      writeFileSync(join(workspace, 'packages', 'providers', 'src', 'index.ts'), "import fastify from 'fastify';\nexport const app = fastify;\n");
+      const fastifyDir = join(workspace, 'packages', 'providers', 'node_modules', 'fastify');
+      mkdirSync(fastifyDir, { recursive: true });
+      writeFileSync(join(fastifyDir, 'package.json'), JSON.stringify({ name: 'fastify', version: '5.0.0', main: 'fastify.js' }));
+      writeFileSync(join(fastifyDir, 'fastify.js'), 'module.exports = function fastify() {};\n');
+
+      const result = spawnSync(process.execPath, [checkDeps, workspace], { encoding: 'utf8' });
+      const output = `${result.stdout}${result.stderr}`;
+
+      expect(result.status).toBe(1);
+      expect(output).toContain("providers-no-http-framework: packages/providers/src/index.ts imports 'fastify' (packages/providers/node_modules/fastify/fastify.js)");
+    } finally {
+      rmSync(workspace, { recursive: true, force: true });
+    }
   });
 
   it('fails when production code imports the shared test support, but not when a test does', () => {

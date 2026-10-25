@@ -214,6 +214,25 @@ describe('actions — sensitive and approval (AC 7, AC 8)', () => {
     ]);
   });
 
+  it('Given a public action with sensitive.quorum, When validated, Then it fails: quorum needs a verified caller (Story 2.8 review P3)', () => {
+    const source = createTenantWith('auth', 'auth: { public: true }\n    sensitive: { quorum: true, description: "Bulk export." }');
+    const errors = errorsOf(parseManifest(source));
+
+    expect(errors).toEqual([
+      expect.objectContaining({
+        path: 'actions[0]',
+        code: 'mutually-exclusive',
+        message: 'actions[0] cannot be public and sensitive.quorum: quorum approval needs a verified caller',
+      }),
+    ]);
+  });
+
+  it('Given a public action with sensitive quorum false, When validated, Then it passes', () => {
+    const source = createTenantWith('auth', 'auth: { public: true }\n    sensitive: { quorum: false, description: "Logged only." }');
+
+    expect(parseManifest(source).ok).toBe(true);
+  });
+
   it('Given sensitive with quorum false plus approval, When validated, Then it passes', () => {
     const source = createTenantWith(
       'sensitive',

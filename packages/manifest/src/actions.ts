@@ -64,6 +64,18 @@ export function checkActions(actions: unknown): TranslatedError[] {
     }
 
     const sensitive = action['sensitive'];
+    // A quorum approves a request of someone: a public action has no one to approve.
+    if (isObject(sensitive) && sensitive['quorum'] === true && isObject(auth) && auth['public'] === true) {
+      const path = formatPath([...base]);
+      errors.push({
+        error: {
+          path,
+          code: 'mutually-exclusive',
+          message: `${path} cannot be public and sensitive.quorum: quorum approval needs a verified caller`,
+        },
+        locate: { segments: [...base] },
+      });
+    }
     if (isObject(sensitive) && sensitive['quorum'] === true && 'approval' in action) {
       const path = formatPath([...base]);
       errors.push({

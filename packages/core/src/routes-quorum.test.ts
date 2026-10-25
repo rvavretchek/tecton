@@ -50,12 +50,6 @@ actions:
     input: {}
     output: { ok: boolean }
     auth: { public: true }
-  - name: publicDump
-    description: "Public but sensitive."
-    input: {}
-    output: { ok: boolean }
-    auth: { public: true }
-    sensitive: { quorum: true, description: "Public, still sensitive." }
 `);
 
 const NOW = new Date('2026-10-25T12:00:00.000Z');
@@ -84,7 +78,6 @@ async function serve(options: { manifest?: TectonManifest; verifier?: TokenVerif
     closeYear: async () => ({ ok: true }),
     approveRefund: async () => ({ ok: true }),
     rate: async () => ({ ok: true }),
-    publicDump: async () => ({ ok: true }),
   };
   registerActionRoutes(app, options.manifest ?? LEDGER, handlers, { verifier: options.verifier ?? ACCEPT, directUserCalls: true });
   await app.ready();
@@ -123,14 +116,14 @@ describe('sensitive.quorum without a KeyCustodyProvider (AC 3, AC 4, P1-011)', (
     assertNoSecretsLeaked(logs(), { input: 'secret-year-2026' });
   });
 
-  it('warns when the handler fails, and on 501 without a handler', async () => {
+  it('warns when the handler fails, but not on 501 without a handler (nothing ran, review P2)', async () => {
     const failing = await serve({ handlers: { exportBooks: async () => Promise.reject(new Error('boom')) } });
     expect((await failing.call('export-books', { year: '2026' })).statusCode).toBe(500);
     expect(failing.warnings(UNPROTECTED)).toHaveLength(1);
 
     const missing = await serve({ handlers: {} });
     expect((await missing.call('export-books', { year: '2026' })).statusCode).toBe(501);
-    expect(missing.warnings(UNPROTECTED)).toHaveLength(1);
+    expect(missing.warnings(UNPROTECTED)).toEqual([]);
   });
 
   it.each([
@@ -145,15 +138,25 @@ describe('sensitive.quorum without a KeyCustodyProvider (AC 3, AC 4, P1-011)', (
     expect(warnings(UNPROTECTED)).toEqual([]);
   });
 
-  it('does not warn for sensitive.quorum: false, approval or a plain public action; warns for a public sensitive.quorum one', async () => {
+  it('does not warn for sensitive.quorum: false, approval or a public action', async () => {
     const { call, warnings } = await serve();
 
     expect((await call('close-year')).statusCode).toBe(200);
     expect((await call('approve-refund')).statusCode).toBe(200);
     expect((await call('rate')).statusCode).toBe(200);
     expect(warnings(UNPROTECTED)).toEqual([]);
-    expect((await call('public-dump')).statusCode).toBe(200);
-    expect(warnings(UNPROTECTED)).toEqual([expect.objectContaining({ action: 'publicDump' })]);
+  });
+
+  it.each([
+    ['a quorum that is not a boolean', { quorum: 'true', description: 'x' }, { requires: ['ledger:export'] }],
+    ['a public quorum action', { quorum: true, description: 'x' }, { public: true }],
+  ])('refuses a hand-built manifest with %s (review P3, P6)', (_name, sensitive, auth) => {
+    const app = createTectonServer({ logger: false });
+    servers.push(app);
+    const action = LEDGER.actions[0] as TectonManifest['actions'][number];
+    const manifest = { ...LEDGER, actions: [{ ...action, sensitive, auth }] } as unknown as TectonManifest;
+
+    expect(() => registerActionRoutes(app, manifest, {}, { verifier: ACCEPT })).toThrow(/invalid sensitive.quorum.*exportBooks/);
   });
 
   it('warns once at startup, listing the unprotected actions', async () => {
@@ -163,10 +166,19 @@ describe('sensitive.quorum without a KeyCustodyProvider (AC 3, AC 4, P1-011)', (
       expect.objectContaining({
         level: 40,
         domain: 'ledger',
-        actions: ['exportBooks', 'publicDump'],
+        actions: ['exportBooks'],
         msg: 'sensitive.quorum actions run without quorum protection: no KeyCustodyProvider is configured',
       }),
     ]);
+  });
+
+  it('announces nothing for a registration that fails midway (review P8)', async () => {
+    const { app, warnings } = await serve();
+    expect(warnings('sensitive_quorum_unprotected_actions')).toHaveLength(1);
+
+    // The same routes again on the same app: Fastify refuses the duplicate.
+    expect(() => registerActionRoutes(app, LEDGER, {}, { verifier: ACCEPT })).toThrow();
+    expect(warnings('sensitive_quorum_unprotected_actions')).toHaveLength(1);
   });
 
   it('does not warn at startup without sensitive.quorum actions', async () => {
@@ -202,6 +214,7 @@ actions:
     });
     servers.push(app);
     registerActionRoutes(app, manifest, {}, { verifier: { verify: async () => ({ ...USER, permissions: ['tenant:export'] }) }, directUserCalls: true });
+    await app.ready();
 
     const response = await app.inject({
       method: 'POST',
@@ -211,7 +224,8 @@ actions:
     });
 
     expect(response.statusCode).toBe(501);
-    expect(lines.join('')).toContain('"event":"sensitive_quorum_unprotected","domain":"tenant","action":"exportTenantData"');
+    const startup = lines.map((line) => JSON.parse(line) as Record<string, unknown>).filter((entry) => entry['event'] === 'sensitive_quorum_unprotected_actions');
+    expect(startup).toEqual([expect.objectContaining({ domain: 'tenant', actions: ['exportTenantData'] })]);
   });
 });
 
@@ -260,8 +274,46 @@ actions:
     auth: { requires: [ledger:export] }
 `);
 
-    // An environment without TECTON_JWKS_URL: building the verifier would fail with another message.
-    await expect(startDomainServer({ manifestPath: file, port: 0, env: {}, keyCustody: provider })).rejects.toThrow(KEY_CUSTODY_NOT_SUPPORTED);
+    // A valid environment: in the wrong order the verifier would open Valkey and the service would
+    // listen, and no error would come.
+    const env = { TECTON_JWKS_URL: 'http://127.0.0.1:1/auth/.well-known/jwks.json', TECTON_ENV: 'development', TECTON_VALKEY_URL: 'redis://127.0.0.1:1' };
+    await expect(startDomainServer({ manifestPath: file, port: 0, env, keyCustody: provider })).rejects.toThrow(KEY_CUSTODY_NOT_SUPPORTED);
+  });
+
+  it('treats keyCustody: null from JavaScript as none (review P7)', () => {
+    const app = createTectonServer({ logger: false });
+    servers.push(app);
+
+    expect(() => registerActionRoutes(app, LEDGER, {}, { verifier: ACCEPT, keyCustody: null as unknown as KeyCustodyProvider })).not.toThrow();
+  });
+
+  it('starts a domain with sensitive.quorum actions and no provider through startDomainServer (AC 5)', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'tecton-quorum-'));
+    dirs.push(dir);
+    const file = join(dir, 'tecton.yaml');
+    writeFileSync(file, `manifestVersion: "0.1"
+domain: ledger
+version: 0.1.0
+description: "Ledger."
+actions:
+  - name: exportBooks
+    description: "Exports the books."
+    input: { year: string }
+    output: { url: string }
+    auth: { requires: [ledger:export] }
+    sensitive: { quorum: true, description: "Every entry of the year." }
+`);
+    const app = await startDomainServer({
+      manifestPath: file,
+      port: 0,
+      verifier: ACCEPT,
+      directUserCalls: true,
+      env: { TECTON_ENV: 'development' },
+      handlers: { exportBooks: () => ({ url: 'https://files.example/books' }) },
+    });
+    servers.push(app);
+
+    expect((await app.inject({ method: 'POST', url: '/ledger/export-books', payload: { year: '2026' } })).statusCode).toBe(200);
   });
 
   it('says why in English', () => {

@@ -107,7 +107,7 @@ x/n approval, chained audit) is roadmap.
 ```ts
 interface KeyCustodyProvider {
   requestAccess(operation: SensitiveOperation): Promise<CustodyDecision>;
-  decisionOf(requestId: string): Promise<CustodyDecision | undefined>;
+  decisionOf(requestId: string, operation: SensitiveOperation): Promise<CustodyDecision | undefined>;
 }
 // SensitiveOperation: { domain, action, resource, tenant?, requestedBy: { kind, subject, via? }, reason? }
 // CustodyDecision: { status: 'approved' } | { status: 'pending', requestId } | { status: 'denied', reason? }
@@ -117,12 +117,15 @@ interface KeyCustodyProvider {
   persistence adapter or the domain port asks for a decision right before it reads the key or the
   data. A guard bound to one route is bypassed by another service, a maintenance script or direct
   database access. No method receives an HTTP request, and `check:deps` forbids this package from
-  importing `fastify`, `@fastify/*`, `node:http`, `node:https` or `node:http2`.
+  importing an HTTP framework, server or client (`fastify` and its building blocks, `undici`,
+  `express`, `koa`, `hono`, `node:http`, `node:https`, `node:http2`).
 - `pending` goes back up from the data access to the route, which answers `202 Accepted`
   (`pending_approval`, FR-25). There is no 202 without a real pending approval.
 - An `approved` decision holds only for the exact operation submitted; it is never replayed for
-  another resource. The audit trail belongs to the provider.
-- **Without a provider**, `sensitive.quorum` actions run normally, and every execution is logged as
-  unprotected (`@tecton/core`). **With one**, a service refuses to start for now: no layer of the
+  another resource. `decisionOf` takes the operation again, and an implementation answers
+  undefined when the `requestId` was issued for another one. The audit trail belongs to the
+  provider.
+- **Without a provider**, `sensitive.quorum` actions run normally, and every execution through the
+  HTTP route is logged as unprotected (`@tecton/core`). **With one**, a service refuses to start for now: no layer of the
   framework asks the provider yet, and it never pretends to protect what it does not.
 

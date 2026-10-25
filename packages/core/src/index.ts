@@ -21,5 +21,5 @@ export {
 export { loadDomainManifest, startDomainServer, type DomainServerOptions } from './domain-server.js';
 export { frameworkErrors, TectonError, type InvalidParam } from './errors/tecton-error.js';
 export { buildOpenApiDocument } from './openapi.js';
-export { actionRoutePath, callPermissionFor, isPublicAction, KEY_CUSTODY_NOT_SUPPORTED, ON_BEHALF_OF_HEADER, registerActionRoutes, requireUser, type ActionContext, type ActionHandler, type ActionHandlers, type ActionRoutesOptions } from './routes.js';
+export { actionRoutePath, callPermissionFor, isPublicAction, ON_BEHALF_OF_HEADER, registerActionRoutes, requireUser, type ActionContext, type ActionHandler, type ActionHandlers, type ActionRoutesOptions } from './routes.js';
 export { createTectonServer, type TectonServerOptions } from './server.js';

@@ -52,13 +52,17 @@ export type CustodyDecision =
  *   tenant): an implementation must not let it be replayed for another resource.
  * - The audit trail belongs to the provider (a chained audit log is roadmap): callers do not log
  *   the decision themselves.
- * - Without a provider, `sensitive.quorum` actions run normally and every execution is logged as
- *   unprotected (FR-11). While no data-level interception exists, configuring a provider stops a
+ * - Without a provider, `sensitive.quorum` actions run normally and every execution through the
+ *   HTTP route is logged as unprotected (FR-11). While no data-level interception exists, configuring a provider stops a
  *   service at startup rather than pretend to protect anything (Story 2.8).
  */
 export interface KeyCustodyProvider {
   /** Asks for access to the protected data of `operation`. */
   requestAccess(operation: SensitiveOperation): Promise<CustodyDecision>;
-  /** The current decision of a pending request; undefined for an unknown `requestId`. */
-  decisionOf(requestId: string): Promise<CustodyDecision | undefined>;
+  /**
+   * The current decision of a pending request, for the same `operation` it was requested for:
+   * undefined for an unknown `requestId` or one issued for another operation (an implementation
+   * compares them, so a `requestId` never unlocks a different resource).
+   */
+  decisionOf(requestId: string, operation: SensitiveOperation): Promise<CustodyDecision | undefined>;
 }

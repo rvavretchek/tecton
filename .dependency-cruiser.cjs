@@ -29,6 +29,12 @@ function allowOnly(pkg, allowed) {
   };
 }
 
+// HTTP frameworks, servers and clients a port must never import (AD-1, FR-11). Fastify's own
+// building blocks are listed too: a port could reach a request through them.
+const HTTP_PACKAGE_NAMES = ['fastify', 'fastify-plugin', '@fastify/[^/]+', 'light-my-request', 'find-my-way', 'undici', 'express', 'koa', 'hono'];
+const HTTP_PACKAGES = HTTP_PACKAGE_NAMES.join('|');
+const HTTP_PACKAGES_TEXT = HTTP_PACKAGE_NAMES.map((name) => name.replace('[^/]+', '*')).join(', ');
+
 const KNOWN_PACKAGES = ['manifest', 'providers', 'ui', 'core', 'service-client', 'auth', 'directory', 'cli'];
 
 /** @type {import('dependency-cruiser').IConfiguration} */
@@ -53,10 +59,11 @@ module.exports = {
       // AD-1 and FR-11: ports never see an HTTP request. A KeyCustodyProvider tied to a route
       // would be bypassed by another service, a maintenance script or direct database access.
       name: 'providers-no-http-framework',
-      comment: 'AD-1: @tecton/providers must not import an HTTP framework or server (fastify, @fastify/*, node:http, node:https, node:http2)',
+      comment: `AD-1: @tecton/providers must not import an HTTP framework, server or client (${HTTP_PACKAGES_TEXT}, node:http, node:https, node:http2)`,
       severity: 'error',
       from: { path: '^packages/providers/' },
-      to: { path: '^(node:)?(http|https|http2)$|(^|/)fastify(/|$)|(^|/)@fastify/' },
+      // Resolved into node_modules (a declared dependency) or left unresolved (a bare name).
+      to: { path: `^(node:)?(http|https|http2)$|(^|/)node_modules/(${HTTP_PACKAGES})/|^(${HTTP_PACKAGES})(/|$)` },
     },
     {
       name: 'no-test-support-in-production',
@@ -88,7 +95,9 @@ module.exports = {
     doNotFollow: { path: 'node_modules' },
     // Generated Prisma clients (packages/*/src/generated) have internal import cycles of their own;
     // they are not Tecton code and import nothing from @tecton/*.
-    exclude: { path: '(^|/)(node_modules|dist)/|^packages/[^/]+/src/generated/' },
+    // node_modules stays in the graph as leaves (doNotFollow): excluding it would drop every
+    // import of an npm package, and the rule against HTTP packages in providers would never see one.
+    exclude: { path: '(^|/)dist/|^packages/[^/]+/src/generated/' },
     tsConfig: { fileName: 'tsconfig.depcruise.json' },
     tsPreCompilationDeps: true,
     enhancedResolveOptions: {

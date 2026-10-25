@@ -70,11 +70,19 @@ client retries instead of refreshing its session or logging the user out.
 An action marked `sensitive: { quorum: true }` runs normally when no `KeyCustodyProvider` is
 configured: no block, no `202`. The service says so every time:
 
-- at startup, once: `event: "sensitive_quorum_unprotected_actions"`, with the list of actions;
-- at every execution (the request reached the handler: after authentication and body
-  validation, also when the handler fails or answers 501): `event: "sensitive_quorum_unprotected"`,
-  with `domain` and `action` only (never the input, which may be the protected data). There is no
-  rate limit: FR-11 asks for one warning per execution.
+- once the routes are registered: `event: "sensitive_quorum_unprotected_actions"`, with the list
+  of actions;
+- at every execution through the HTTP route (right before the handler runs: after
+  authentication and body validation, also when the handler fails; not on a 501 without a
+  handler, where nothing ran): `event: "sensitive_quorum_unprotected"`, with `domain` and `action`
+  only (never the input, which may be the protected data). There is no rate limit: FR-11 asks for
+  one warning per execution. An action run another way (by an event, from a script) does not go
+  through this route and is not covered yet.
+
+Both are `warn` logs: a service without a logger, or with a level above `warn`, drops them.
+`startDomainServer` without a `logger` option logs nothing; the generated domain passes
+`logger: true`. A manifest refuses `sensitive.quorum` on a public action: quorum approval needs a
+verified caller.
 
 A `keyCustody` option given to `registerActionRoutes` or `startDomainServer` stops the service
 with `KeyCustodyProvider is not supported yet: ...`: quorum must be enforced at the level of data

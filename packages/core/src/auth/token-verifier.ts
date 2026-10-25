@@ -8,6 +8,7 @@ import {
   ValkeyConfigError,
   valkeyClientFromEnv,
   waitForValkeyReady,
+  type CustodyRequesterKind,
   type TokenRevocationStore,
   type ValkeyClient,
 } from '@tecton/providers';
@@ -36,8 +37,11 @@ export const JWKS_FAILURE_BACKOFF_MS = 5_000;
 /** Skew accepted between the clocks of the Auth service and this one (exp, iat). */
 export const CLOCK_TOLERANCE_SECONDS = 30;
 
-/** The two kinds of access token: a user (`typ: user`) and a service (`typ: service`, Story 2.7). */
-export type PrincipalKind = 'user' | 'service';
+/**
+ * The two kinds of access token: a user (`typ: user`) and a service (`typ: service`, Story 2.7).
+ * The same type as the requester of a custody request (Story 2.8): one definition, in providers.
+ */
+export type PrincipalKind = CustodyRequesterKind;
 
 /** Prefix of the subject of every service token: `service:<domain>`. */
 export const SERVICE_SUBJECT_PREFIX = 'service:';

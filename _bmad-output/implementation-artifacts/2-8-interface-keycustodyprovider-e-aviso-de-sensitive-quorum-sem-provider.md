@@ -4,7 +4,7 @@ baseline_commit: 892f4b1c488fc8825e712538096d0699f303af7f
 
 # Story 2.8: Interface `KeyCustodyProvider` e aviso de `sensitive.quorum` sem provider
 
-Status: review
+Status: done
 
 ## Story
 
@@ -17,7 +17,7 @@ para que a ausência de custódia nunca passe despercebida e a implementação f
 1. **Contrato documentado.** Dado a interface `KeyCustodyProvider` em `@tecton/providers`, quando eu leio a documentação do contrato (TSDoc e README do pacote), então ela diz, em inglês, que a interceptação de `sensitive.quorum` acontece no nível de acesso ao dado e nunca só num middleware de rota HTTP (FR-11).
 2. **Sem requisição HTTP por construção.** Nenhum método da interface recebe objeto de requisição HTTP: os parâmetros são só dados da operação. Um teste de tipos prova as assinaturas exatas, e uma regra nova do `check:deps` impede o `@tecton/providers` inteiro de importar `fastify`, `@fastify/*`, `node:http`, `node:https` e `node:http2`.
 3. **Executa sem provider.** Dado uma action `sensitive.quorum` e nenhum `KeyCustodyProvider` configurado, quando ela é chamada, então executa normalmente, sem bloquear e sem responder `202` (FR-11, com precedência sobre o FR-25).
-4. **Aviso a cada execução.** E cada execução registra um aviso em log, em inglês, com o domínio e o nome da action, dizendo que rodou sem proteção de quórum. "Execução" é chegar ao handler da rota: há aviso em 200, quando o handler lança erro e em 501 (sem handler); não há aviso em 400, 401, 403 nem 503, que param antes.
+4. **Aviso a cada execução.** E cada execução registra um aviso em log, em inglês, com o domínio e o nome da action, dizendo que rodou sem proteção de quórum. "Execução" é o handler da rota rodar: há aviso em 200 e quando o handler lança erro; não há aviso em 400, 401, 403, 503 nem 501 (sem handler, nada rodou; mudança do code review, P2).
 5. **O resto funciona.** Dado um serviço sem `KeyCustodyProvider` configurado, quando ele sobe, então todas as outras funções do framework funcionam normalmente: actions sem `sensitive`, com `sensitive.quorum: false`, com `approval`, públicas e protegidas, sem nenhuma mudança de resposta nem do documento OpenAPI.
 
 > **Nota (epics.md):** o aviso de build/CI do `tecton-admin lint` para `sensitive.quorum` sem provider é do Epic 6 (FR-17, Story 6.3). A implementação real (OpenBAO, quórum x/n, auditoria encadeada) é roadmap; o 202 com provider (falso) configurado é da Story 5.5.
@@ -69,7 +69,28 @@ para que a ausência de custódia nunca passe despercebida e a implementação f
   - [x] Fase vermelha por mutação (A3), no mínimo: aviso só na primeira execução; aviso no `onRequest` ou `preValidation` (avisaria em 400 ou 401); aviso depois do `if (!handler)` (perde o 501); aviso ausente em erro do handler; aviso sempre que existe `sensitive` (inclusive `quorum: false`); 202 sem provider; provider configurado aceito em silêncio; a regra nova do `check:deps` removida; uma assinatura da interface trocada (pelo `typecheck`).
 - [x] **T7. Verificação final**
   - [x] `pnpm build`, `typecheck`, `check:deps`, `lint:examples`, `validate:asyncapi`, `test`, `test:generation`, `test:containers` e `test:persistence` (no CI se o ubt-host02 não responder).
-  - [ ] Code review por story antes da retrospectiva do Epic 2 (retro A1).
+  - [x] Code review por story antes da retrospectiva do Epic 2 (retro A1).
+
+### Review Findings
+
+Code review de 2026-10-25 (Blind Hunter, Edge Case Hunter e Acceptance Auditor). 14 patches, 0 adiados, 3 descartados.
+
+- [x] [Review][Patch] P1 (alta) A regra `providers-no-http-framework` nunca dispara para `fastify` resolvido: o `exclude` do depcruise tira `node_modules` do grafo, e a fixture só passava porque lá o pacote não resolve. Tirar `node_modules` do `exclude` (o `doNotFollow` continua), ancorar os nomes de pacote em `node_modules/` ou no nome cru, cobrir `fastify-plugin`, `light-my-request`, `find-my-way`, `undici`, `express`, `koa`, `hono` e `http2`, e testar com um `fastify` resolvível [.dependency-cruiser.cjs]
+- [x] [Review][Patch] P2 Aviso no 501: sem handler, nada tocou o dado e o log diz que rodou sem proteção. Avisar só quando há handler (o AC 4 muda: o 501 não conta) [packages/core/src/routes.ts]
+- [x] [Review][Patch] P3 `auth.public` com `sensitive.quorum: true` é aceito pelo manifest: um quórum sem quem pede é incoerente e um aviso por chamada anônima enche o log. Recusar a combinação no `parseManifest` [packages/manifest/src/actions.ts]
+- [x] [Review][Patch] P4 Os avisos somem sem logger ou com nível acima de `warn` (o `startDomainServer` sem `logger` não registra nada): documentar no README do core [packages/core/README.md]
+- [x] [Review][Patch] P5 Os READMEs dizem "toda execução", mas o aviso só cobre a rota HTTP: ajustar a redação (o Epic 3 já está no W3 do Create Story) [packages/core/README.md, packages/providers/README.md]
+- [x] [Review][Patch] P6 Manifest montado à mão com `quorum` não booleano pula os dois avisos: recusar no registro, como as actions sem `requires` [packages/core/src/routes.ts]
+- [x] [Review][Patch] P7 `keyCustody: null` vindo de JavaScript é recusado com mensagem de provider configurado: tratar `null` como ausente (`!= null`) [packages/core/src/routes.ts, domain-server.ts]
+- [x] [Review][Patch] P8 O aviso da subida sai antes de registrar as rotas: se o registro falha, o log já anunciou actions que nunca serviram. Emitir depois do laço [packages/core/src/routes.ts]
+- [x] [Review][Patch] P9 `decisionOf(requestId)` não amarra a decisão à operação: quem tem o `requestId` poderia usar uma aprovação de outra operação. `decisionOf(requestId, operation)`, e a implementação compara [packages/providers/src/custody/key-custody-provider.ts]
+- [x] [Review][Patch] P10 A descrição de `sensitive` no schema do manifest promete aprovação que hoje não existe (agentes leem esse texto): dizer que roda e é registrada como sem proteção até o Custodiante existir [packages/manifest/src/schema.ts]
+- [x] [Review][Patch] P11 `KEY_CUSTODY_NOT_SUPPORTED` virou API pública do core para um estado provisório: deixar interno [packages/core/src/index.ts]
+- [x] [Review][Patch] P12 `CustodyRequesterKind` e `PrincipalKind` duplicados, presos só por um teste de tipos: o core passa a usar o tipo do providers [packages/core/src/auth/token-verifier.ts]
+- [x] [Review][Patch] P13 Asserção presa à ordem dos campos do JSON do log [packages/core/src/routes-quorum.test.ts]
+- [x] [Review][Patch] P14 Testes que faltam: recusa do `startDomainServer` com um ambiente válido (a ordem errada abriria Valkey e chegaria ao `listen`); subida sem provider com manifest `sensitive.quorum` pelo `startDomainServer`; mutações de aviso no `onRequest` e de aviso ausente em erro do handler [packages/core/src/routes-quorum.test.ts]
+
+Descartados (3): igualdade completa do documento OpenAPI (é o AC 5: nada muda para quem consome a API; o FR-25 da 5.5 mexe no teste); repasse do `keyCustody` com spread condicional no `startDomainServer` (a recusa vem antes; a 5.5 liga o repasse junto com a retirada da recusa, anotado no W1); `approved` sem prazo nem `requestId` (o prazo fica no banco do domínio na 5.5, e a amarração da decisão vem pelo P9).
 
 ## Dev Notes
 
@@ -133,12 +154,24 @@ Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
 - **T5:** READMEs do `@tecton/providers` e do `@tecton/core`; três itens no `deferred-work.md` (Stories 5.5 e 6.3, Epic 3).
 - **T6:** `routes-quorum.test.ts` (16), `key-custody-provider.test.ts` (3), caso novo do `check-deps.test.ts`.
 
+- **Code review (2026-10-25):** 3 revisores; 14 patches aplicados, 3 descartados. Os principais:
+  - **P1 (alta):** a regra `providers-no-http-framework` não pegava `fastify` resolvido, porque o `exclude` do depcruise tirava `node_modules` do grafo (a fixture só passava porque lá o pacote não resolve). O `exclude` agora só tira `dist` e os clientes Prisma gerados; o `doNotFollow` mantém `node_modules` como folhas (181 módulos). A regra ancora os nomes em `node_modules/` ou no nome cru e cobre também `fastify-plugin`, `light-my-request`, `find-my-way`, `undici`, `express`, `koa` e `hono`. Um teste monta um workspace temporário com `fastify` resolvível (o `node_modules` é ignorado pelo Git) e falha com o `exclude` antigo.
+  - **P2:** sem aviso no 501 (nada rodou); o AC 4 foi ajustado.
+  - **P3:** o manifest recusa `sensitive.quorum` em action pública; o registro recusa também em manifest montado à mão, junto com `quorum` não booleano (P6).
+  - **P7:** `keyCustody: null` conta como ausente. **P8:** o aviso da subida sai depois de registrar as rotas.
+  - **P9:** `decisionOf(requestId, operation)`: a decisão fica amarrada à operação.
+  - **P10:** a descrição de `sensitive` no schema do manifest diz o que acontece hoje. **P11:** `KEY_CUSTODY_NOT_SUPPORTED` não é mais API pública do core. **P12:** `PrincipalKind` é o `CustodyRequesterKind` do providers.
+  - READMEs: o aviso cobre só a rota HTTP; os avisos dependem de um logger em `warn` ou abaixo.
+  - Fase vermelha (A3): 22 mutações (as do Dev Story com as âncoras novas, mais as dos patches e as que o auditor achou faltando: aviso no `onRequest` e aviso só depois de sucesso), todas mortas. Duas sobreviveram na primeira rodada: uma mutação mal escrita (ainda avisava, só que depois do handler) e o P8, que ganhou um teste de registro que falha no meio (rota duplicada).
+- Verificação depois da revisão: `pnpm test` 63 arquivos, 1107 testes; `test:generation` 3; build, typecheck, `check:deps` (181 módulos), `lint:examples` e `validate:asyncapi` limpos.
+
 ### File List
 
 - `packages/providers/src/custody/key-custody-provider.ts`, `key-custody-provider.test.ts` (novos)
 - `packages/providers/src/index.ts`, `packages/providers/README.md` (modificados)
 - `packages/core/src/routes.ts`, `domain-server.ts`, `index.ts`, `packages/core/README.md` (modificados)
-- `packages/core/src/routes-quorum.test.ts` (novo)
+- `packages/core/src/routes-quorum.test.ts` (novo); `packages/core/src/auth/token-verifier.ts` (modificado, P12)
+- `packages/manifest/src/actions.ts`, `actions.test.ts`, `schema.ts` (modificados, P3 e P10)
 - `.dependency-cruiser.cjs`, `tools/check-deps/check-deps.test.ts` (modificados)
 - `tools/check-deps/fixtures/providers-http/` (novo)
 - `_bmad-output/implementation-artifacts/deferred-work.md` (modificado)
@@ -148,3 +181,4 @@ Claude Opus 5.5 (claude-opus-5-5), Dev Story do BMAD.
 - 2026-10-24: Story criada (Create Story); decisão do Boss: provider configurado recusa a subida.
 - 2026-10-25: Validate Story: 17 achados aplicados (regra nova do `check:deps`, P1-011 e consumidores 4.2/5.5/6.3, lugar exato do aviso, aviso da subida, mensagem e ordem da recusa, `quorum: false`, teste de tipos no `typecheck`, assinaturas exatas, tenant e serviço chamador, TSDoc de decisão e auditoria, OpenAPI inalterado, campos do log).
 - 2026-10-25: Dev Story concluída (T1 a T7, salvo o code review); status `review`.
+- 2026-10-25: Code review: 14 patches aplicados, 3 descartados; status `done`.
