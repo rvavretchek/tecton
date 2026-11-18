@@ -57,7 +57,7 @@ export async function authBootstrapCommand(
     return 1;
   };
 
-  const databaseUrl = env[AUTH_DATABASE_URL_VARIABLE];
+  const databaseUrl = env[AUTH_DATABASE_URL_VARIABLE]?.trim();
   if (!databaseUrl) return fail(`${AUTH_DATABASE_URL_VARIABLE} is not set; point it to the Auth database`);
   let pepper: Pepper;
   let password: string;

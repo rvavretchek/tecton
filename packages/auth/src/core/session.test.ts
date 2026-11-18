@@ -55,6 +55,7 @@ function setup() {
   };
   const onReuseDetected = vi.fn();
   const onCorruptCredential = vi.fn();
+  const onInactiveCredential = vi.fn();
   const deps: SessionDependencies = {
     refreshTokens: memory.store,
     credentials,
@@ -63,8 +64,10 @@ function setup() {
     refreshTtlSeconds: WEEK,
     onReuseDetected,
     onCorruptCredential,
+    onInactiveCredential,
   };
   return {
+    onInactiveCredential,
     deps,
     clock,
     memory,
@@ -194,6 +197,22 @@ describe('session rotation (Story 2.3, AC 2 to 5)', () => {
 
     await refuse(refreshSession(deps, first.refreshToken));
     expect(memory.families()[0]?.revokedReason).toBe('inactive');
+  });
+
+  it('reports the subject of a disabled credential once (its access tokens get revoked), never a removed or active one (Epic 2 integration review)', async () => {
+    const { deps, onInactiveCredential, setCredential } = setup();
+    const disabled = await openSession(deps, credentialOf());
+    const removed = await openSession(deps, credentialOf());
+    const active = await openSession(deps, credentialOf());
+
+    await refreshSession(deps, active.refreshToken);
+    setCredential(credentialOf({ status: 'disabled' }));
+    await refuse(refreshSession(deps, disabled.refreshToken));
+    setCredential(undefined);
+    await refuse(refreshSession(deps, removed.refreshToken));
+
+    expect(onInactiveCredential).toHaveBeenCalledTimes(1);
+    expect(onInactiveCredential).toHaveBeenCalledWith('0192a6b2-7c4e-7a10-9d3f-0a1b2c3d4e5f');
   });
 
   it('refuses a corrupt credential like an inactive one, reporting it', async () => {

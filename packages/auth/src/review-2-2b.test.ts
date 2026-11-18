@@ -231,3 +231,13 @@ describe('P12: conditional re-hash', () => {
     expect(update).toHaveBeenCalledWith(credential.id, 'new-hash', expect.any(Date), credential.passwordHash);
   });
 });
+
+describe('Epic 2 integration review: revocation lifetime', () => {
+  it('covers the longest token the Auth service signs, plus the rotation lead', async () => {
+    const { revocationLifetimeSeconds } = await import('./service.js');
+
+    expect(revocationLifetimeSeconds(900, 300)).toBe(910);
+    expect(revocationLifetimeSeconds(60, 900)).toBe(910);
+    expect(revocationLifetimeSeconds(3600, 900)).toBe(3610);
+  });
+});

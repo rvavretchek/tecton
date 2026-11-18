@@ -236,10 +236,10 @@ Cada linha é um grupo de cenários; a coluna "Qtde" é a estimativa de casos. O
 | **P0-014** | JWKS `https` obrigatório fora do dev; redirecionamento para outro host recusado; Auth fora e cache vazio → rejeita (2.4) | Integration | R-02, R-09 | 4 | `jwksTls` |
 | **P0-015** | Revogação por `jti` e por sujeito, TTL = restante, logout revoga access, reuso de refresh revoga access (2.5) | Integration | — | 6 | |
 | **P0-016** | Lockout: N falhas, 429 + `Retry-After` mesmo com senha correta, identificador inexistente igual, várias origens, sucesso zera, `unlock`, log sem senha (2.6) | Integration | R-17 | 8 | |
-| **P0-017** | Registro de serviço só com `auth:service:register`; sem sobrescrever sem `--rotate`; rotação revoga antigos e seus tokens (2.7) | Integration | R-01 | 4 | |
-| **P0-018** | Token de serviço `typ: service`, sem refresh, recusado em login/refresh (2.7) | Integration | R-01 | 3 | |
-| **P0-019** | `Tecton-On-Behalf-Of`: dois tokens verificados, `requires` contra o usuário (ou contra o serviço sem usuário), um inválido → 401 (2.7) | Integration | R-01 | 4 | |
-| **P0-020** | `call:<domínio>` exigido; domínio fora de `dependencies` → 403 mesmo com usuário válido; token de usuário sozinho → 401 fora de `TECTON_ENV=development` (emenda AD-7 de 2026-10-24) (2.7) | Integration | R-01 | 3 | |
+| **P0-017** | Registro de serviço só com `auth:service:register`; sem sobrescrever sem `--rotate`; rotação revoga antigos e seus tokens (2.7a) | Integration | R-01 | 4 | |
+| **P0-018** | Token de serviço `typ: service`, sem refresh, recusado em login/refresh (2.7a) | Integration | R-01 | 3 | |
+| **P0-019** | `Tecton-On-Behalf-Of`: dois tokens verificados, `requires` contra o usuário (ou contra o serviço sem usuário), um inválido → 401 (2.7b) | Integration | R-01 | 4 | |
+| **P0-020** | `call:<domínio>` exigido; domínio fora de `dependencies` → 403 mesmo com usuário válido; token de usuário sozinho → 401 fora de `TECTON_ENV=development` (emenda AD-7 de 2026-10-24) (2.7b) | Integration | R-01 | 3 | |
 | **P0-021** | OTel: `Authorization`, tokens, senhas e cookies nunca em span ou log (3.3) | Integration | — | 2 | |
 | **P0-022** | Gateway: 401 sem encaminhar; token do usuário intacto em `Tecton-On-Behalf-Of` e token de serviço do Gateway em `Authorization` (emenda AD-7 de 2026-10-24); remoção do `Tecton-On-Behalf-Of`/`x-user-id` do cliente; `/auth/` sem troca de cabeçalhos; sem transformação; 404 em prefixo desconhecido (3.6) | API | R-01 | 7 | |
 | **P0-023** | Rate limit: `X-Forwarded-For` só de proxy confiável; Valkey fora → passa com aviso limitado (3.7) | Integration | R-22, R-09 | 3 | |
@@ -493,3 +493,11 @@ TECTON_TEST_DB=mariadb pnpm test:persistence   # arquivos *.persistence.test.ts 
 
 **Gerado por:** BMad TEA Agent
 **Workflow:** `bmad-testarch-test-design`
+
+## Nota do review de integração do Epic 2 (2026-10-25)
+
+- **Convenção de priorização em uso:** os testes citam o ID do cenário no título (`P0-010`, `P1-011`), e `pnpm vitest run -t "P0-0"` seleciona os P0. As tags `@P0` do Apêndice A não foram adotadas (o `tests/README.md` foi atualizado).
+- **P0-001** (varredura Zero Trust gerada) passou a existir no Epic 2: `packages/core/src/zero-trust-sweep.test.ts` percorre todos os manifests do repositório e cobra 401 sem token, com token forjado e com token de usuário sozinho em toda action protegida.
+- **Fixtures de entrada:** `clock`, `toxiproxy` (`startFaultLab`) e `jwksTls` existem; `capturedOutput` global (P0-003) continua com a Story 3.3 e o `withDependencyDown` por nome (`'valkey'`, `'jwks'`) continua adiado (W1 e W3 do Epic 1).
+- **Critério de cobertura (80%, 90% em segurança):** ainda não é medido no CI (adiado no `deferred-work.md`).
+- As referências "(2.2)" de P0-006 e P0-007 valem para 2.2b; "(2.7)" foi trocado por 2.7a e 2.7b.

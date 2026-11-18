@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createTectonServer, frameworkErrors, loadDomainManifest, registerActionRoutes, type TectonServerOptions } from '@tecton/core';
+import { createTectonServer, frameworkErrors, loadDomainManifest, LOG_REDACTION, registerActionRoutes, type TectonServerOptions } from '@tecton/core';
 import {
   closeValkeyClient,
   createArgon2idAuthProvider,
@@ -29,6 +29,7 @@ import {
   InvalidServiceRegistrationError,
   issueServiceToken,
   registerService,
+  MAX_ROTATION_LEAD_MS,
   RotationTooSoonError,
   ServiceAlreadyRegisteredError,
   type ServiceCredentialStore,
@@ -73,10 +74,10 @@ export const LOGOUT_PATH = '/auth/logout';
 export const SERVICE_TOKEN_PATH = '/auth/service-token';
 export const REGISTER_SERVICE_PATH = '/auth/register-service';
 
-/** Responses carrying or revoking tokens, never to be cached. */
 /** How long the service waits for Valkey at startup before listening anyway. */
 const VALKEY_READY_WAIT_MS = 2_000;
 
+/** Responses carrying or revoking tokens, never to be cached. */
 const NO_STORE_PATHS = new Set([LOGIN_PATH, REFRESH_PATH, LOGOUT_PATH, SERVICE_TOKEN_PATH, REGISTER_SERVICE_PATH]);
 
 /** Name and code of an error, never its message, which may carry query or connection details. */
@@ -87,7 +88,19 @@ function safeError(error: unknown): { name: string; code?: string } {
 }
 
 /** Never logged: credentials and tokens travel in these headers. */
-export const LOG_REDACTION = ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]'];
+/** The redaction list of every Tecton service (`@tecton/core`), re-exported for the Auth service. */
+export { LOG_REDACTION };
+
+/**
+ * How long a revocation must last in the store of the Auth service: the longest token it signs.
+ * A subject revocation (logout, refresh reuse, service credential rotation) must outlive user and
+ * service tokens alike, plus the lead a rotation may date the new service tokens ahead
+ * (Epic 2 integration review: with a service TTL above the user TTL, a rotation's revocation
+ * expired while the old service tokens still lived).
+ */
+export function revocationLifetimeSeconds(accessTokenTtlSeconds: number, serviceTokenTtlSeconds: number): number {
+  return Math.max(accessTokenTtlSeconds, serviceTokenTtlSeconds) + Math.ceil(MAX_ROTATION_LEAD_MS / 1000);
+}
 
 export interface AuthServiceOptions {
   store: CredentialStore;
@@ -144,7 +157,7 @@ export async function createAuthService({
   }
   // Verified when the login does not exist: same Argon2id cost as a real account (P0-006).
   const dummyHash = await auth.hashPassword(randomBytes(32).toString('base64'));
-  const app = createTectonServer(logger === undefined ? {} : { logger });
+  const app = createTectonServer({ ...(logger === undefined ? {} : { logger }), safeErrorLogs: true });
   const corruptCredential = (at: string) => (error: unknown) => app.log.warn({ err: safeError(error) }, `corrupt credential refused at ${at}`);
   const sessions: SessionDependencies = {
     refreshTokens,
@@ -153,6 +166,12 @@ export async function createAuthService({
     clock,
     refreshTtlSeconds,
     onCorruptCredential: corruptCredential('refresh'),
+    // A refresh refused because the credential is no longer active: the access tokens already
+    // issued to it stop working everywhere too, not only at their expiry.
+    onInactiveCredential: async (subject) => {
+      app.log.warn({ event: 'auth.refresh_token.inactive_credential', subject }, 'refresh refused for an inactive credential; its access tokens are revoked');
+      await revocations.revokeSubject({ subject, at: clock.now() });
+    },
     // Security event (AC 4 of 2.3): the family and the subject, never the token or its hash. The
     // access tokens of the subject issued until now are revoked too (Story 2.5, AC 6).
     onReuseDetected: async ({ familyId, subject }) => {
@@ -261,8 +280,6 @@ export async function createAuthService({
             // Security event (AC 6): the identifier and the duration, never a password.
             onLocked: ({ identifier, lockSeconds }) =>
               app.log.warn({ event: 'auth.login.locked', identifier, lockSeconds }, 'login locked after too many failures'),
-            onClearFailuresFailure: (error) =>
-              app.log.warn({ event: 'auth.login.clear_failures_failed', err: safeError(error) }, 'failure count not cleared after a successful login'),
             onRehashFailure: (error) => app.log.warn({ err: safeError(error) }, 'password re-hash after login failed'),
             onCorruptCredential: corruptCredential('login'),
           },
@@ -348,7 +365,7 @@ export async function createAuthService({
  * TECTON_AUTH_DATABASE_URL, TECTON_AUTH_PEPPER(_ID), TECTON_AUTH_PREVIOUS_PEPPERS,
  * TECTON_AUTH_SIGNING_KEY, TECTON_AUTH_PREVIOUS_PUBLIC_KEYS, TECTON_AUTH_NEXT_PUBLIC_KEYS,
  * TECTON_AUTH_ISSUER, TECTON_AUTH_AUDIENCE, TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS,
- * TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS, TECTON_VALKEY_URL (token revocation and login lockout,
+ * TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS, TECTON_AUTH_SERVICE_TOKEN_TTL_SECONDS, TECTON_VALKEY_URL (token revocation and login lockout,
  * required), TECTON_VALKEY_TIMEOUT_MS, TECTON_AUTH_LOCKOUT_MAX_FAILURES,
  * TECTON_AUTH_LOCKOUT_WINDOW_SECONDS, TECTON_AUTH_LOCKOUT_DURATION_SECONDS, PORT and HOST.
  * If anything fails after the database client is created, it is closed before the error propagates.
@@ -365,12 +382,13 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
   const { port, host } = listenSettingsFromEnv(env);
   const auth = createArgon2idAuthProvider({ peppers: [pepper, ...previousPeppers], currentPepperId: pepper.id });
   const issuer = createAccessTokenIssuer({ keys, clock: systemClock, ...tokens });
+  const serviceTokenTtl = serviceTokenTtlFromEnv(env);
   const serviceTokens = createServiceTokenIssuer({
     keys,
     clock: systemClock,
     issuer: tokens.issuer,
     audience: tokens.audience,
-    ttlSeconds: serviceTokenTtlFromEnv(env),
+    ttlSeconds: serviceTokenTtl,
   });
   // One database client for both stores; it disconnects once, when the app closes.
   const client = createAuthPrismaClient(databaseUrl);
@@ -383,7 +401,11 @@ export async function startAuthServiceFromEnv(env: NodeJS.ProcessEnv = process.e
     // One Valkey connection for revocation and lockout, opened in the background inside the try:
     // a failure closes it. Subject revocations last as long as the longest access token issued.
     valkey = valkeyClientFromEnv(env, { onError: (error) => app?.log.warn({ reason: error.message }, 'Valkey connection error') });
-    const revocations = createValkeyTokenRevocationStore({ client: valkey, shared: true, maxTokenLifetimeSeconds: tokens.ttlSeconds });
+    const revocations = createValkeyTokenRevocationStore({
+      client: valkey,
+      shared: true,
+      maxTokenLifetimeSeconds: revocationLifetimeSeconds(tokens.ttlSeconds, serviceTokenTtl),
+    });
     const lockout = createValkeyLoginLockout({ client: valkey, shared: true, ...lockoutPolicy });
     app = await createAuthService({
       store,

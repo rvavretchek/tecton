@@ -293,6 +293,8 @@ Toda resposta de erro segue RFC 9457 (`type`/`title`/`status`/`detail`/`instance
 - Erro de autorização negada, recurso não encontrado, ou erro interno também retorna o formato base RFC 9457 (`type`/`title`/`status`/`detail`/`instance`), sem o campo `invalid-params` — exclusivo de erro de validação de input.
 - Um erro do framework (ex.: token inválido, validação de manifest) sem `Accept-Language` reconhecido retorna `title`/`detail` em Português do Brasil por padrão, nunca falha por falta de locale.
 
+> **Nota (2026-10-25, Stories 2.7b e 2.8):** emenda do AD-7 de 2026-10-24: o Gateway repassa o token do usuário intacto em `Tecton-On-Behalf-Of` e põe o próprio token de serviço (`service:gateway`) em `Authorization`; um domínio recusa token de usuário sozinho fora de `TECTON_ENV=development`. Isso atualiza o FR-12. E, até a Story 5.5, um `KeyCustodyProvider` configurado impede a subida do serviço (o FR-11 continua: sem provider, executa com aviso).
+
 #### FR-25: Estado pendente como 202 Accepted dedicado
 Ação `sensitive.quorum`/`approval` pendente retorna `202 Accepted` com `{ status: "pending_approval", requestId, pollUrl }` — nunca usa o formato de erro. Aplica-se apenas quando existe aprovação real pendente — quórum com `KeyCustodyProvider` configurado, ou `approval` de negócio (que nunca depende de provider); sem provider configurado, `sensitive.quorum` segue a FR-11 (executa normalmente com aviso), não este fluxo.
 

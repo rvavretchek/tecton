@@ -44,7 +44,7 @@ export {
   type ServiceTokenIssuer,
 } from './core/service-credential.js';
 export type { AccessTokenIssuer, IssuedAccessToken } from './core/access-token.js';
-export { InvalidCredentialsError, login, type LoginDependencies, type LoginRequest } from './core/login.js';
+export { InvalidCredentialsError, login, LoginLockedError, type LoginDependencies, type LoginRequest } from './core/login.js';
 export { generateRefreshToken, hashRefreshToken, isWellFormedRefreshToken, REFRESH_TOKEN_BYTES } from './core/refresh-token.js';
 export {
   REFRESH_REVOCATION_REASONS,
@@ -90,4 +90,4 @@ export {
   tokenSettingsFromEnv,
   type TokenSettings,
 } from './adapters/env/config-from-env.js';
-export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOGIN_PATH, LOGOUT_PATH, LOG_REDACTION, REFRESH_PATH, REGISTER_SERVICE_PATH, SERVICE_TOKEN_PATH, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';
+export { AUTH_MANIFEST_PATH, createAuthService, JWKS_PATH, LOGIN_PATH, LOGOUT_PATH, LOG_REDACTION, REFRESH_PATH, REGISTER_SERVICE_PATH, revocationLifetimeSeconds, SERVICE_TOKEN_PATH, startAuthServiceFromEnv, type AuthServiceApp, type AuthServiceOptions } from './service.js';

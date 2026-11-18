@@ -240,6 +240,28 @@ describe('Story 2.7a review fixes', () => {
     expect(await rotatedAuth.verifyPassword(secret, after?.secretHash ?? '')).toEqual({ valid: true, needsRehash: false });
   });
 
+  it('a concurrent re-hash after a Pepper rotation does not refuse the request in flight (Epic 2 integration review)', async () => {
+    const rotatedAuth = createArgon2idAuthProvider({
+      peppers: [{ id: '1', key: Buffer.from('service-credential-pepper-32-bytes', 'utf8') }, { id: '2', key: Buffer.from('service-credential-pepper-two-32-by', 'utf8') }],
+      currentPepperId: '2',
+    });
+    const { register, services, tokens, issued } = setup();
+    const { secret } = await register({ domain: 'billing' });
+    // Another replica re-hashes the same secret while this request verifies it.
+    const racing = {
+      ...rotatedAuth,
+      verifyPassword: async (password: string, hash: string) => {
+        const result = await rotatedAuth.verifyPassword(password, hash);
+        await services.store.updateSecretHash('billing', await rotatedAuth.hashPassword(password), hash);
+        return result;
+      },
+    };
+
+    await issueServiceToken({ services: services.store, auth: racing, tokens, dummyHash: 'x' }, { serviceId: 'billing', secret });
+
+    expect(issued).toHaveLength(1);
+  });
+
   it('P5: a failed re-hash is reported and the token is still issued', async () => {
     const rotatedAuth = createArgon2idAuthProvider({
       peppers: [{ id: '1', key: Buffer.from('service-credential-pepper-32-bytes', 'utf8') }, { id: '2', key: Buffer.from('service-credential-pepper-two-32-by', 'utf8') }],

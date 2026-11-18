@@ -96,7 +96,7 @@ at startup when a setting is missing or invalid:
 | Variable | Meaning |
 |---|---|
 | `TECTON_JWKS_URL` | JWKS of the Auth service, e.g. `https://auth.internal/auth/.well-known/jwks.json`. Must be `https`, except in development |
-| `TECTON_ENV` | only `development` allows an `http` JWKS URL; anything else, or no value, means production rules |
+| `TECTON_ENV` | only `development` allows an `http` JWKS URL and a user token alone; anything else, or no value, means production rules |
 | `TECTON_AUTH_ISSUER`, `TECTON_AUTH_AUDIENCE` | expected `iss` and `aud`; defaults `urn:tecton:auth` and `urn:tecton:api`, the same as the Auth service |
 | `TECTON_JWKS_CA_FILE` | optional PEM file of the CA that signs the JWKS certificate, trusted for that request only |
 | `TECTON_VALKEY_URL` | Valkey of the token revocations (`redis://` or `rediss://`); required |
@@ -104,6 +104,14 @@ at startup when a setting is missing or invalid:
 
 In a generated workspace these come from the workspace `.env` (shared, no secrets), and the
 domain's own database from `apps/domains/<domain>/.env`.
+
+### Logs
+
+Every service redacts both credentials of a call: `LOG_REDACTION` hides `Authorization`,
+`Tecton-On-Behalf-Of`, cookies and `set-cookie`. `startDomainServer` applies it to `logger: true`
+and to a logger object without its own `redact`. Unexpected errors (500) are logged in full by
+default; `createTectonServer({ safeErrorLogs: true })` logs only their name and code, as the Auth
+service does (an error message may carry a connection string).
 
 ### Revocation (Story 2.5)
 

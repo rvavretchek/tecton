@@ -57,6 +57,8 @@ export interface SessionDependencies extends OpenSessionDependencies {
   /** Called once for every reuse detected, including a replay into an already revoked family. */
   /** Awaited before the refresh is refused: the response never goes out before what it triggers. */
   onReuseDetected?: (event: RefreshReuseEvent) => void | Promise<void>;
+  /** A refresh refused because the credential exists but is not active (disabled): its subject. */
+  onInactiveCredential?: (subject: string) => void | Promise<void>;
   /** Called when the credential of a session is corrupt; the refresh is refused. */
   onCorruptCredential?: (error: InvalidCredentialError) => void;
 }
@@ -87,6 +89,7 @@ export async function refreshSession(dependencies: SessionDependencies, presente
   const now = clock.now();
   const next = newToken(now);
   let access: IssuedAccessToken | undefined;
+  let inactiveSubject: string | undefined;
   // Runs inside the rotation: a failing lookup or signature undoes it, so the client can retry
   // with the same cookie instead of being logged out as a reuse.
   const rotation = await refreshTokens.rotate(hashRefreshToken(presented), next.stored, now, async (family) => {
@@ -98,6 +101,7 @@ export async function refreshSession(dependencies: SessionDependencies, presente
       dependencies.onCorruptCredential?.(error);
       credential = undefined;
     }
+    if (credential && credential.status !== 'active') inactiveSubject = credential.id;
     if (!credential || credential.status !== 'active') return false;
     access = await issuer.issue(credential);
     return true;
@@ -106,6 +110,7 @@ export async function refreshSession(dependencies: SessionDependencies, presente
   if (rotation.kind === 'reused' || (rotation.kind === 'revoked' && rotation.tokenWasUsed)) {
     await dependencies.onReuseDetected?.({ familyId: rotation.family.id, subject: rotation.family.credentialId });
   }
+  if (inactiveSubject !== undefined) await dependencies.onInactiveCredential?.(inactiveSubject);
   if (rotation.kind !== 'rotated' || !access) throw new InvalidRefreshTokenError();
   return { access, refresh: { refreshToken: next.token, expiresAt: rotation.family.expiresAt } };
 }

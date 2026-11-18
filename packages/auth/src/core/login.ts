@@ -1,4 +1,4 @@
-import { LoginLockoutUnavailableError, type AuthProvider, type Clock, type LoginLockout } from '@tecton/providers';
+import type { AuthProvider, Clock, LoginLockout } from '@tecton/providers';
 import type { AccessTokenIssuer } from './access-token.js';
 import { InvalidCredentialError, InvalidLoginError, normalizeLogin, type Credential } from './credential.js';
 import type { CredentialStore } from './credential-store.js';
@@ -40,8 +40,6 @@ export interface LoginDependencies {
   lockout: LoginLockout;
   /** Called when a failure locks the identifier (security event). */
   onLocked?: (event: { identifier: string; lockSeconds: number }) => void;
-  /** Called when clearing the failure count after a successful login fails; the login still succeeds. */
-  onClearFailuresFailure?: (error: unknown) => void;
   /**
    * A hash made at startup with the current AuthProvider, verified when the login does not exist,
    * so Argon2id costs the same whether the account exists or not.
@@ -101,13 +99,10 @@ export async function login(dependencies: LoginDependencies, request: LoginReque
     throw new InvalidCredentialsError();
   }
   // Success clears the count of the identifier that was checked, never a lock set meanwhile. A
-  // Valkey failure here must not refuse a verified password: the count just stays (AC 5).
-  try {
-    await lockout.clearFailures(normalized as string);
-  } catch (error) {
-    if (!(error instanceof LoginLockoutUnavailableError)) throw error;
-    dependencies.onClearFailuresFailure?.(error);
-  }
+  // failure here is a 503, like a failed count after a wrong password (Epic 2 integration review,
+  // Boss decision): a Valkey that serves reads but refuses writes must not answer 200 to the right
+  // password and 503 to the wrong ones, which would let anyone guess with no lockout at all.
+  await lockout.clearFailures(normalized as string);
 
   if (verification.needsRehash) {
     try {

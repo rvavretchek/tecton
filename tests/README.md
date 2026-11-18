@@ -28,7 +28,7 @@ strategy behind it (risks, priorities, coverage) is in
 Useful variants:
 
 ```bash
-pnpm vitest run -t "@P0"                          # only P0 tests
+pnpm vitest run -t "P0-0"                         # tests named after a P0 scenario of the Test Design
 pnpm vitest packages/manifest                     # watch mode for one package
 TECTON_TEST_DB=mariadb pnpm test:persistence      # one engine locally
 pnpm exec playwright test --project=e2e --headed  # watch the browser
@@ -59,20 +59,28 @@ Tests never go to `dist/`: every package `tsconfig.json` excludes `*.test.ts`.
 | `startValkey()` | Ephemeral Valkey 9.1 | — |
 | `startFaultLab()` + `withDependencyDown()` | Toxiproxy between service and dependency; takes the dependency down inside a callback | ASR-2, R-09 |
 | `assertNoSecretsLeaked()` | Fails when a password, Pepper, key or token shows up in captured output | P0-003 |
+| `createTestSigningKey()`, `ed25519KeyPairPem()` | Ed25519 keys (JWK with `kid`, or PEM) for signing test tokens | P0-005 |
+| `tokenFactory()` | Valid user and service tokens, and every forgery of the Test Design (`forged()`) | P0-010, P0-011 |
+| `jwksTls()`, `createTestCertificates()` | JWKS served over TLS with a throwaway CA, with failure modes (redirect, slow, huge, invalid) | ASR-4, P0-014 |
+| `createMemoryTokenRevocationStore()` | In-memory `TokenRevocationStore` with the Valkey adapter's rules; can be made unavailable | P0-015 |
+| `createMemoryLoginLockout()` | In-memory `LoginLockout` with the Valkey adapter's rules; can fail chosen calls | P0-016 |
 | `uniqueSuffix()`, `kebabName()`, `fakeEmail()` | Synthetic, collision-free data | — |
 
 Planned additions, delivered by the stories that need them:
 
-- `jwksTls` (self-signed TLS for JWKS in tests): Story 2.4 (ASR-4).
-- `tokenFactory` (valid and forged tokens): Story 2.2 / 2.4.
 - Relay and consumer crash seams: Stories 3.11 / 3.12 (ASR-3).
 - `tectonStack()` (Auth + Directory + Gateway with registered keys): start of Epic 4 (ASR-5).
 - Domain factories (credentials, tenants, users, manifests): with each entity's story.
 
 ## Writing tests
 
-- **Priority tags in the title:** `@P0`, `@P1`, `@P2`, `@P3`, plus a type tag where useful
-  (`@Security`, `@API`). Priority comes from the risk register, not from when a test runs.
+- **Test Design IDs in the title:** a test that covers a scenario of the Test Design names it
+  (`P0-010`, `P1-011`), so `-t "P0-0"` selects the P0 ones. Priority comes from the risk register,
+  not from when a test runs. (The `@P0` tags first planned were never adopted; the IDs replaced
+  them in Epic 2.)
+- **Fixtures follow the production path** (Epic 2 retrospective, B2): a package resolved as
+  production resolves it, a store per test (never shared mutable state), and the edge instant
+  (same second, a burst) tested, never hidden by a `clock.advance`.
 - **Given/When/Then** in the test name or structure, matching the story's acceptance criteria.
 - **Isolation:** every test creates its own data (own Tenant once the Directory exists);
   containers are per suite and discarded afterwards. No shared mutable state between tests.

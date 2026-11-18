@@ -108,8 +108,8 @@ their own, never this one, so no domain can sign a token.
 | `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS` | optional: public keys of previous signing keys (PEM SPKI blocks), still verifying older tokens |
 | `TECTON_AUTH_NEXT_PUBLIC_KEYS` | optional: public key of the next signing key, published before it signs (rotation step 1) |
 | `TECTON_AUTH_PREVIOUS_PEPPERS` | optional: Peppers kept after a Pepper rotation, as JSON `{"<id>": "<value>"}`; their hashes keep verifying and are re-hashed at the next login |
-| `TECTON_AUTH_ISSUER` | `iss` claim; default `urn:tecton:auth` |
-| `TECTON_AUTH_AUDIENCE` | `aud` claim, one audience for the whole workspace; default `urn:tecton:api` |
+| `TECTON_AUTH_ISSUER` | `iss` claim; default `urn:tecton:auth`. Must match every domain: set it in the workspace `.env`, never in `apps/auth/.env` alone |
+| `TECTON_AUTH_AUDIENCE` | `aud` claim, one audience for the whole workspace; default `urn:tecton:api`. Same rule as the issuer |
 | `TECTON_AUTH_ACCESS_TOKEN_TTL_SECONDS` | access token lifetime, 60-3600; default 900 (15 minutes) |
 | `TECTON_AUTH_SERVICE_TOKEN_TTL_SECONDS` | service token lifetime, 60-900; default 300 (5 minutes) |
 | `TECTON_AUTH_REFRESH_TOKEN_TTL_SECONDS` | fixed lifetime of a session (refresh token family), 3600-7776000; default 604800 (7 days) |
@@ -172,7 +172,12 @@ If the database fails, the answer is 500 but the cookie is cleared anyway.
 
 A refresh whose credential lookup or token signing fails answers 500 and does not use up the
 cookie: retrying with it works.
-Login, refresh and logout responses carry `Cache-Control: no-store`.
+Login, refresh, logout, `service-token` and `register-service` responses carry
+`Cache-Control: no-store` and `Pragma: no-cache`.
+
+A refresh refused because the credential is no longer active (disabled) also revokes every access
+token of that subject (`event: "auth.refresh_token.inactive_credential"`): they stop working on
+every domain at once, not at their expiry.
 
 Two refreshes with the same cookie at the same time count as a reuse: one succeeds, the other
 revokes the family, and the user is logged out. A client must send a single refresh at a time and
@@ -198,6 +203,10 @@ instance of the Auth service; keys hold the SHA-256 of the normalized login, nev
   the password is not checked.
 - A successful login clears the count, but never a lock set meanwhile by concurrent failures:
   only its expiry or `tecton-admin auth unlock` lifts a lock.
+- If Valkey cannot record a failure or clear the count, the login answers **503**, with the right
+  password too. A Valkey that still serves reads but refuses writes (full memory with
+  `noeviction`, a read-only replica after a failover, an ACL) must not answer 200 to the right
+  password and 503 to the wrong ones: that would let anyone guess with no lockout at all.
 - While locked, failures are not counted and never extend the lock.
 - A lock is logged as a security event (`event: "auth.login.locked"`, with the identifier and the
   duration, never a password).
@@ -230,6 +239,7 @@ and the domains it may call.
 Register a service from the workspace, as an administrator with `auth:service:register`:
 
 ```bash
+export TECTON_ENV=development                 # allows the http URL below
 export TECTON_AUTH_URL=http://127.0.0.1:3001   # https outside TECTON_ENV=development
 printf '%s' "$ADMIN_PASSWORD" | tecton-admin auth register-service billing --login admin --permission invoice:write
 ```
@@ -293,6 +303,10 @@ Story 2.5):
 - A refresh token reuse revokes every access token of the subject issued until then. If Valkey
   fails, the refresh is still a 401 and the failure is logged
   (`event: "auth.refresh_token.reuse.revocation_failed"`).
+- Revocations last as long as the longest token this service signs (access or service token, plus
+  the lead of a service credential rotation), whatever the two lifetimes are set to.
+- Unexpected errors are logged by name and code only (`safeErrorLogs`), never their message, which
+  may carry a connection string.
 
 ## JWKS and key rotation
 
@@ -305,8 +319,9 @@ so a new key must be published before it signs. To rotate the signing key:
    the JWKS cache time (5 minutes) so every verifier knows it.
 2. **Sign with it.** Set it as `TECTON_AUTH_SIGNING_KEY`, move the old public key to
    `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS` and clear `TECTON_AUTH_NEXT_PUBLIC_KEYS`. Deploy.
-3. **Retire the old key.** Once the old tokens have expired (the access token lifetime, 15
-   minutes by default) plus the JWKS cache time, remove it from `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS`.
+3. **Retire the old key.** Once the old tokens have expired (the longest of the access and service
+   token lifetimes, 15 minutes by default) plus the JWKS cache time, remove it from
+   `TECTON_AUTH_PREVIOUS_PUBLIC_KEYS`.
 
 No old private key is needed: tokens signed with it are verified with its public key.
 

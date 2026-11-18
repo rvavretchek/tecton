@@ -253,4 +253,13 @@ describe('tecton-admin generate domain — ready-made services (Story 2.2b)', ()
     expect(result.stderr).toContain('ready-made service');
     expect(domains(root)).toEqual([]);
   });
+
+  it.each(['gateway', 'directory'])('refuses "%s", reserved for a ready-made service (Epic 2 integration review)', async (name) => {
+    const root = await workspace();
+    const result = await cli(['generate', 'domain', name], root);
+
+    expect(result.code).toBe(1);
+    expect(result.stderr).toContain(`"${name}" is a ready-made service of the framework`);
+    expect(domains(root)).toEqual([]);
+  });
 });

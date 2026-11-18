@@ -253,7 +253,9 @@ export async function issueServiceToken(
     dependencies.onCorruptCredential?.(error);
     return undefined;
   });
-  if (!current || current.secretHash !== credential.secretHash || current.status !== 'active') throw new InvalidServiceCredentialsError();
+  // The date of the secret, not its hash: a concurrent re-hash after a Pepper rotation changes the
+  // hash and keeps the date; a rotation always moves the date forward.
+  if (!current || current.updatedAt.getTime() !== credential.updatedAt.getTime() || current.status !== 'active') throw new InvalidServiceCredentialsError();
   if (verification.needsRehash) {
     try {
       await services.updateSecretHash(current.domain, await auth.hashPassword(request.secret), current.secretHash);

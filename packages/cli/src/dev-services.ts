@@ -200,7 +200,8 @@ export function databasesSql(database: DevDatabase, domains: readonly string[]):
 }
 
 /** Ready-made services of the framework that own a database in Dev Services, by their app folder. */
-export const BUILT_IN_SERVICES: readonly string[] = ['auth'];
+/** Ready-made services of a workspace (Auth now; the Gateway in Story 3.6, the Directory in Epic 4): never a business domain's name. */
+export const BUILT_IN_SERVICES: readonly string[] = ['auth', 'gateway', 'directory'];
 
 /** Port of apps/auth in development: domains keep the default 3000. */
 export const AUTH_DEV_PORT = 3001;
@@ -224,7 +225,12 @@ export function rootEnvExample(): string {
     '# TECTON_ENV=development allows the http URL below; outside development it must be https.',
     'TECTON_ENV=development',
     `TECTON_JWKS_URL=http://127.0.0.1:${AUTH_DEV_PORT}/auth/.well-known/jwks.json`,
-    '# Base URL of apps/auth for tecton-admin (auth register-service); export it in your shell.',
+    '# Token claims: change them here only, never in apps/auth/.env alone. apps/auth signs with them',
+    '# and every domain checks them; a mismatch makes every protected call a 401.',
+    '# TECTON_AUTH_ISSUER=urn:tecton:auth',
+    '# TECTON_AUTH_AUDIENCE=urn:tecton:api',
+    '# Base URL of apps/auth for tecton-admin (auth register-service). tecton-admin reads the shell',
+    '# environment, not this file: export it with TECTON_ENV, e.g. set -a; . ./.env; set +a',
     `TECTON_AUTH_URL=http://127.0.0.1:${AUTH_DEV_PORT}`,
     '',
   ].join('\n');

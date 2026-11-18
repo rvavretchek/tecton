@@ -63,12 +63,21 @@ export function toTectonError(error: unknown): TectonError {
   return frameworkErrors.internal();
 }
 
+/** Name and code of an error, never its message or stack (they may carry a URL or a query). */
+function safeErrorOf(error: unknown): { type: string; code?: string } {
+  if (!(error instanceof Error)) return { type: typeof error };
+  const code = (error as { code?: unknown }).code;
+  return typeof code === 'string' ? { type: error.name, code } : { type: error.name };
+}
+
 /** Installs the single error serializer (and the 404 handler) on a Fastify instance. */
-export function installErrorSerializer(app: FastifyInstance): void {
+export function installErrorSerializer(app: FastifyInstance, options: { safeErrorLogs?: boolean } = {}): void {
   app.setErrorHandler((error, request, reply) => {
     const tectonError = toTectonError(error);
     // Only unexpected failures are logged with their stack; a TectonError (e.g. 501) is deliberate.
-    if (!(error instanceof TectonError) && tectonError.status >= 500) request.log.error({ err: error }, 'unhandled error');
+    if (!(error instanceof TectonError) && tectonError.status >= 500) {
+      request.log.error({ err: options.safeErrorLogs ? safeErrorOf(error) : error }, 'unhandled error');
+    }
     if (tectonError.headers) reply.headers(tectonError.headers);
     return reply.code(tectonError.status).type('application/json').send(toErrorBody(tectonError));
   });

@@ -132,7 +132,7 @@ FR-31: Epic 6 - Testcontainers para isolamento de teste/CI
 
 ### NFR Coverage Map
 
-NFR-1 (Zero Trust): Stories 2.4, 2.5, 2.6, 2.7, 3.6, 3.9, 3.12 (AD-7)
+NFR-1 (Zero Trust): Stories 2.4, 2.5, 2.6, 2.7a, 2.7b, 3.6, 3.9, 3.12 (AD-7)
 NFR-2 (i18n): Stories 4.6, 4.11, 5.2, 5.3, 5.4 (AD-6, AD-10)
 NFR-3 (OpenTelemetry): Stories 3.3, 3.6, 3.9, 3.10, 3.12
 NFR-4 (Portabilidade de banco): Stories 1.1 (job de matriz), 3.10, 4.1, 6.1, 6.8
@@ -852,6 +852,8 @@ para que um ataque distribuído contra uma única conta não escape do rate limi
 
 > **Risco aceito (auditoria de segurança de 2026-10-06):** como a contagem é por identificador, alguém pode bloquear de propósito a conta de outra pessoa errando a senha dela. É o custo conhecido de bloquear por conta; o `tecton-admin auth unlock` existe para isso. Registrado na documentação de operação.
 
+> **Review de integração do Epic 2 (2026-10-25):** o AC 5 desta story mudou por decisão do Boss: se o Valkey não consegue limpar a contagem depois de um login certo, a resposta é 503, como a de uma senha errada cuja falha não foi contada. Um Valkey que lê mas não escreve (memória cheia com `noeviction`, réplica só leitura, ACL) não pode responder 200 à senha certa e 503 às erradas, o que viraria um oráculo sem bloqueio.
+
 ### Story 2.7: Token de serviço para chamadas entre serviços
 
 Como **dev de um domínio que chama outro domínio**,
@@ -1145,6 +1147,8 @@ para ter um ponto de entrada único sem que ele acumule lógica de negócio (FR-
 > - O roteamento de `/admin` para o Directory entra no Epic 4.
 > - O rate limiting está na Story 3.7.
 
+> **Review de integração do Epic 2 (2026-10-25):** esta story também precisa definir como registrar `service:gateway` no Auth com `call:<domínio>` para cada domínio roteado (emenda do AD-7). O `tecton-admin auth register-service` hoje só lê `apps/domains/<domínio>/tecton.yaml`; as `dependencies` do Gateway vêm da tabela de rotas. Os nomes `gateway` e `directory` já são reservados pelo `generate domain`.
+
 ### Story 3.7: Rate limiting no Gateway com fail-open
 
 Como **operador de um sistema construído com o Tecton**,
@@ -1262,6 +1266,8 @@ para chamar com segurança, com credencial, timeout e retry corretos, sem escrev
 **Quando** ela chega
 **Então** é entregue ao chamador como erro tipado, com o formato provisório deste épico
 
+> **Review de integração do Epic 2 (2026-10-25):** o `POST /auth/service-token` faz um Argon2id por chamada e não tem limite; o `ServiceClient` vai direto ao Auth, sem passar pelo Gateway, então o rate limit da 3.7 não o cobre. Esta story precisa de um critério de aceite: o cliente guarda o token de serviço até perto da expiração, e uma recusa do token de usuário em `Tecton-On-Behalf-Of` não dispara um novo `service-token`. O limite no próprio Auth fica no `deferred-work.md`.
+
 ### Story 3.10: Publicação de eventos assinados via outbox transacional
 
 Como **dev de um domínio que publica eventos**,
@@ -1312,6 +1318,8 @@ para que nunca exista mudança gravada sem o evento correspondente, nem evento p
 **Dado** o registro de chaves de assinatura
 **Quando** ele é feito
 **Então** segue as mesmas regras da Story 2.7: exige administrador, nunca sobrescreve um registro existente sem `--rotate`, e a rotação retira a chave antiga do JWKS
+
+> **Review de integração do Epic 2 (2026-10-25):** esta story ganha dois critérios: (1) o verificador de access token recusa um token assinado por chave de evento de serviço (as chaves de evento entram no mesmo JWKS, AD-7), por exemplo restringindo as chaves de token por `use` ou prefixo de `kid`; (2) o JWKS do Auth deixa de ser fixo na subida, para publicar as chaves de evento registradas.
 
 ### Story 3.11: Relay do outbox para Valkey Streams
 
@@ -1397,6 +1405,8 @@ para que verificação de assinatura, deduplicação, retry e dead-letter sejam 
 **Quando** o consumidor busca o JWKS
 **Então** valem as mesmas regras de transporte da Story 2.4: `https` fora do modo de desenvolvimento e nenhum redirecionamento para outro host
 
+> **Review de integração do Epic 2 (2026-10-25):** esta story ganha um critério: uma action `sensitive.quorum` executada pelo consumo de evento registra o mesmo aviso `sensitive_quorum_unprotected` da rota HTTP (Story 2.8, W3).
+
 ### Story 3.13: `tecton-admin dev`
 
 Como **dev no dia a dia**,
@@ -1443,6 +1453,8 @@ para desenvolver com ciclo curto de feedback (FR-15).
 **Então** todos os serviços param de forma limpa e o Dev Services continua rodando
 
 > **Nota:** movida do Epic 6 no pre-mortem de 2026-10-05, para eliminar o atrito de subir serviços e copiar credenciais à mão nos Epics 3 a 5.
+> **Review de integração do Epic 2 (2026-10-25):** esta story herda: o workspace gerado não tem script `dev` em nenhum pacote, e todo domínio sobe na porta 3000 (o segundo falha com EADDRINUSE); `tecton-admin dev` resolve as portas e a ordem de subida (Auth, migrate, domínios).
+
 
 ## Epic 4: Core de Diretório e Domínios Embutidos
 
@@ -1585,6 +1597,8 @@ para representar a organização na árvore e dar a cada usuário uma credencial
 
 > **Nota de tamanho (pre-mortem de 2026-10-05):** story grande para uma única sessão de agente; candidata a divisão no `bmad-create-story`.
 
+> **Review de integração do Epic 2 (2026-10-25):** decidir no Create Story da 4.3, antes de escrever: (1) a ordem de primeira subida é circular: o `register-service` exige um administrador, que só existe depois do `auth bootstrap`, e a 4.3 pede a credencial do Directory antes do bootstrap (ex.: bootstrap em duas fases, ou o bootstrap criando também `service:directory`); (2) o `create-credential` exige token de serviço `service:directory`, mas o verificador do Auth aceita só usuário, e o bootstrap já dá `auth:credential:create` ao administrador; (3) o `register-service` só acha domínios em `apps/domains/`, e o Directory fica em `apps/directory`; (4) a normalização `ß`/`SS` do login (W4 da 2.2a) e a limpeza das famílias de refresh expiradas (W1 da 2.3).
+
 ### Story 4.4: ACL por herança aditiva e `perms` do token
 
 Como **administrador de um Tenant**,
@@ -1630,6 +1644,8 @@ para gerenciar acesso por estrutura, sem configurar objeto por objeto (FR-7).
 **Quando** ela é gravada
 **Então** os tokens dos usuários afetados são revogados (Story 2.5), para que a perda de acesso valha imediatamente
 **E** a concessão de uma permissão nova vale a partir do próximo login ou refresh
+
+> **Review de integração do Epic 2 (2026-10-25):** o Auth chama o Directory para montar o `perms`, mas `service:auth` é recusado como sujeito de serviço (o Auth nunca tem credencial de serviço, Story 2.7a), e pela emenda do AD-7 o Directory exige token de serviço. Decidir no Create Story (ex.: o Auth se autoemite um token de serviço com a própria chave, ou uma exceção no AD-7 só para o Auth chamando o Directory) e emendar o AD-7.
 
 ### Story 4.5: Eventos publicados pelo Directory
 
@@ -2068,6 +2084,8 @@ para distinguir "está pendente" de "falhou" sem inspecionar o corpo (FR-25).
 
 > **Nota:** com `sensitive.quorum`, a parte coberta aqui é só a pendência. A decisão de quórum depende da implementação real do `KeyCustodyProvider`, que é roadmap; os testes usam um provider falso.
 
+> **Review de integração do Epic 2 (2026-10-25):** desde a 2.8, um `KeyCustodyProvider` configurado impede a subida do serviço (decisão do Boss: o framework nunca finge proteger o que não protege). Esta story tira a recusa, ao menos para o provider falso dos testes, e faz o acesso ao dado devolver `pending` para a rota responder 202; a rota nunca decide sozinha (FR-11). `decisionOf` recebe a operação de novo.
+
 ### Story 5.6: Decisão de `approval`: aprovar ou rejeitar
 
 Como **gestor responsável por aprovar pedidos da minha equipe**,
@@ -2243,6 +2261,8 @@ para nunca ir para produção achando que existe proteção de quórum quando n�
 **Dado** um domínio com o provider configurado
 **Quando** o lint roda
 **Então** não há aviso
+
+> **Review de integração do Epic 2 (2026-10-25):** o provider da 2.8 só existe no código (opção `keyCustody`), e o `tecton-admin lint` é estático: esta story define um sinal declarativo (no manifest ou no ambiente) de provider configurado.
 
 ### Story 6.4: Testcontainers para isolamento de teste e CI
 

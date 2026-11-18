@@ -149,13 +149,17 @@ describe('review fixes (Story 2.6 review)', () => {
     expect(response.headers['retry-after']).toBe('5');
   });
 
-  it('lets a correct password in when clearing the count fails, and logs it (P3)', async () => {
+  it('refuses a correct password with the same 503 when clearing the count fails: no oracle while Valkey refuses writes (Epic 2 integration review)', async () => {
     const { attempt, lockout, logs } = await service();
     await attempt('alice', WRONG);
-    lockout.failOn(['clearFailures']);
+    lockout.failOn(['recordFailure', 'clearFailures']);
 
-    expect((await attempt('alice', PASSWORD)).statusCode).toBe(200);
-    expect(logs()).toContain('auth.login.clear_failures_failed');
+    const wrong = await attempt('alice', WRONG);
+    const right = await attempt('alice', PASSWORD);
+
+    expect(right.statusCode).toBe(503);
+    expect(right.headers['set-cookie']).toBeUndefined();
+    expect({ status: right.statusCode, body: right.body }).toEqual({ status: wrong.statusCode, body: wrong.body });
     assertNoSecretsLeaked(logs(), { password: PASSWORD });
   });
 

@@ -384,6 +384,26 @@ describe('tecton-admin auth register-service (Story 2.7a, AC 1, 3, 5, 6, 9)', ()
     expect(paths.at(-1)).toBe('/auth/logout');
   });
 
+  it.each([
+    ['login', 503, 'the Auth service is unavailable (Valkey or its database); nothing changed, retry in 5 seconds'],
+    ['register-service', 503, 'the Auth service is unavailable (revocation store); nothing changed, retry in 5 seconds'],
+    ['register-service', 401, 'the administrator token was refused (revoked or expired meanwhile); nothing changed'],
+  ])('explains a %s answer %i (Epic 2 integration review)', async (step, status, message) => {
+    const root = workspace({ billing: manifest('billing') });
+    const { io, output } = harness(root, devEnv());
+    const dependencies: AuthRegisterServiceDependencies = {
+      fetch: async (input) => {
+        const path = new URL(String(input)).pathname;
+        if (path === `/auth/${step}`) return new Response('{}', { status, headers: { 'retry-after': '5' } });
+        if (path === '/auth/login') return Response.json({ accessToken: 'a.b.c', tokenType: 'Bearer', expiresIn: 900 });
+        return Response.json({});
+      },
+    };
+
+    expect(await authRegisterServiceCommand('billing', { login: 'admin' }, io, dependencies)).toBe(1);
+    expect(output().stderr).toContain(`auth register-service failed: ${message}`);
+  });
+
   it('warns when the final logout fails, keeping the outcome', async () => {
     const root = workspace({ billing: manifest('billing') });
     const { io, output } = harness(root, devEnv());

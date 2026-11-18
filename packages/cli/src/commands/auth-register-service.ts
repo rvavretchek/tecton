@@ -44,7 +44,7 @@ class CommandError extends Error {
  * because the password would end up in shell history and error messages.
  */
 function authUrlFromEnv(env: NodeJS.ProcessEnv): URL {
-  const raw = env[AUTH_URL_VARIABLE];
+  const raw = env[AUTH_URL_VARIABLE]?.trim();
   if (!raw) throw new CommandError(`${AUTH_URL_VARIABLE} is not set; point it to the Auth service (e.g. http://127.0.0.1:3001 in development)`);
   let url: URL;
   try {
@@ -53,7 +53,7 @@ function authUrlFromEnv(env: NodeJS.ProcessEnv): URL {
     throw new CommandError(`${AUTH_URL_VARIABLE} is not a valid URL`);
   }
   if (url.username !== '' || url.password !== '') throw new CommandError(`${AUTH_URL_VARIABLE} must not contain a user or password`);
-  const development = env['TECTON_ENV'] === 'development';
+  const development = env['TECTON_ENV']?.trim() === 'development';
   if (url.protocol !== 'https:' && !(development && url.protocol === 'http:')) {
     throw new CommandError(`${AUTH_URL_VARIABLE} must use https (http is accepted only with TECTON_ENV=development)`);
   }
@@ -164,6 +164,7 @@ export async function authRegisterServiceCommand(
     const login = await call('auth/login', { login: options.login, password }).catch(unreachable);
     if (login.status === 401) throw new CommandError('login refused: wrong login or password');
     if (login.status === 429) throw new CommandError(`login locked after too many failures; wait or run tecton-admin auth unlock ${options.login}`);
+    if (login.status === 503) throw new CommandError(`the Auth service is unavailable (Valkey or its database); nothing changed, retry in ${login.headers.get('retry-after') ?? 'a few'} seconds`);
     if (login.status !== 200) throw new CommandError(`login failed with status ${login.status}`);
     refreshCookie = refreshCookieOf(login);
     const session = (await jsonOf(login)) as { accessToken?: unknown; expiresIn?: unknown } | undefined;
@@ -191,6 +192,10 @@ export async function authRegisterServiceCommand(
     }
     if (registration.status === 403) throw new CommandError(`"${options.login}" lacks the permission auth:service:register`);
     if (registration.status === 400) throw new CommandError(`registration refused${reasonsOf(await jsonOf(registration))}`);
+    if (registration.status === 401) throw new CommandError('the administrator token was refused (revoked or expired meanwhile); nothing changed');
+    if (registration.status === 503) {
+      throw new CommandError(`the Auth service is unavailable (revocation store); nothing changed, retry in ${registration.headers.get('retry-after') ?? 'a few'} seconds`);
+    }
     if (registration.status !== 200) throw new CommandError(`registration failed with status ${registration.status}`);
     const result = (await jsonOf(registration)) as { secret?: unknown; rotated?: unknown } | undefined;
     if (typeof result?.secret !== 'string') throw new CommandError('registration answered without a secret; it may have been applied, run the command again with --rotate');

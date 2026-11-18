@@ -19,7 +19,7 @@ actions:
     output: { accessToken: string, tokenType: string, expiresIn: integer }
     auth: { public: true }
   - name: logout
-    description: "Revokes the refresh token family of the tecton_refresh cookie and clears the cookie; always answers 200."
+    description: "Revokes the refresh token family of the tecton_refresh cookie and the access token in use, and clears the cookie; answers 200 whatever the token, or 503 when revocation is unavailable."
     input: {}
     output: {}
     auth: { public: true }

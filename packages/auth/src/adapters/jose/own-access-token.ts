@@ -1,12 +1,10 @@
-import { InvalidTokenError, TokenVerificationUnavailableError, type TokenVerifier } from '@tecton/core';
+import { CLOCK_TOLERANCE_SECONDS, InvalidTokenError, isUserSubject, MAX_TOKEN_LENGTH, TokenVerificationUnavailableError, type TokenVerifier } from '@tecton/core';
 import { RevocationStoreUnavailableError, type Clock, type TokenRevocationStore } from '@tecton/providers';
 import { createLocalJWKSet, jwtVerify } from 'jose';
 import { DEFAULT_AUDIENCE, DEFAULT_ISSUER } from './access-token-issuer.js';
 import type { SigningKeys } from './signing-keys.js';
 
-/** Same tolerance as the verifier of the services (Story 2.4). */
-const CLOCK_TOLERANCE_SECONDS = 30;
-const BEARER = /^Bearer ([A-Za-z0-9_.-]{1,8192})$/i;
+const BEARER = new RegExp(`^Bearer ([A-Za-z0-9_.-]{1,${MAX_TOKEN_LENGTH}})$`, 'i');
 
 export interface OwnAccessToken {
   tokenId: string;
@@ -34,7 +32,7 @@ export function createOwnAccessTokenReader({ keys, clock, issuer = DEFAULT_ISSUE
     const token = typeof authorization === 'string' ? BEARER.exec(authorization)?.[1] : undefined;
     if (!token) return undefined;
     try {
-      const { payload } = await jwtVerify(token, jwks, {
+      const { payload, protectedHeader } = await jwtVerify(token, jwks, {
         algorithms: ['EdDSA'],
         issuer,
         audience,
@@ -46,6 +44,8 @@ export function createOwnAccessTokenReader({ keys, clock, issuer = DEFAULT_ISSUE
       const { jti, sub, exp, iat, perms } = payload;
       // User tokens only: a service token is never an administrator nor a logout target (AC 8).
       if (payload['typ'] !== 'user' || typeof jti !== 'string' || typeof sub !== 'string' || typeof exp !== 'number' || typeof iat !== 'number') return undefined;
+      // Same rules as the domain verifier: a kid in the header, a subject that is a user's.
+      if (typeof protectedHeader.kid !== 'string' || protectedHeader.kid === '' || !isUserSubject(sub)) return undefined;
       if (!Array.isArray(perms) || !perms.every((perm) => typeof perm === 'string')) return undefined;
       if (iat > clock.now().getTime() / 1000 + CLOCK_TOLERANCE_SECONDS) return undefined;
       return { tokenId: jti, subject: sub, expiresAt: new Date(exp * 1000), issuedAt: new Date(iat * 1000), permissions: [...perms] };

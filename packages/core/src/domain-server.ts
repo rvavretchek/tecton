@@ -4,7 +4,7 @@ import { parseManifest, type TectonManifest } from '@tecton/manifest';
 import { tokenVerifierFromEnv, type TokenVerifier } from './auth/token-verifier.js';
 import type { KeyCustodyProvider } from '@tecton/providers';
 import { isPublicAction, KEY_CUSTODY_NOT_SUPPORTED, registerActionRoutes, type ActionHandlers } from './routes.js';
-import { createTectonServer, type TectonServerOptions } from './server.js';
+import { createTectonServer, LOG_REDACTION, type TectonServerOptions } from './server.js';
 
 export interface DomainServerOptions extends TectonServerOptions {
   /** Path to the domain's tecton.yaml. */
@@ -56,7 +56,10 @@ export async function startDomainServer(options: DomainServerOptions): Promise<F
   // Before the verifier: a refused start opens no Valkey connection.
   if (options.keyCustody != null) throw new Error(KEY_CUSTODY_NOT_SUPPORTED);
   const needsVerifier = manifest.actions.some((action) => !isPublicAction(action));
-  const app = createTectonServer(options.logger === undefined ? {} : { logger: options.logger });
+  // The redaction list of every service, unless the caller set its own.
+  const logger =
+    options.logger === true ? { redact: LOG_REDACTION } : typeof options.logger === 'object' && options.logger !== null && !('redact' in options.logger) ? { ...options.logger, redact: LOG_REDACTION } : options.logger;
+  const app = createTectonServer(logger === undefined ? {} : { logger });
   try {
     // A verifier built here (from the environment) belongs to this server: it closes with it.
     // Its revocation store reports connection problems in the service log, without the URL.

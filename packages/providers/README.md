@@ -129,3 +129,20 @@ interface KeyCustodyProvider {
   HTTP route is logged as unprotected (`@tecton/core`). **With one**, a service refuses to start for now: no layer of the
   framework asks the provider yet, and it never pretends to protect what it does not.
 
+## Valkey adapters: token revocation and login lockout
+
+One Valkey client per service (`valkeyClientFromEnv`), shared by the adapters that need it, with
+fail-closed options: a time limit on every command, no offline queue, no retry per command.
+
+| Export | What it does |
+|---|---|
+| `valkeyClientFromEnv(env)`, `waitForValkeyReady(client, ms)`, `closeValkeyClient(client)` | the client from `TECTON_VALKEY_URL` (`redis://` or `rediss://`, required) and `TECTON_VALKEY_TIMEOUT_MS` (50-5000, default 500; `TECTON_REVOCATION_TIMEOUT_MS` is still read) |
+| `createValkeyTokenRevocationStore({ client, shared, maxTokenLifetimeSeconds })` | `TokenRevocationStore`: revokes by token id and by subject; a revocation lasts the longest token lifetime plus 60 s |
+| `createValkeyLoginLockout({ client, shared, ...lockoutPolicyFromEnv(env) })` | `LoginLockout`: failures per identifier (`TECTON_AUTH_LOCKOUT_MAX_FAILURES`, `_WINDOW_SECONDS`, `_DURATION_SECONDS`) |
+
+When Valkey cannot answer, the adapters throw `RevocationStoreUnavailableError` or
+`LoginLockoutUnavailableError`, which the services turn into 503: never "not revoked", never "not
+locked". Keep the Valkey of revocations on `maxmemory-policy noeviction`, so a revocation is never
+evicted. How the Auth service and the domain services use them is in the READMEs of
+`@tecton/auth` and `@tecton/core`.
+
